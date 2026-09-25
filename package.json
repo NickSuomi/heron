@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "tsc -p tsconfig.build.json",
-    "check": "pnpm typecheck && pnpm test"
+    "check": "pnpm typecheck && pnpm test",
+    "gen-env-table": "node scripts/gen-env-table.ts"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.115",
