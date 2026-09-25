@@ -139,9 +139,10 @@ const ADDRESSABLE = /^[A-Za-z0-9_-]+$/
 
 /**
  * `-c` merges into the operator's config.toml instead of replacing `mcp_servers`, and Codex has no flag to skip that
- * file, so every server it defines is listed first and switched off by name.
+ * file, so every server it defines is listed first and switched off by name. A server already named like Heron's would
+ * merge with it, so that name is refused.
  */
-const operatorServers = (spec: { readonly command: string; readonly env: Record<string, string>; readonly cwd: string }, keep: string | null) =>
+const operatorServers = (spec: { readonly command: string; readonly env: Record<string, string>; readonly cwd: string }) =>
   Effect.gen(function*() {
     const out = yield* runProcess({ ...spec, args: ["mcp", "list", "--json"], stdin: "" })
     let listed: unknown
@@ -153,7 +154,13 @@ const operatorServers = (spec: { readonly command: string; readonly env: Record<
     if (out.code !== 0 || !Array.isArray(listed)) {
       return yield* new HarnessError({ kind: "vendor", detail: `codex mcp list failed (exit ${out.code})` })
     }
-    const names = listed.filter(isRecord).map((s) => String(s["name"])).filter((name) => name !== keep)
+    const names = listed.filter(isRecord).map((s) => String(s["name"]))
+    if (names.includes(MCP_SERVER_NAME)) {
+      return yield* new HarnessError({
+        kind: "vendor",
+        detail: `the Codex config defines an MCP server named ${JSON.stringify(MCP_SERVER_NAME)}, which Heron reserves for its source tools; rename it in the Codex config`
+      })
+    }
     const bad = names.find((name) => !ADDRESSABLE.test(name))
     if (bad !== undefined) {
       return yield* new HarnessError({
@@ -175,7 +182,7 @@ export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) 
     })
     const server = request.source === null ? null : mcpSourceCommand(options.mcp, request.source)
     const env = childEnv(options.env, ALLOWED)
-    const disabled = yield* operatorServers({ command: options.command, env, cwd }, server === null ? null : MCP_SERVER_NAME)
+    const disabled = yield* operatorServers({ command: options.command, env, cwd })
     const run = yield* runJsonLines(
       { command: options.command, args: codexArgs(request, { schema, cwd }, server, disabled), env, cwd, stdin: `${request.instructions}\n\n${request.prompt}` }
     )

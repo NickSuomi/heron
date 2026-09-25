@@ -73,8 +73,17 @@ codex exec --json --output-schema <file> -m <model>
   -c project_doc_max_bytes=0
   -c mcp_servers.heron.command=... -c mcp_servers.heron.args=[...]
   -c mcp_servers.heron.required=true
-  -c mcp_servers.heron.enabled_tools=["grep","list_files","read_file"] -
+  -c mcp_servers.heron.enabled_tools=["grep","list_files","read_file"]
+  -c mcp_servers.<name>.enabled=false ...  -
 ```
+
+The `mcp_servers.heron.*` settings are left out for the judge session, which gets no tools.
+
+A `-c` setting merges into the operator's Codex `config.toml` instead of replacing it, and Codex has no flag to skip that file. So before each session Heron runs `codex mcp list --json` with the same environment and adds `-c mcp_servers.<name>.enabled=false` for every MCP server the list names. Heron refuses to start the session, and the review is BLOCKED, when:
+
+- a server name contains a character other than a letter, a digit, `-`, or `_`, because Codex splits the `-c` key on every dot and the server could not be addressed;
+- a server is named `heron`, because its settings would merge with Heron's own tool server;
+- `codex mcp list --json` exits with an error or does not print a JSON array.
 
 The prompt arrives on standard input. If Codex reports a shell command, a file change, a web search, or a call to another MCP server, Heron fails the session. The flags were checked against codex-cli 0.101.0.
 

@@ -128,7 +128,10 @@ export const finding = (gate: string, severity: "blocker" | "advisory", title = 
 })
 
 /** Answers by session id; a thrown HarnessError becomes the session's failure. */
-export const fakeHarness = (answers: Readonly<Record<string, Script>>, options: { delay?: number; onRun?: (r: HarnessRequest) => void } = {}) => {
+export const fakeHarness = (
+  answers: Readonly<Record<string, Script>>,
+  options: { delay?: number; slow?: Readonly<Record<string, number>>; onRun?: (r: HarnessRequest) => void } = {}
+) => {
   const seen: Array<HarnessRequest> = []
   const inFlight = new Map<string, number>()
   const peak = new Map<string, number>()
@@ -140,7 +143,8 @@ export const fakeHarness = (answers: Readonly<Record<string, Script>>, options: 
         const key = request.slot.profile.harness
         inFlight.set(key, (inFlight.get(key) ?? 0) + 1)
         peak.set(key, Math.max(peak.get(key) ?? 0, inFlight.get(key)!))
-        if (options.delay !== undefined) yield* Effect.sleep(options.delay)
+        const delay = options.slow?.[request.slot.id] ?? options.delay
+        if (delay !== undefined) yield* Effect.sleep(delay)
         inFlight.set(key, inFlight.get(key)! - 1)
         const answer = answers[request.slot.id]
         if (answer === undefined) return yield* new HarnessError({ kind: "vendor", detail: `no scripted answer for ${request.slot.id}` })

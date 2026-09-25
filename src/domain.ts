@@ -189,7 +189,7 @@ export interface SessionRecord {
   /** Null when the session failed before reporting any. */
   readonly toolCalls: number | null
   readonly durationMs: number
-  /** Why the session failed (a harness error kind, or `invalid-output`); null when it succeeded. */
+  /** Why the session failed (a harness error kind, `invalid-output`, or `interrupted` when a sibling's failure stopped it); null when it succeeded. */
   readonly failure: string | null
 }
 

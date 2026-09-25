@@ -38,7 +38,7 @@ The model reads code only through three tools: `grep`, `list_files`, and `read_f
 - Output is capped: 500 lines for `grep`, 5000 paths for `list_files`, and 2000 lines or 60,000 characters per `read_file` call. `read_file` refuses files larger than about 8 MiB and binary files.
 - Tool errors never include the temporary directory path.
 
-Each CLI backend is started so that these tools are the only tools the model has. `claude-cli` turns off every built-in tool. `codex-cli` runs in Codex's read-only sandbox with shell, web search, and image viewing turned off. If the event stream shows any other tool call, the session fails and the review is BLOCKED. The judge session in a `dual` lane gets no tools at all.
+Each CLI backend is started so that these tools are the only tools the model has. `claude-cli` turns off every built-in tool. `codex-cli` runs in Codex's read-only sandbox with shell, web search, and image viewing turned off. Codex also loads the MCP servers from the operator's `config.toml`, so Heron lists them with `codex mcp list --json` and turns each one off with `-c mcp_servers.<name>.enabled=false`. It refuses to run the session if a server name has a character other than a letter, a digit, `-`, or `_`, or if a server is already named `heron`. See [Backends](backends.md#codex-cli). If the event stream shows any other tool call, the session fails and the review is BLOCKED. The judge session in a `dual` lane gets no tools at all.
 
 These flags rely on the vendor CLI doing what its documentation says. Heron checks the event stream after the fact. It cannot stop a vendor CLI that ignores its own flags.
 
@@ -55,7 +55,11 @@ To limit the damage:
 ## Limits of the threat model
 
 - **Untrusted content reaches the model.** The merge request title, description, diff, and source are text the author controls. An author can write text that tries to steer the model toward PASS or to hide a defect. Heron limits what the model can do, not what it concludes. Treat a PASS as one reviewer's opinion, not as a security approval.
-- **Model text is posted as Markdown.** Summaries and finding text appear in the report note as the model wrote them, including any links.
+- **Model text is posted as Markdown, with escapes.** Summaries, finding text, limitations and vendor error text are posted as Markdown after these changes:
+  - On every line, including lines in code, a `/` that follows only spaces or list and quote markers gets a backslash, so GitLab cannot run the line as a quick action.
+  - Outside code, `<` becomes `&lt;`, so no HTML tag or comment can open. A line that starts with `#`, or that is only `=` or `-` characters, gets a backslash, so the model cannot add a heading that looks like part of the report. After a space, the start of a line or punctuation such as `(`, a reference or mention character (`@ # ! ~ % & $`) that is followed by a letter, digit, `_`, `"` or `[` gets an invisible word joiner (U+2060). The mention, reference or image then does not work, and nobody is notified. Text inside words and URLs, such as `a@b.com` or `a.ts#L12`, is not changed.
+  - Inline code spans and fenced code blocks are left as written, apart from the `/` rule. A code span must open and close on one line. If the model leaves a fence open, Heron closes it at the end of that text.
+  - Links and bare URLs stay, so the note can link to any site the model names.
 - **Source goes to the vendor.** The diff and any file the model reads are sent to the model vendor of the backend you chose, under that vendor's data terms.
 - **The admission filter is only as strong as the trigger.** `allowedTriggerUserIds` checks the user id from `--triggered-by` or `GITLAB_USER_ID`. Anyone who can run `heron` with the token directly can pass any id.
 - **Codex credentials need one writer.** Two jobs that share one `CODEX_HOME` can overwrite each other's refreshed tokens. See [Backends](backends.md#codex-codex-cli).

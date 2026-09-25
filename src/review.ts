@@ -90,6 +90,7 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
         timeout: Duration.seconds(config.limits.sessionTimeoutSeconds)
       }).pipe(
         Effect.tapError((e) => record(null, e.kind)),
+        Effect.onInterrupt(() => record(null, "interrupted")),
         Effect.mapError((e) => new SessionFailed({ session: slot.id, reason: e.message }))
       )
       return yield* Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(result.output).pipe(

@@ -24,17 +24,63 @@ export const parseMarker = (body: string): Marker | null => {
   return verdict === undefined || !isSha(head) ? null : { iid: Number(iid), head, configDigest: configDigest!, verdict }
 }
 
-/**
- * Model- and vendor-written text made inert inside a GitLab note. GitLab runs a line that starts with `/` as a quick
- * action under the bot's identity, so a `/` after nothing but indentation, list or quote markers gets a backslash
- * (Markdown renders `\/` as `/`). `<` becomes `&lt;` so no HTML tag or comment can open, even after a backslash the
- * model wrote. `@` gets a word joiner (U+2060), which renders as nothing but breaks the mention and notification
- * pattern on every GitLab version, unlike a backslash escape. Cost: these escapes show literally inside code the model
- * formats.
+/*
+ * Model- and vendor-written text made inert inside a GitLab note, modelled as CommonMark sees it: fenced blocks, and
+ * lines of prose with inline code spans in them. Code is left as written so URLs, generics and shell variables survive.
+ *
+ * Every line, code included, loses a leading `/`: GitLab runs a line that starts with `/` as a quick action under the
+ * bot's identity, and its extractor may disagree with this fence parsing, so safety wins over a visible backslash.
+ * Prose also gets `<` as `&lt;` (no HTML tag or comment can open), a backslash before a heading (`#`, or a setext
+ * `===` / `---` underline) so the model cannot fake report sections, and a word joiner (U+2060) after a reference or
+ * mention sigil where GitLab would parse one: after a boundary, before a word character, `"` or `[`. The joiner renders
+ * as nothing but breaks the pattern on every GitLab version, unlike a backslash escape. Sigils inside words and URLs
+ * stay. Where this model and GitLab could disagree, the parse errs towards prose: code spans never cross lines and a
+ * backslash-escaped backtick run never opens one.
  */
-/** GitLab turns `#12`, `!3`, `~label`, `%milestone`, `&epic`, `$snippet` and `![...]` into references or image loads. */
-const inert = (s: string): string =>
-  s.replace(/\r\n?/g, "\n").replace(/([#!~%&$])(?=[\w"[])/g, "$1\u2060").replace(/</g, "&lt;").replace(/@/g, "@\u2060").replace(/^([\s>*+\-\d.)]*)\//gm, "$1\\/")
+const sigil = /(?<![\p{L}\p{N}_/.:?=&%#+~-])([@#!~%&$])(?=[\p{L}\p{N}_"[])/gu
+const prose = (s: string): string => s.replace(sigil, "$1\u2060").replace(/</g, "&lt;")
+const noQuickAction = (line: string): string => line.replace(/^([\s>*+\-\d.)]*)\//, "$1\\/")
+const noHeading = (line: string): string => line.replace(/^( *)(#|=+[ \t]*$|-+[ \t]*$)/, "$1\\$2")
+
+/** One line outside fences: code spans (a backtick run closed by the next run of the same length) kept, the rest prose. */
+const proseLine = (line: string): string => {
+  const parts: Array<string> = []
+  const runs = /`+/g
+  let from = 0
+  for (let run = runs.exec(line); run !== null; run = runs.exec(line)) {
+    if (/(^|[^\\])(\\\\)*\\$/.test(line.slice(from, run.index))) continue
+    const closer = new RegExp(`(?<!\`)\`{${run[0].length}}(?!\`)`, "g")
+    closer.lastIndex = run.index + run[0].length
+    const close = closer.exec(line)
+    if (close === null) continue
+    parts.push(prose(line.slice(from, run.index)), line.slice(run.index, closer.lastIndex))
+    from = runs.lastIndex = closer.lastIndex
+  }
+  return noQuickAction(noHeading(parts.join("") + prose(line.slice(from))))
+}
+
+const fenceOpen = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/
+const closesFence = (fence: string, line: string): boolean =>
+  new RegExp(`^ {0,3}${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`).test(line)
+
+/** Text that renders where a block starts; a fence it leaves open is closed so it cannot swallow the rest of the note. */
+const inertBlock = (s: string): string => {
+  const out: Array<string> = []
+  let fence: string | null = null
+  for (const line of s.replace(/\r\n?/g, "\n").split("\n")) {
+    if (fence === null) {
+      fence = fenceOpen.exec(line)?.[1] ?? null
+      out.push(fence === null ? proseLine(line) : noQuickAction(line))
+    } else {
+      if (closesFence(fence, line)) fence = null
+      out.push(noQuickAction(line))
+    }
+  }
+  return (fence === null ? out : [...out, fence]).join("\n")
+}
+
+/** Text that renders mid-line, where no block can start: one prose line. */
+const inertInline = (s: string): string => proseLine(s.replace(/[\r\n]+/g, " "))
 
 /** A code span whose fence is longer than any backtick run inside it. */
 const code = (s: string): string => {
@@ -44,7 +90,7 @@ const code = (s: string): string => {
   return `${fence}${pad}${text}${pad}${fence}`
 }
 
-const cell = (s: string) => inert(s).replace(/\|/g, "\\|").replace(/\n/g, " ")
+const cell = (s: string) => inertInline(s).replace(/\|/g, "\\|")
 const short = (sha: string) => sha.slice(0, 8)
 
 const location = (review: Review, f: Finding): string => {
@@ -56,7 +102,7 @@ const location = (review: Review, f: Finding): string => {
 }
 
 const findingLine = (review: Review, f: Finding): string =>
-  `- **${f.severity === "blocker" ? "Blocker" : "Advisory"}** \`${f.gate}\` ${inert(f.title)}${location(review, f)}\n\n  ${inert(f.body).replace(/\n/g, "\n  ")}`
+  `- **${f.severity === "blocker" ? "Blocker" : "Advisory"}** \`${f.gate}\` ${inertInline(f.title)}${location(review, f)}\n\n  ${inertBlock(f.body).replace(/\n/g, "\n  ")}`
 
 const num = (n: number | null) => n === null ? "n/a" : String(n)
 
@@ -77,16 +123,16 @@ export const renderReport = (review: Review): string => {
     lines.push("", `The source branch moved to \`${short(review.liveHead)}\` during the review. These results describe \`${short(head)}\` only.`)
   }
   if (outcome.kind === "incomplete") {
-    lines.push("", `The review could not finish: session \`${outcome.session}\` failed. ${inert(outcome.reason)}`)
+    lines.push("", `The review could not finish: session \`${outcome.session}\` failed. ${inertInline(outcome.reason)}`)
   } else {
-    lines.push("", inert(outcome.summary))
+    lines.push("", inertBlock(outcome.summary))
     const blockers = outcome.findings.filter((f) => f.severity === "blocker")
     const advisories = outcome.findings.filter((f) => f.severity === "advisory")
     if (outcome.findings.length > 0) {
       lines.push("", "### Findings", "", ...[...blockers, ...advisories].map((f) => findingLine(review, f)))
     }
     if (outcome.limitations.length > 0) {
-      lines.push("", "### Not checked", "", ...outcome.limitations.map((l) => `- ${inert(l)}`))
+      lines.push("", "### Not checked", "", ...outcome.limitations.map((l) => `- ${inertBlock(l).replace(/\n/g, "\n  ")}`))
     }
   }
   const matched = review.classification.matched

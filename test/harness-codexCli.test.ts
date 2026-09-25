@@ -92,7 +92,7 @@ describe("codex-cli harness", () => {
       const servers = (argv: ReadonlyArray<string>) => Object.entries(overrides(argv)).filter(([k]) => k.endsWith(".enabled"))
       expect([servers(reviewer.captured().argv), servers(judge.captured().argv)]).toEqual([
         [["mcp_servers.docs.enabled", "false"], ["mcp_servers.shell.enabled", "false"]],
-        [["mcp_servers.heron.enabled", "false"], ["mcp_servers.docs.enabled", "false"], ["mcp_servers.shell.enabled", "false"]]
+        [["mcp_servers.docs.enabled", "false"], ["mcp_servers.shell.enabled", "false"]]
       ])
     }))
 
@@ -103,5 +103,16 @@ describe("codex-cli harness", () => {
         "vendor",
         "the Codex config defines MCP server \"team.docs\", which cannot be disabled from the command line; use only letters, digits, - and _ in its name"
       ])
+    }))
+
+  it.effect("refuses to run when the operator's Codex config already defines a server named heron", () =>
+    Effect.gen(function*() {
+      const reviewer = yield* Effect.flip(run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list-heron.synthetic.json" }).effect)
+      const judge = yield* Effect.flip(run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list-heron.synthetic.json", source: false }).effect)
+      const expected = [
+        "vendor",
+        "the Codex config defines an MCP server named \"heron\", which Heron reserves for its source tools; rename it in the Codex config"
+      ]
+      expect([[reviewer.kind, reviewer.detail], [judge.kind, judge.detail]]).toEqual([expected, expected])
     }))
 })

@@ -344,12 +344,22 @@ describe("GitLab forge checkout", () => {
       mkdirSync(bin, { recursive: true })
       writeFileSync(join(bin, "git"), `#!/bin/sh\n"${process.execPath}" -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' "${seen}"\nexec "${realGit}" "$@"\n`)
       chmodSync(join(bin, "git"), 0o755)
-      const path = process.env["PATH"]
-      process.env["PATH"] = `${bin}:${path}`
-      process.env["HERON_TEST_SECRET"] = "must-not-leak"
+      const ambient = [
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+        "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"
+      ]
+      const pinned: Record<string, string | undefined> = {
+        ...Object.fromEntries(ambient.map((name) => [name, undefined])),
+        PATH: `${bin}:${process.env["PATH"]}`,
+        NO_PROXY: "127.0.0.1,localhost",
+        HERON_TEST_SECRET: "must-not-leak"
+      }
+      const saved = Object.fromEntries(Object.keys(pinned).map((name) => [name, process.env[name]]))
+      const apply = (vars: Record<string, string | undefined>) =>
+        Object.entries(vars).forEach(([name, value]) => value === undefined ? delete process.env[name] : (process.env[name] = value))
+      apply(pinned)
       const restore = Effect.sync(() => {
-        process.env["PATH"] = path
-        delete process.env["HERON_TEST_SECRET"]
+        apply(saved)
         rmSync(bin, { recursive: true, force: true })
       })
       const env = yield* withForge(fakeGitLab([{ body: project }]), (forge) => Effect.scoped(forge.checkout(ref, head))).pipe(
@@ -357,11 +367,12 @@ describe("GitLab forge checkout", () => {
         Effect.ensuring(restore)
       )
       const keys = Object.keys(env).filter((k) => !["PWD", "OLDPWD", "SHLVL", "_"].includes(k)).sort()
-      expect([keys, env["HOME"], env["GIT_CONFIG_GLOBAL"], env["GIT_CONFIG_NOSYSTEM"]]).toEqual([
+      expect([keys, env["NO_PROXY"], env["HOME"], env["GIT_CONFIG_GLOBAL"], env["GIT_CONFIG_NOSYSTEM"]]).toEqual([
         [
           "GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_KEY_0", "GIT_CONFIG_KEY_1", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_VALUE_0",
-          "GIT_CONFIG_VALUE_1", "GIT_TERMINAL_PROMPT", "HOME", "PATH"
+          "GIT_CONFIG_VALUE_1", "GIT_TERMINAL_PROMPT", "HOME", "NO_PROXY", "PATH"
         ],
+        "127.0.0.1,localhost",
         "/nonexistent",
         "/dev/null",
         "1"
