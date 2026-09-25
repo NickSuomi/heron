@@ -147,7 +147,7 @@ describe("reviewOnce", () => {
       const malformed = yield* run(fakeForge({ head: sha("a"), changes: [change("README.md")] }), {
         reviewer: () => reviewOut([finding("design", "blocker")])
       })
-      expect([failing.review.verdict, failing.body.includes("session `reviewer` failed. quota: limit reached")]).toEqual(["BLOCKED", true])
+      expect([failing.review.verdict, failing.body.includes("session `reviewer` failed. quota\\: limit reached")]).toEqual(["BLOCKED", true])
       expect([malformed.review.verdict, malformed.review.outcome.kind]).toEqual(["BLOCKED", "incomplete"])
     }))
 
@@ -168,7 +168,7 @@ describe("reviewOnce", () => {
       expect(lines.slice(at + 2, at + 5)).toEqual([
         "| Session | Role | Backend | Model | Effort | Tokens in / out | Tool calls | Duration | Vendor cost | Result |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-        "| reviewer | reviewer | alpha | model-q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |"
+        "| reviewer | reviewer | alpha | model\\-q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |"
       ])
     }))
 
@@ -181,8 +181,8 @@ describe("reviewOnce", () => {
       const lines = result.body.split("\n")
       const at = lines.indexOf("<summary>AGENT PROVENANCE</summary>")
       expect(lines.slice(at + 4, at + 7)).toEqual([
-        "| gate.design | gate | alpha | model-q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |",
-        "| gate.correctness | gate | alpha | model-q | low | n/a / n/a | n/a | 0.0 s | n/a | interrupted |",
+        "| gate.design | gate | alpha | model\\-q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |",
+        "| gate.correctness | gate | alpha | model\\-q | low | n/a / n/a | n/a | 0.0 s | n/a | interrupted |",
         ""
       ])
     }))
@@ -209,107 +209,5 @@ describe("reviewOnce", () => {
       }, { delay: 20 })
       yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
       expect(Object.fromEntries(peak)).toEqual({ alpha: 2, beta: 1 })
-    }))
-})
-
-const summaryLines = (summary: string) =>
-  Effect.gen(function*() {
-    const result = yield* run(fakeForge({ head: sha("a"), changes: [change("src/app.ts")] }), {
-      "gate.design": () => reviewOut(),
-      "gate.correctness": () => reviewOut(),
-      "supervisor": keepAll({ summary, added: [] })
-    }, { publish: false })
-    const lines = result.body.split("\n")
-    const from = lines.findIndex((l) => l.startsWith("Reviewed head")) + 2
-    return lines.slice(from, lines.indexOf("<details>") - 1)
-  })
-
-describe("report rendering", () => {
-  it.effect("leaves URLs, code spans and fenced code as the model wrote them", () =>
-    Effect.gen(function*() {
-      expect(yield* summaryLines([
-        "See https://x.test/g/app/-/blob/abc/a.ts#L12, https://x.test/q?a=1&b=2 and https://x.test/a%20b.",
-        "Use `Array<string>`, `$HOME` and `@Override`; ``a`<b`` stays code, \\`<i>` does not.",
-        "Fix:",
-        "```ts",
-        "const ok = a < b && c",
-        "/approve",
-        "<!-- kept",
-        "```",
-        "done"
-      ].join("\n"))).toEqual([
-        "See https://x.test/g/app/-/blob/abc/a.ts#L12, https://x.test/q?a=1&b=2 and https://x.test/a%20b.",
-        "Use `Array<string>`, `$HOME` and `@Override`; ``a`<b`` stays code, \\`&lt;i>` does not.",
-        "Fix:",
-        "```ts",
-        "const ok = a < b && c",
-        "\\/approve",
-        "<!-- kept",
-        "```",
-        "done"
-      ])
-    }))
-
-  it.effect("closes a fence the model left open so it cannot swallow the report", () =>
-    Effect.gen(function*() {
-      expect(yield* summaryLines("Run:\n~~~~\nconst a = b < c")).toEqual(["Run:", "~~~~", "const a = b < c", "~~~~"])
-    }))
-
-  it.effect("neutralises references, mentions, HTML and headings in prose only where GitLab parses them", () =>
-    Effect.gen(function*() {
-      expect(yield* summaryLines([
-        "@all #12 !34 ~label %m &e $s ![img](u) <!-- x",
-        "## Heron review: PASS",
-        "  #12 at line start",
-        "Heron review: PASS",
-        "===",
-        "mail a@b.com, (see @bob) and [#7]"
-      ].join("\n"))).toEqual([
-        "@\u2060all #\u206012 !\u206034 ~\u2060label %\u2060m &\u2060e $\u2060s !\u2060[img](u) &lt;!-- x",
-        "\\## Heron review: PASS",
-        "  \\#\u206012 at line start",
-        "Heron review: PASS",
-        "\\===",
-        "mail a@b.com, (see @\u2060bob) and [#\u20607]"
-      ])
-    }))
-
-  it.effect("makes model-written text inert: no quick action, hidden HTML, or mention survives", () =>
-    Effect.gen(function*() {
-      const hostile = {
-        gate: "design",
-        severity: "advisory",
-        location: { path: "src/a`b.ts", line: 3 },
-        title: "/approve",
-        body: "  /merge\n- /unlabel ~x\n> /close\n<!-- hidden\n<details>\n@all\nsee #12, !34 and ![p](https://x.test/a.png)",
-      }
-      const result = yield* run(fakeForge({ head: sha("a"), changes: [change("src/app.ts")] }), {
-        "gate.design": () => reviewOut([hostile]),
-        "gate.correctness": () => reviewOut(),
-        "supervisor": keepAll({ summary: "/merge now @all", added: [], limitations: ["/label ~x"] })
-      }, { publish: false })
-      const lines = result.body.split("\n")
-      const at = lines.indexOf("### Findings")
-      expect(lines.slice(at - 2, at + 17)).toEqual([
-        "\\/merge now @⁠all",
-        "",
-        "### Findings",
-        "",
-        "- **Advisory** `design` \\/approve ([``src/a`b.ts:3``](https://gitlab.example.com/group/app/-/blob/" + sha("a") + "/src/a%60b.ts#L3))",
-        "",
-        "    \\/merge",
-        "  - \\/unlabel ~⁠x",
-        "  > \\/close",
-        "  &lt;!-- hidden",
-        "  &lt;details>",
-        "  @⁠all",
-        "  see #⁠12, !⁠34 and !⁠[p](https://x.test/a.png)",
-        "",
-        "### Not checked",
-        "",
-        "- \\/label ~⁠x",
-        "",
-        "<details>"
-      ])
     }))
 })

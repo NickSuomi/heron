@@ -73,10 +73,11 @@ heron-review:
   variables:
     GIT_STRATEGY: none
     HERON_REF: "<commit>"
+    CLAUDE_CODE_VERSION: "2.1.274"
     HERON_GITLAB_URL: $CI_SERVER_URL
     HERON_PROJECT: $CI_PROJECT_ID
   script:
-    - npm install --global pnpm@11.1.3 @anthropic-ai/claude-code
+    - npm install --global pnpm@11.1.3 "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
     - git clone --quiet https://github.com/NickSuomi/heron.git /tmp/heron
     - git -C /tmp/heron checkout --quiet "$HERON_REF"
     - cd /tmp/heron
@@ -88,6 +89,7 @@ Notes on the job:
 
 - `GIT_STRATEGY: none` skips the project checkout. Heron fetches the reviewed commit itself with the bot token.
 - Heron is not published to npm yet, so the job runs it from a pinned source checkout. Node 24 runs the TypeScript sources directly.
+- `CLAUDE_CODE_VERSION` pins the vendor CLI to an exact release, so a new release cannot change what runs with the bot token until you raise the version. 2.1.274 was the `stable` tag on 2026-09-25.
 - `allow_failure: true` keeps a refused or failed review from failing the pipeline.
 - `heron review` exits with a non-zero code when it cannot run: bad config, refused admission, a GitLab error, or an incomplete diff. A BLOCKED or CHANGES REQUESTED verdict is a normal result and exits with code 0.
 - To check the setup without posting anything, add `--dry-run`. Heron prints the report and leaves labels alone.

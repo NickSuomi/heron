@@ -1,8 +1,17 @@
 {
   "name": "heron-review",
+  "private": true,
   "version": "0.0.0",
   "description": "Self-hosted code-review bot for GitLab merge requests",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NickSuomi/heron.git"
+  },
+  "homepage": "https://github.com/NickSuomi/heron#readme",
+  "bugs": {
+    "url": "https://github.com/NickSuomi/heron/issues"
+  },
   "type": "module",
   "bin": {
     "heron": "dist/cli.js"
@@ -33,6 +42,7 @@
   "devDependencies": {
     "@effect/vitest": "4.0.0-rc.115",
     "@types/node": "24.13.5",
+    "markdown-it": "15.0.2",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
   }

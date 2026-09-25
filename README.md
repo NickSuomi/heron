@@ -73,9 +73,9 @@ It prints the effective config, then the lanes, the credential variables and whe
 ```text
 lanes: light (single, 1 gates), standard (gated, 3 gates), critical (dual, 3 gates); default standard
 GITLAB_TOKEN: missing
-CLAUDE_CODE_OAUTH_TOKEN: missing
-CODEX_HOME: missing
-OPENROUTER_API_KEY: missing
+claude-cli credential (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY): missing
+codex-cli credential (CODEX_API_KEY or CODEX_HOME): missing
+ai-sdk credential (OPENROUTER_API_KEY): missing
 digest: d6e7c6abe81707a57c0358dc3f73231a19199edff62f844a90c0d2b02f7cca17
 ```
 

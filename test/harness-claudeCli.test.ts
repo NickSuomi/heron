@@ -28,7 +28,7 @@ describe("claude-cli harness", () => {
       expect(yield* effect).toEqual({
         output: { answer: 42 },
         reportedModel: "claude-sonnet-5",
-        vendorSessionId: "dfa9ca5a-b3d4-4328-adb5-9f6f1010da21",
+        vendorSessionId: "00000000-0000-4000-8000-000000000001",
         usage: { inputTokens: 3857, cachedInputTokens: 1837, outputTokens: 157, reasoningTokens: 21, costUsd: 0.0100094 },
         toolCalls: 1
       })
