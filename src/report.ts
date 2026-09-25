@@ -25,37 +25,15 @@ export const parseMarker = (body: string): Marker | null => {
 }
 
 /*
- * Model- and vendor-written text is plain text, never markdown: every ASCII punctuation character is backslash-escaped,
- * so no code span, fence, emphasis, link, image, heading, list, quote, table, HTML or entity can open, and no line can
- * start with the `/` of a quick action. A reference or mention sigil GitLab would parse (at the start, or after anything
- * but an ASCII word character, and before a word character, `"` or `[`) is followed by a word joiner (U+2060), which
- * renders as nothing but breaks the pattern. The joiner goes after the escaped sigil: a backslash escapes only the
- * character right after it.
- *
- * A bare http(s) URL that starts after whitespace or `(` and runs to whitespace stays byte for byte, trailing punctuation
- * included: it holds no character that opens markdown, GitLab links it and parses no reference inside a link. Anything
- * else, a URL touching other text included, is escaped, because an autolink runs to whitespace and would swallow a
- * backslash escape. For the same reason single newlines become two-space hard breaks, not backslash ones. Blank lines
- * stay paragraph breaks; indentation is dropped so no line becomes a code block.
+ * Model- and vendor-written text is plain text, never markdown. Every ASCII punctuation character is backslash-escaped,
+ * so no code span, fence, emphasis, link, image, heading, list, quote, table, HTML or entity can open and no line can
+ * start with the `/` of a quick action. Each escaped character is also followed by a word joiner (U+2060), which renders
+ * as nothing but breaks every GitLab reference, mention and autolink pattern, cross-project forms included; the joiner
+ * goes after the escaped character because a backslash escapes only the character right after it. Single newlines
+ * become two-space hard breaks and blank lines stay paragraph breaks; indentation is dropped so no line becomes a code
+ * block. The cost: quoted code and URLs show as literal text, and copied text carries the invisible joiners.
  */
-const bareUrl = /(?<![^\s(])https?:\/\/[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::\d+)?(?:[/?#](?:[A-Za-z0-9\-.:/?#@!$%&'()+,=]|(?<=[A-Za-z0-9])_(?=[A-Za-z0-9]))*)?(?!\S)/g
-const punctuation = /[!-/:-@[-`{-~]/g
-
-const escaped = (text: string, before: string): string =>
-  text.replace(punctuation, (c, i: number) =>
-    "@#!~%&$".includes(c) && !/\w/.test(text[i - 1] ?? before) && /[\p{L}\p{N}_"[]/u.test(text[i + 1] ?? "")
-      ? `\\${c}\u2060`
-      : `\\${c}`)
-
-const plainLine = (line: string): string => {
-  let out = ""
-  let from = 0
-  for (const m of line.matchAll(bareUrl)) {
-    out += escaped(line.slice(from, m.index), line[from - 1] ?? "") + m[0]
-    from = m.index + m[0].length
-  }
-  return out + escaped(line.slice(from), line[from - 1] ?? "")
-}
+const plainLine = (line: string): string => line.replace(/[!-/:-@[-`{-~]/g, (c) => `\\${c}\u2060`)
 
 const plain = (s: string): string =>
   s.replace(/\r\n?/g, "\n").split(/\n[ \t]*\n\s*/)

@@ -147,7 +147,7 @@ describe("reviewOnce", () => {
       const malformed = yield* run(fakeForge({ head: sha("a"), changes: [change("README.md")] }), {
         reviewer: () => reviewOut([finding("design", "blocker")])
       })
-      expect([failing.review.verdict, failing.body.includes("session `reviewer` failed. quota\\: limit reached")]).toEqual(["BLOCKED", true])
+      expect([failing.review.verdict, failing.body.includes("session `reviewer` failed. quota\\:\u2060 limit reached")]).toEqual(["BLOCKED", true])
       expect([malformed.review.verdict, malformed.review.outcome.kind]).toEqual(["BLOCKED", "incomplete"])
     }))
 
@@ -168,7 +168,7 @@ describe("reviewOnce", () => {
       expect(lines.slice(at + 2, at + 5)).toEqual([
         "| Session | Role | Backend | Model | Effort | Tokens in / out | Tool calls | Duration | Vendor cost | Result |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-        "| reviewer | reviewer | alpha | model\\-q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |"
+        "| reviewer | reviewer | alpha | model\\-\u2060q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |"
       ])
     }))
 
@@ -181,8 +181,8 @@ describe("reviewOnce", () => {
       const lines = result.body.split("\n")
       const at = lines.indexOf("<summary>AGENT PROVENANCE</summary>")
       expect(lines.slice(at + 4, at + 7)).toEqual([
-        "| gate.design | gate | alpha | model\\-q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |",
-        "| gate.correctness | gate | alpha | model\\-q | low | n/a / n/a | n/a | 0.0 s | n/a | interrupted |",
+        "| gate.design | gate | alpha | model\\-\u2060q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |",
+        "| gate.correctness | gate | alpha | model\\-\u2060q | low | n/a / n/a | n/a | 0.0 s | n/a | interrupted |",
         ""
       ])
     }))

@@ -53,8 +53,8 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
 const tagPattern = /<(\/?)([a-z0-9]+)([^>]*)>/g
 const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&amp;/g, "&")
 
-/** Every tag the model text may add to a report: paragraphs, hard breaks, and links GitLab makes from bare URLs. */
-const modelTags = new Set(["p", "br", "a"])
+/** Every tag the model text may add to a report: paragraphs and hard breaks. */
+const modelTags = new Set(["p", "br"])
 const structure = (html: string) => [...html.matchAll(tagPattern)].map((m) => `${m[1]}${m[2]}`).filter((t) => !modelTags.has(t.replace("/", "")))
 
 /** Links whose text is not their target: anything but an autolink, and Heron's own blob link. */
@@ -76,7 +76,8 @@ const scannedText = (html: string): Array<string> => {
   }
   return [...out, decode(html.slice(from))].filter((t) => t !== "")
 }
-const liveSigil = /(?<![\w\u2060])[@#!~%&$](?=[\w"[])/
+/** A reference sigil of any GitLab form, cross-project included, that no word joiner follows. */
+const liveSigil = /[@#!~%&$^*[](?=[\w"[])/
 
 const hostile = [
   "\\``A`B @all <img src=x onerror=1> C``",
@@ -133,7 +134,14 @@ const hostile = [
   "https://@all",
   "(https://x.test/a).",
   "(https://x.test/@all).",
-  "https://x.test/a\n/approve"
+  "https://x.test/a\n/approve",
+  "see group/project#12 and group/project!3",
+  "grp/proj@0123abc grp/proj~bug grp/proj%v1 grp&5",
+  "^alert#12 [vulnerability:5] *iteration:9",
+  "https://gitlab.example.com/group/app/-/issues/9",
+  "http://evil.test/x",
+  "www.evil.test/x",
+  "https://x.test/$a$b"
 ]
 
 describe("model text in a rendered report", () => {
@@ -154,15 +162,15 @@ const summary = (text: string) => {
 }
 
 describe("legitimate model text", () => {
-  it("keeps a URL byte for byte, linked", () => {
-    const url = "https://x.test/a.ts#L12?a=1&b=2%20"
-    expect(report(`See ${url}, then fix.`)).toContain(`See ${url}, then fix\\.`)
-    expect(summary(`See ${url}, then fix.`)).toBe(`<p>See <a href="https://x.test/a.ts#L12?a=1&amp;b=2%20">https://x.test/a.ts#L12?a=1&amp;b=2 </a>, then fix.</p>`)
+  it("shows a URL as unlinked text", () => {
+    expect(summary("See https://x.test/a.ts#L12?a=1&b=2%20 then")).toBe(
+      "<p>See https:\u2060/\u2060/\u2060x.\u2060test/\u2060a.\u2060ts#\u2060L12?\u2060a=\u20601&amp;\u2060b=\u20602%\u206020 then</p>"
+    )
   })
 
   it("shows generics, shell variables, addresses and C# as text", () => {
     expect(summary("Array<string> $HOME a@b.com C#")).toBe(
-      "<p>Array&lt;string&gt; $\u2060HOME a@b.com C#</p>"
+      "<p>Array&lt;\u2060string&gt;\u2060 $\u2060HOME a@\u2060b.\u2060com C#\u2060</p>"
     )
   })
 
@@ -171,10 +179,10 @@ describe("legitimate model text", () => {
   })
 
   it("starts no line with the slash of a quick action", () => {
-    expect(report("/approve\n  /merge")).toContain("\n\\/approve  \n\\/merge\n")
+    expect(report("/approve\n  /merge")).toContain("\n\\/\u2060approve  \n\\/\u2060merge\n")
   })
 
   it("shows quoted code as literal text", () => {
-    expect(summary("Use `a < b` here")).toBe("<p>Use `a &lt; b` here</p>")
+    expect(summary("Use `a < b` here")).toBe("<p>Use `\u2060a &lt;\u2060 b`\u2060 here</p>")
   })
 })
