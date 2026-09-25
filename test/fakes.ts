@@ -1,7 +1,7 @@
 import { Effect, Layer, Result } from "effect"
 import { type Config, decodeConfigFile, resolveConfig } from "../src/config.ts"
 import type { Change, LabelTransition, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
-import { Forge, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
+import { Forge, ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
 import { parseMarker } from "../src/report.ts"
 
 export const sha = (c: string) => c.repeat(40) as Sha
@@ -75,7 +75,9 @@ export interface ForgeState {
   calls: number
 }
 
-export const fakeForge = (init: { head: Sha; changes: ReadonlyArray<Change>; labels?: Array<string>; notes?: Map<number, string> }) => {
+export const fakeForge = (
+  init: { head: Sha; changes: ReadonlyArray<Change>; labels?: Array<string>; notes?: Map<number, string>; failCreateNote?: boolean }
+) => {
   const state: ForgeState = {
     head: init.head,
     changes: init.changes,
@@ -97,7 +99,10 @@ export const fakeForge = (init: { head: Sha; changes: ReadonlyArray<Change>; lab
         }
         return null
       }),
-    createNote: (_, body) => call(() => (state.notes.set(state.nextNote, body), state.nextNote++ as NoteId)),
+    createNote: (_, body) =>
+      init.failCreateNote === true
+        ? Effect.fail(new ForgeError({ operation: "createNote", detail: "HTTP 500" }))
+        : call(() => (state.notes.set(state.nextNote, body), state.nextNote++ as NoteId)),
     updateNote: (_, note, body) => call(() => void state.notes.set(note, body)),
     updateLabels: (_, t) =>
       call(() => {

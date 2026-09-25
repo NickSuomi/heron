@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Duration, Effect } from "effect"
+import { Effect } from "effect"
 import type { Env } from "../config.ts"
 import { HarnessError } from "../ports.ts"
 
@@ -34,12 +34,16 @@ export const tempDir = Effect.acquireRelease(
   (dir) => Effect.promise(() => rm(dir, { recursive: true, force: true }))
 )
 
-export interface ProcessRun {
+export interface ProcessOutput {
+  readonly stdout: string
+  readonly stderr: string
+  readonly code: number | null
+}
+
+export interface ProcessRun extends ProcessOutput {
   readonly events: ReadonlyArray<unknown>
   /** Non-JSON stdout lines, in order. */
   readonly text: ReadonlyArray<string>
-  readonly stderr: string
-  readonly code: number | null
 }
 
 export interface ProcessSpec {
@@ -53,11 +57,11 @@ export interface ProcessSpec {
 const STDERR_CAP = 16 * 1024
 
 /**
- * Runs a vendor CLI that prints JSON lines on stdout. The child leads its own process group, so interruption
- * (including the timeout) kills it together with the MCP server it started.
+ * Runs a vendor CLI to completion. The child leads its own process group, so interruption (the session timeout in
+ * `makeHarness`) kills it together with the MCP server it started.
  */
-export const runJsonLines = (spec: ProcessSpec, timeout: Duration.Duration) =>
-  Effect.callback<ProcessRun, HarnessError>((resume, signal) => {
+export const runProcess = (spec: ProcessSpec) =>
+  Effect.callback<ProcessOutput, HarnessError>((resume, signal) => {
     const child = spawn(spec.command, [...spec.args], {
       cwd: spec.cwd,
       env: spec.env,
@@ -73,22 +77,10 @@ export const runJsonLines = (spec: ProcessSpec, timeout: Duration.Duration) =>
       }
     }
     signal.addEventListener("abort", killGroup)
-    const events: Array<unknown> = []
-    const text: Array<string> = []
-    let partial = ""
+    let stdout = ""
     let stderr = ""
-    const take = (line: string) => {
-      if (line.trim() === "") return
-      try {
-        events.push(JSON.parse(line))
-      } catch {
-        text.push(line)
-      }
-    }
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-      const parts = (partial + chunk).split("\n")
-      partial = parts.pop()!
-      parts.forEach(take)
+      stdout += chunk
     })
     child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
       if (stderr.length < STDERR_CAP) stderr += chunk
@@ -99,16 +91,26 @@ export const runJsonLines = (spec: ProcessSpec, timeout: Duration.Duration) =>
       resume(Effect.fail(new HarnessError({ kind: "vendor", detail: e.code === "ENOENT" ? `${spec.command} not found on PATH` : `cannot start ${spec.command}` }))))
     child.on("close", (code) => {
       signal.removeEventListener("abort", killGroup)
-      take(partial)
       killGroup()
-      resume(Effect.succeed({ events, text, stderr, code }))
+      resume(Effect.succeed({ stdout, stderr, code }))
     })
-  }).pipe(
-    Effect.timeoutOrElse({
-      duration: timeout,
-      orElse: () => Effect.fail(new HarnessError({ kind: "timeout", detail: `no result within ${Duration.format(timeout)}` }))
-    })
-  )
+  })
+
+/** Runs a vendor CLI that prints JSON lines on stdout. */
+export const runJsonLines = (spec: ProcessSpec) =>
+  Effect.map(runProcess(spec), (out): ProcessRun => {
+    const events: Array<unknown> = []
+    const text: Array<string> = []
+    for (const line of out.stdout.split("\n")) {
+      if (line.trim() === "") continue
+      try {
+        events.push(JSON.parse(line))
+      } catch {
+        text.push(line)
+      }
+    }
+    return { ...out, events, text }
+  })
 
 export const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === "object" && u !== null && !Array.isArray(u)
 export const num = (u: unknown): number | null => (typeof u === "number" && Number.isFinite(u) ? u : null)

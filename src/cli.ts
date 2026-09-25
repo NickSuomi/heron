@@ -8,25 +8,26 @@ import pkg from "../package.json" with { type: "json" }
 import { type Config, configSource, type Env, type HarnessConfig, loadConfig } from "./config.ts"
 import { UserId } from "./domain.ts"
 import { GitLabForge } from "./forge/gitlab.ts"
-import { HarnessLive, runMcpSource } from "./harness/index.ts"
+import { harnessCredentials, HarnessLive, runMcpSource } from "./harness/index.ts"
 import { reviewOnce } from "./review.ts"
 
 const env: Env = process.env
 const configFlag = Flag.String("config").pipe(Flag.withDescription("Config file path"), Flag.optional)
 const load = (flag: Option.Option<string>) => loadConfig(configSource(Option.getOrNull(flag), env), env)
 
-const credentials: Readonly<Record<HarnessConfig["kind"], string>> = {
-  "claude-cli": "CLAUDE_CODE_OAUTH_TOKEN",
-  "codex-cli": "CODEX_HOME",
-  "ai-sdk": "OPENROUTER_API_KEY"
+const credential = (kind: HarnessConfig["kind"]): string => {
+  const names = harnessCredentials[kind]
+  const found = names.find((name) => env[name])
+  return `${kind} credential (${names.join(" or ")}): ${found === undefined ? "missing" : `set via ${found}`}`
 }
 
 const describe = (config: Config): string => {
-  const needed = ["GITLAB_TOKEN", ...new Set(Object.values(config.harnesses).map((h) => credentials[h.kind]))]
+  const kinds = [...new Set(Object.values(config.harnesses).map((h) => h.kind))]
   return [
     JSON.stringify(config.effective, null, 2),
     `lanes: ${config.lanes.map((l) => `${l.name} (${l.shape}, ${l.gates.length} gates)`).join(", ")}; default ${config.defaultLane.name}`,
-    ...needed.map((name) => `${name}: ${env[name] ? "set" : "missing"}`),
+    `GITLAB_TOKEN: ${env["GITLAB_TOKEN"] ? "set" : "missing"}`,
+    ...kinds.map(credential),
     `digest: ${config.digest}`
   ].join("\n")
 }

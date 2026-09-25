@@ -1,0 +1,1 @@
+[{ "name": "team.docs", "enabled": true, "transport": { "type": "stdio", "command": "/bin/true", "args": [] } }]

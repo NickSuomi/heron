@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import type { Env } from "../config.ts"
 import { HarnessError, type HarnessRequest, type HarnessResult } from "../ports.ts"
 import { type Launcher, MCP_SERVER_NAME, mcpSourceCommand } from "./mcpSource.ts"
-import { childEnv, clip, isRecord, num, redactor, runJsonLines, str, tempDir } from "./process.ts"
+import { childEnv, clip, isRecord, num, redactor, runJsonLines, runProcess, str, tempDir } from "./process.ts"
 import { sourceToolNames } from "./sourceTools.ts"
 
 export interface CodexCliOptions {
@@ -16,7 +16,8 @@ export interface CodexCliOptions {
 
 const SECRETS = ["CODEX_API_KEY"]
 /** CODEX_HOME holds the operator's auth.json; it must be persistent and have a single writer. */
-const ALLOWED = ["PATH", "HOME", "LANG", "CODEX_HOME", ...SECRETS]
+export const CODEX_CREDENTIALS = [...SECRETS, "CODEX_HOME"]
+const ALLOWED = ["PATH", "HOME", "LANG", ...CODEX_CREDENTIALS]
 
 /** `-c` values are TOML; JSON strings and string arrays are valid TOML literals. */
 const toml = (value: string | ReadonlyArray<string>) => JSON.stringify(value)
@@ -29,7 +30,8 @@ const toml = (value: string | ReadonlyArray<string>) => JSON.stringify(value)
 export const codexArgs = (
   request: HarnessRequest,
   files: { readonly schema: string; readonly cwd: string },
-  server: Launcher | null
+  server: Launcher | null,
+  operatorServers: ReadonlyArray<string>
 ) => [
   "exec",
   "--json",
@@ -52,6 +54,7 @@ export const codexArgs = (
     "-c", `mcp_servers.${MCP_SERVER_NAME}.required=true`,
     "-c", `mcp_servers.${MCP_SERVER_NAME}.enabled_tools=${toml(sourceToolNames)}`
   ]),
+  ...operatorServers.flatMap((name) => ["-c", `mcp_servers.${name}.enabled=false`]),
   "-"
 ]
 
@@ -131,6 +134,36 @@ export const foldCodexEvents = (events: ReadonlyArray<unknown>, redact: (text: s
   }
 }
 
+/** A name `-c mcp_servers.<name>.enabled=false` can address; Codex splits the key on every dot. */
+const ADDRESSABLE = /^[A-Za-z0-9_-]+$/
+
+/**
+ * `-c` merges into the operator's config.toml instead of replacing `mcp_servers`, and Codex has no flag to skip that
+ * file, so every server it defines is listed first and switched off by name.
+ */
+const operatorServers = (spec: { readonly command: string; readonly env: Record<string, string>; readonly cwd: string }, keep: string | null) =>
+  Effect.gen(function*() {
+    const out = yield* runProcess({ ...spec, args: ["mcp", "list", "--json"], stdin: "" })
+    let listed: unknown
+    try {
+      listed = JSON.parse(out.stdout)
+    } catch {
+      listed = null
+    }
+    if (out.code !== 0 || !Array.isArray(listed)) {
+      return yield* new HarnessError({ kind: "vendor", detail: `codex mcp list failed (exit ${out.code})` })
+    }
+    const names = listed.filter(isRecord).map((s) => String(s["name"])).filter((name) => name !== keep)
+    const bad = names.find((name) => !ADDRESSABLE.test(name))
+    if (bad !== undefined) {
+      return yield* new HarnessError({
+        kind: "vendor",
+        detail: `the Codex config defines MCP server ${JSON.stringify(bad)}, which cannot be disabled from the command line; use only letters, digits, - and _ in its name`
+      })
+    }
+    return names
+  })
+
 export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) =>
   Effect.scoped(Effect.gen(function*() {
     const dir = yield* tempDir
@@ -142,9 +175,9 @@ export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) 
     })
     const server = request.source === null ? null : mcpSourceCommand(options.mcp, request.source)
     const env = childEnv(options.env, ALLOWED)
+    const disabled = yield* operatorServers({ command: options.command, env, cwd }, server === null ? null : MCP_SERVER_NAME)
     const run = yield* runJsonLines(
-      { command: options.command, args: codexArgs(request, { schema, cwd }, server), env, cwd, stdin: `${request.instructions}\n\n${request.prompt}` },
-      request.timeout
+      { command: options.command, args: codexArgs(request, { schema, cwd }, server, disabled), env, cwd, stdin: `${request.instructions}\n\n${request.prompt}` }
     )
     const redact = redactor(env, SECRETS)
     const folded = foldCodexEvents(run.events, redact)

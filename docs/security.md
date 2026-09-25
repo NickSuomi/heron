@@ -20,7 +20,7 @@ A CLI backend runs as a child process with only these variables, and only when t
 
 | Backend | Variables passed |
 | --- | --- |
-| `claude-cli` | `PATH`, `HOME`, `LANG`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
+| `claude-cli` | `PATH`, `LANG`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`. `HOME` and `CLAUDE_CONFIG_DIR` point at a fresh, empty directory per session, so the operator's Claude Code settings, memory, hooks and login are never loaded. |
 | `codex-cli` | `PATH`, `HOME`, `LANG`, `CODEX_HOME`, `CODEX_API_KEY` |
 | both | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and their lower-case forms, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR` |
 

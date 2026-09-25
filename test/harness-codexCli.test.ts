@@ -11,8 +11,8 @@ afterAll(repo.cleanup)
 const mcp = { command: "/opt/node", args: ["/opt/heron/dist/cli.js", "mcp-source"] }
 const SHELL_VARS = ["PWD", "OLDPWD", "SHLVL", "_"]
 
-const run = (fixture: string, options: { code?: number; source?: boolean } = {}) => {
-  const fake = fakeCli(repo.root, fixture, options.code ?? 0)
+const run = (fixture: string, options: { code?: number; source?: boolean; mcpList?: string } = {}) => {
+  const fake = fakeCli(repo.root, fixture, options.code ?? 0, options.mcpList ?? null)
   const adapter = codexCli({ command: fake.bin, env: jobEnv, mcp })
   return {
     effect: adapter(requestFor("beta", options.source === false ? null : repo.source)),
@@ -81,5 +81,27 @@ describe("codex-cli harness", () => {
     Effect.gen(function*() {
       const error = yield* Effect.flip(run("codex-shell.synthetic.jsonl").effect)
       expect([error.kind, error.detail]).toEqual(["tool-violation", "model ran a command_execution item"])
+    }))
+
+  it.effect("disables every MCP server the operator's Codex config defines, for the judge too", () =>
+    Effect.gen(function*() {
+      const reviewer = run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list.json" })
+      yield* reviewer.effect
+      const judge = run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list.json", source: false })
+      yield* judge.effect
+      const servers = (argv: ReadonlyArray<string>) => Object.entries(overrides(argv)).filter(([k]) => k.endsWith(".enabled"))
+      expect([servers(reviewer.captured().argv), servers(judge.captured().argv)]).toEqual([
+        [["mcp_servers.docs.enabled", "false"], ["mcp_servers.shell.enabled", "false"]],
+        [["mcp_servers.heron.enabled", "false"], ["mcp_servers.docs.enabled", "false"], ["mcp_servers.shell.enabled", "false"]]
+      ])
+    }))
+
+  it.effect("refuses to run when an operator MCP server cannot be disabled by name", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list-dotted.synthetic.json" }).effect)
+      expect([error.kind, error.detail]).toEqual([
+        "vendor",
+        "the Codex config defines MCP server \"team.docs\", which cannot be disabled from the command line; use only letters, digits, - and _ in its name"
+      ])
     }))
 })

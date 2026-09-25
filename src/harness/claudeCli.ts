@@ -14,9 +14,11 @@ export interface ClaudeCliOptions {
   readonly mcp: Launcher
 }
 
-const SECRETS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
-/** CLAUDE_CONFIG_DIR locates an operator login kept outside HOME. */
-const ALLOWED = ["PATH", "HOME", "LANG", "CLAUDE_CONFIG_DIR", ...SECRETS]
+/** Either one authenticates Claude Code; `config check` reports them. */
+export const CLAUDE_CREDENTIALS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
+const SECRETS = CLAUDE_CREDENTIALS
+/** HOME and CLAUDE_CONFIG_DIR are never inherited: each session gets a fresh, empty home. */
+const ALLOWED = ["PATH", "LANG", ...SECRETS]
 
 const TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`
 /** Claude Code delivers `--json-schema` output through this built-in tool. */
@@ -141,10 +143,14 @@ export const claudeCli = (options: ClaudeCliOptions) => (request: HarnessRequest
   Effect.scoped(Effect.gen(function*() {
     const dir = yield* tempDir
     const cwd = join(dir, "cwd")
+    // `--bare` would also skip user state, but it never reads CLAUDE_CODE_OAUTH_TOKEN. An empty home keeps token
+    // auth and loads no operator CLAUDE.md, auto-memory, skills, plugins, hooks or stored login.
+    const home = join(dir, "home")
     const systemPrompt = join(dir, "system-prompt.md")
     const mcpConfig = request.source === null ? null : join(dir, "mcp.json")
     yield* Effect.promise(async () => {
       await mkdir(cwd)
+      await mkdir(home)
       await writeFile(systemPrompt, request.instructions)
       if (mcpConfig !== null && request.source !== null) {
         const server = mcpSourceCommand(options.mcp, request.source)
@@ -152,10 +158,9 @@ export const claudeCli = (options: ClaudeCliOptions) => (request: HarnessRequest
         await writeFile(mcpConfig, JSON.stringify(config))
       }
     })
-    const env = childEnv(options.env, ALLOWED)
+    const env = { ...childEnv(options.env, ALLOWED), HOME: home, CLAUDE_CONFIG_DIR: home }
     const run = yield* runJsonLines(
-      { command: options.command, args: claudeArgs(request, { systemPrompt, mcpConfig }), env, cwd, stdin: request.prompt },
-      request.timeout
+      { command: options.command, args: claudeArgs(request, { systemPrompt, mcpConfig }), env, cwd, stdin: request.prompt }
     )
     const redact = redactor(env, SECRETS)
     const folded = foldClaudeEvents(run.events, redact)

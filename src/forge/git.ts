@@ -11,16 +11,27 @@ export interface FetchCommit {
   readonly authorization: { readonly prefix: string; readonly header: Redacted.Redacted<string> }
 }
 
+/** What git needs from the host to reach a remote through a proxy or a private CA; nothing else is inherited. */
+const INHERITED = [
+  "PATH", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+  "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"
+]
+
 const lastLine = (text: string) => text.trim().split("\n").at(-1)?.slice(0, 200) ?? ""
 
 /**
  * Fetches exactly one commit into a fresh bare repository. The credential travels in the child's
- * environment as git config, never on argv or in a file, and no credential helper or prompt can run.
+ * environment as git config, never on argv or in a file, and no credential helper or prompt can run. The child sees
+ * no other host secret and no operator git config or `.netrc`.
  */
 export const fetchCommit = Effect.fn("fetchCommit")(function*(input: FetchCommit) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const secret = Redacted.value(input.authorization.header)
   const env = {
+    ...Object.fromEntries(INHERITED.flatMap((name) => process.env[name] ? [[name, process.env[name]]] : [])),
+    HOME: "/nonexistent",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_TERMINAL_PROMPT: "0",
     GIT_CONFIG_COUNT: "2",
     GIT_CONFIG_KEY_0: "credential.helper",
@@ -30,7 +41,7 @@ export const fetchCommit = Effect.fn("fetchCommit")(function*(input: FetchCommit
   }
   const git = (step: string, args: ReadonlyArray<string>) =>
     Effect.scoped(Effect.gen(function*() {
-      const handle = yield* spawner.spawn(ChildProcess.make("git", args, { env, extendEnv: true, stdout: "ignore" }))
+      const handle = yield* spawner.spawn(ChildProcess.make("git", args, { env, extendEnv: false, stdout: "ignore" }))
       const [stderr, code] = yield* Effect.all([Stream.mkString(Stream.decodeText(handle.stderr)), handle.exitCode], {
         concurrency: 2
       })

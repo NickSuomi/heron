@@ -14,10 +14,11 @@ import {
   type SessionRecord,
   type Slot,
   synthesisOutput,
+  type Usage,
   type UserId
 } from "./domain.ts"
 import { admits, applySynthesis, assignIds, classify, labelTransition, planFor, publication, verdictOf } from "./policy.ts"
-import { Forge, Harness, type SourceCheckout } from "./ports.ts"
+import { Forge, Harness, type HarnessResult, type SourceCheckout } from "./ports.ts"
 import { findingsText, instructionsFor, packetText } from "./prompt.ts"
 import { renderReport } from "./report.ts"
 
@@ -30,6 +31,8 @@ export class NotAdmitted extends Schema.TaggedError<NotAdmitted>()("NotAdmitted"
       : `user ${this.triggeredBy} is not in admission.allowedTriggerUserIds`
   }
 }
+
+const noUsage: Usage = { inputTokens: null, cachedInputTokens: null, outputTokens: null, reasoningTokens: null, costUsd: null }
 
 class SessionFailed extends Data.TaggedError("SessionFailed")<{ readonly session: SessionId; readonly reason: string }> {}
 
@@ -65,6 +68,18 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
   const run = <S extends Schema.ConstraintDecoder<unknown>>(slot: Slot, schema: S, prompt: string, access: SourceCheckout | null) =>
     Effect.gen(function*() {
       const started = yield* Clock.currentTimeMillis
+      const record = (result: HarnessResult | null, failure: string | null) =>
+        Effect.map(Clock.currentTimeMillis, (now) => {
+          sessions.push({
+            slot,
+            reportedModel: result?.reportedModel ?? null,
+            vendorSessionId: result?.vendorSessionId ?? null,
+            usage: result?.usage ?? noUsage,
+            toolCalls: result?.toolCalls ?? null,
+            durationMs: now - started,
+            failure
+          })
+        })
       const result = yield* harness.run({
         slot,
         instructions: instructionsFor(slot, config.policy),
@@ -74,21 +89,12 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
         maxTurns: config.limits.maxTurns,
         timeout: Duration.seconds(config.limits.sessionTimeoutSeconds)
       }).pipe(
-        Effect.timeoutOrElse({
-          duration: Duration.seconds(config.limits.sessionTimeoutSeconds),
-          orElse: () => Effect.fail(new SessionFailed({ session: slot.id, reason: "timed out" }))
-        }),
-        Effect.catchTag("HarnessError", (e) => Effect.fail(new SessionFailed({ session: slot.id, reason: `${e.kind}: ${e.detail}` })))
+        Effect.tapError((e) => record(null, e.kind)),
+        Effect.mapError((e) => new SessionFailed({ session: slot.id, reason: e.message }))
       )
-      sessions.push({
-        slot,
-        reportedModel: result.reportedModel,
-        vendorSessionId: result.vendorSessionId,
-        usage: result.usage,
-        toolCalls: result.toolCalls,
-        durationMs: (yield* Clock.currentTimeMillis) - started
-      })
       return yield* Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(result.output).pipe(
+        Effect.tapError(() => record(result, "invalid-output")),
+        Effect.tap(() => record(result, null)),
         Effect.mapError((e) => new SessionFailed({ session: slot.id, reason: `output did not match its schema: ${e.message}` }))
       )
     }).pipe(permits.get(slot.profile.harness)!.withPermits(1))

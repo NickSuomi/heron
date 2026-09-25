@@ -1,9 +1,10 @@
+import { readFileSync } from "node:fs"
 import { afterAll, describe, expect, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Duration, Effect } from "effect"
 import type { HarnessConfig } from "../src/config.ts"
 import type { HarnessKey } from "../src/domain.ts"
 import { makeHarness } from "../src/harness/index.ts"
-import { fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
+import { type Captured, fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
 import { jobEnv, requestFor } from "./fixtures/harness/request.ts"
 
 const repo = makeRepo()
@@ -29,5 +30,30 @@ describe("makeHarness", () => {
         ["auth", "OPENROUTER_API_KEY is not set"],
         ["vendor", "no harness configured under \"delta\""]
       ])
+    }))
+})
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+describe("session timeout", () => {
+  it.live("fails a hung vendor session with a timeout and kills its whole process group", () =>
+    Effect.gen(function*() {
+      const hung = fakeCli(repo.root, "claude-success.jsonl", "hang")
+      const harness = makeHarness({ alpha: { kind: "claude-cli", concurrency: 1, command: hung.bin } } as Readonly<Record<HarnessKey, HarnessConfig>>, { env: jobEnv })
+      const error = yield* Effect.flip(harness.run(requestFor("alpha", repo.source, Duration.millis(1000))))
+      const { pids } = JSON.parse(readFileSync(hung.capture, "utf8")) as Captured
+      let survivors = pids.filter(alive)
+      for (let i = 0; i < 40 && survivors.length > 0; i++) {
+        yield* Effect.sleep(50)
+        survivors = pids.filter(alive)
+      }
+      expect([error.kind, error.detail, pids.length, survivors]).toEqual(["timeout", "no result within 1s", 2, []])
     }))
 })

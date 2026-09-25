@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { NodeServices } from "@effect/platform-node"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Fiber, Layer, Redacted } from "effect"
@@ -334,6 +334,38 @@ describe("GitLab forge checkout", () => {
       expect(inside.type).toBe("commit")
       expect(inside.config).not.toContain(TOKEN)
       expect(existsSync(inside.checkout.gitDir)).toBe(false)
+    }))
+
+  it.live("runs git with an allowlisted environment and no operator git config", () =>
+    Effect.gen(function*() {
+      const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
+      const bin = join(work, "..", `${basename(work)}-bin`)
+      const seen = join(bin, "env.json")
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(join(bin, "git"), `#!/bin/sh\n"${process.execPath}" -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' "${seen}"\nexec "${realGit}" "$@"\n`)
+      chmodSync(join(bin, "git"), 0o755)
+      const path = process.env["PATH"]
+      process.env["PATH"] = `${bin}:${path}`
+      process.env["HERON_TEST_SECRET"] = "must-not-leak"
+      const restore = Effect.sync(() => {
+        process.env["PATH"] = path
+        delete process.env["HERON_TEST_SECRET"]
+        rmSync(bin, { recursive: true, force: true })
+      })
+      const env = yield* withForge(fakeGitLab([{ body: project }]), (forge) => Effect.scoped(forge.checkout(ref, head))).pipe(
+        Effect.map(() => JSON.parse(readFileSync(seen, "utf8")) as Record<string, string>),
+        Effect.ensuring(restore)
+      )
+      const keys = Object.keys(env).filter((k) => !["PWD", "OLDPWD", "SHLVL", "_"].includes(k)).sort()
+      expect([keys, env["HOME"], env["GIT_CONFIG_GLOBAL"], env["GIT_CONFIG_NOSYSTEM"]]).toEqual([
+        [
+          "GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_KEY_0", "GIT_CONFIG_KEY_1", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_VALUE_0",
+          "GIT_CONFIG_VALUE_1", "GIT_TERMINAL_PROMPT", "HOME", "PATH"
+        ],
+        "/nonexistent",
+        "/dev/null",
+        "1"
+      ])
     }))
 
   it.live("fails on a head the repository does not have and still removes the directory", () =>

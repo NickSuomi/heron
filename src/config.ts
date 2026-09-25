@@ -132,7 +132,9 @@ export const envVars: ReadonlyArray<EnvVar> = [
   { name: "GITLAB_TOKEN", target: null, kind: "secret", description: "Bot token for the GitLab API. Never passed to a harness." },
   { name: "GITLAB_USER_ID", target: null, kind: "int", description: "Triggering user when --triggered-by is absent; GitLab CI sets it." },
   { name: "CLAUDE_CODE_OAUTH_TOKEN", target: null, kind: "secret", description: "Token for the claude-cli harness." },
-  { name: "CODEX_HOME", target: null, kind: "secret", description: "Persistent Codex home for the codex-cli harness." },
+  { name: "ANTHROPIC_API_KEY", target: null, kind: "secret", description: "API key for the claude-cli harness, instead of CLAUDE_CODE_OAUTH_TOKEN." },
+  { name: "CODEX_HOME", target: null, kind: "path", description: "Persistent Codex home holding the codex-cli login." },
+  { name: "CODEX_API_KEY", target: null, kind: "secret", description: "API key for the codex-cli harness, instead of a login in CODEX_HOME." },
   { name: "OPENROUTER_API_KEY", target: null, kind: "secret", description: "API key for the ai-sdk harness." }
 ]
 

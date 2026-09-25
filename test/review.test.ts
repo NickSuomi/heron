@@ -151,6 +151,27 @@ describe("reviewOnce", () => {
       expect([malformed.review.verdict, malformed.review.outcome.kind]).toEqual(["BLOCKED", "incomplete"])
     }))
 
+  it.effect("removes the in-progress label when publishing the report fails", () =>
+    Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")], labels: ["team::web"], failCreateNote: true })
+      const error = yield* Effect.flip(run(forge, gated))
+      expect([error.message, forge.state.labels]).toEqual(["createNote: HTTP 500", ["team::web"]])
+    }))
+
+  it.effect("records the failed session in the provenance table of a BLOCKED report", () =>
+    Effect.gen(function*() {
+      const result = yield* run(fakeForge({ head: sha("a"), changes: [change("README.md")] }), {
+        reviewer: () => new HarnessError({ kind: "quota", detail: "limit reached" })
+      }, { publish: false })
+      const lines = result.body.split("\n")
+      const at = lines.indexOf("<summary>AGENT PROVENANCE</summary>")
+      expect(lines.slice(at + 2, at + 5)).toEqual([
+        "| Session | Role | Backend | Model | Effort | Tokens in / out | Tool calls | Duration | Vendor cost | Result |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| reviewer | reviewer | alpha | model-q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |"
+      ])
+    }))
+
   it.effect("publishes nothing and leaves labels alone on a dry run", () =>
     Effect.gen(function*() {
       const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")], labels: ["x"] })
@@ -173,5 +194,46 @@ describe("reviewOnce", () => {
       }, { delay: 20 })
       yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
       expect(Object.fromEntries(peak)).toEqual({ alpha: 2, beta: 1 })
+    }))
+})
+
+describe("report rendering", () => {
+  it.effect("makes model-written text inert: no quick action, hidden HTML, or mention survives", () =>
+    Effect.gen(function*() {
+      const hostile = {
+        gate: "design",
+        severity: "advisory",
+        location: { path: "src/a`b.ts", line: 3 },
+        title: "/approve",
+        body: "  /merge\n- /unlabel ~x\n> /close\n<!-- hidden\n<details>\n@all\nsee #12, !34 and ![p](https://x.test/a.png)",
+      }
+      const result = yield* run(fakeForge({ head: sha("a"), changes: [change("src/app.ts")] }), {
+        "gate.design": () => reviewOut([hostile]),
+        "gate.correctness": () => reviewOut(),
+        "supervisor": keepAll({ summary: "/merge now @all", added: [], limitations: ["/label ~x"] })
+      }, { publish: false })
+      const lines = result.body.split("\n")
+      const at = lines.indexOf("### Findings")
+      expect(lines.slice(at - 2, at + 17)).toEqual([
+        "\\/merge now @⁠all",
+        "",
+        "### Findings",
+        "",
+        "- **Advisory** `design` \\/approve ([``src/a`b.ts:3``](https://gitlab.example.com/group/app/-/blob/" + sha("a") + "/src/a%60b.ts#L3))",
+        "",
+        "    \\/merge",
+        "  - \\/unlabel ~⁠x",
+        "  > \\/close",
+        "  &lt;!-- hidden",
+        "  &lt;details>",
+        "  @⁠all",
+        "  see #⁠12, !⁠34 and !⁠[p](https://x.test/a.png)",
+        "",
+        "### Not checked",
+        "",
+        "- \\/label ~⁠x",
+        "",
+        "<details>"
+      ])
     }))
 })

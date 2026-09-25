@@ -110,7 +110,6 @@ Reference: [Configuration](docs/configuration.md), [Backends](docs/backends.md),
 - **Findings live in one note.** Heron does not open inline discussion threads.
 - **Merge request text can steer the model.** The author controls the diff and description the model reads. A PASS is one automated opinion, not a security approval. See [Security model](docs/security.md#limits-of-the-threat-model).
 - **Vendor terms limit the CLI backends.** Anthropic [does not allow](https://code.claude.com/docs/en/agent-sdk/overview) third-party products to offer claude.ai login or rate limits without approval. Heron offers no login: `claude-cli` runs your own authenticated Claude Code, and your plan's terms apply. OpenAI's [CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth.md) says not to use ChatGPT-managed Codex auth for public or open-source repositories, so use `codex-cli` only for private repositories on trusted runners. For shared or public use, choose `ai-sdk` with an API key. Details are in [Backends](docs/backends.md#vendor-terms).
-- **`config check` names one credential per backend.** It reports `CLAUDE_CODE_OAUTH_TOKEN` as missing even when `ANTHROPIC_API_KEY` is set, and it asks for `CODEX_HOME` even when `CODEX_API_KEY` is set. Heron passes either one to the backend.
 
 ## Verify
 

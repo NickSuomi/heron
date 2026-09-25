@@ -46,17 +46,20 @@ export interface Captured {
   readonly env: Readonly<Record<string, string>>
   readonly stdin: string
   readonly files: Readonly<Record<string, string>>
+  /** The fake's own pid and, when it hangs, the grandchild it started. */
+  readonly pids: ReadonlyArray<number>
 }
 
 /**
  * A fake vendor executable: records argv, env, stdin and the content of every file argument, prints a recorded
- * event stream, and exits with `code` (`hang` sleeps instead).
+ * event stream, and exits with `code` (`hang` sleeps instead). `mcp list` prints the `mcpList` fixture (Codex's
+ * `mcp list --json`) or an empty list.
  */
-export const fakeCli = (root: string, fixture: string, code: number | "hang" = 0) => {
+export const fakeCli = (root: string, fixture: string, code: number | "hang" = 0, mcpList: string | null = null) => {
   const capture = join(root, `capture-${Math.random().toString(36).slice(2)}.json`)
   const bin = join(root, `fake-${Math.random().toString(36).slice(2)}`)
   const script = join(import.meta.dirname, "fake-cli.mjs")
-  writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "${capture}" "${join(import.meta.dirname, fixture)}" "${code}" "$@"\n`)
+  writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "${capture}" "${join(import.meta.dirname, fixture)}" "${code}" "${mcpList === null ? "-" : join(import.meta.dirname, mcpList)}" "$@"\n`)
   chmodSync(bin, 0o755)
   return { bin, capture }
 }

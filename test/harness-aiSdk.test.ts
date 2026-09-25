@@ -1,3 +1,5 @@
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { MockLanguageModelV4 } from "ai/test"
 import { Effect } from "effect"
@@ -88,5 +90,25 @@ describe("ai-sdk harness", () => {
       expect([error.kind, error.detail]).toEqual(["vendor", "effort \"max\" is not an OpenRouter reasoning effort (xhigh, high, medium, low, minimal, none)"])
       const missing = openRouterBinding({}, undefined)
       expect(missing instanceof HarnessError && [missing.kind, missing.detail]).toEqual(["auth", "OPENROUTER_API_KEY is not set"])
+    }))
+
+  it.live("kills a source tool's git process when the session is interrupted", () =>
+    Effect.gen(function*() {
+      const bin = join(repo.root, "hung-git")
+      const pidFile = join(bin, "pid")
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(join(bin, "git"), `#!/bin/sh\necho $$ > "${pidFile}"\nexec sleep 60\n`)
+      chmodSync(join(bin, "git"), 0o755)
+      const path = process.env["PATH"]
+      process.env["PATH"] = `${bin}:${path}`
+      const session = aiSdk(binding(model()))(requestFor("api", repo.source)).pipe(Effect.timeout("1 second"), Effect.flip)
+      const error = yield* session.pipe(Effect.ensuring(Effect.sync(() => void (process.env["PATH"] = path))))
+      const pid = Number(readFileSync(pidFile, "utf8"))
+      let alive = true
+      for (let i = 0; i < 40 && alive; i++) {
+        yield* Effect.sleep(50)
+        alive = existsSync(`/proc/${pid}`) && !readFileSync(`/proc/${pid}/stat`, "utf8").split(" ")[2]!.startsWith("Z")
+      }
+      expect([error._tag, alive]).toEqual(["TimeoutError", false])
     }))
 })

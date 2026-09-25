@@ -32,5 +32,6 @@ export const jobEnv = {
   CI_JOB_TOKEN: "job-token-must-not-leak",
   CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-test-token",
   CODEX_HOME: "/var/lib/codex-home",
+  CLAUDE_CONFIG_DIR: "/var/lib/operator-claude",
   HTTPS_PROXY: "http://proxy.invalid:3128"
 }

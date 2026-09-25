@@ -11,7 +11,7 @@ import {
   tool,
   type ToolSet
 } from "ai"
-import { Duration, Effect } from "effect"
+import { Effect } from "effect"
 import { z } from "zod"
 import type { Env } from "../config.ts"
 import { HarnessError, type HarnessRequest, type HarnessResult, type SourceCheckout } from "../ports.ts"
@@ -34,7 +34,7 @@ export const aiSourceTools = (source: SourceCheckout): ToolSet =>
     tool({
       description: t.description,
       inputSchema: z.object(t.input),
-      execute: async (args: unknown) => (await Effect.runPromise(runSourceTool(t, source, args))).text
+      execute: async (args: unknown, { abortSignal }) => (await Effect.runPromise(runSourceTool(t, source, args), { signal: abortSignal })).text
     })
   ]))
 
@@ -69,12 +69,7 @@ export const aiSdk = (binding: AiSdkBinding) => (request: HarnessRequest) =>
         return { r, output: r.output as unknown }
       },
       catch: failure
-    }).pipe(
-      Effect.timeoutOrElse({
-        duration: request.timeout,
-        orElse: () => Effect.fail(new HarnessError({ kind: "timeout", detail: `no result within ${Duration.format(request.timeout)}` }))
-      })
-    )
+    })
     const { output, r } = result
     const costs = r.steps.map((s) => binding.cost(s.providerMetadata))
     const usage = r.totalUsage
@@ -97,6 +92,8 @@ export const aiSdk = (binding: AiSdkBinding) => (request: HarnessRequest) =>
 const OPENROUTER_EFFORTS = ["xhigh", "high", "medium", "low", "minimal", "none"] as const
 
 const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === "object" && u !== null
+
+export const OPENROUTER_CREDENTIALS = ["OPENROUTER_API_KEY"]
 
 export const openRouterBinding = (env: Env, baseURL: string | undefined): AiSdkBinding | HarnessError => {
   const apiKey = env["OPENROUTER_API_KEY"]

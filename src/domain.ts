@@ -186,8 +186,11 @@ export interface SessionRecord {
   readonly reportedModel: string | null
   readonly vendorSessionId: string | null
   readonly usage: Usage
-  readonly toolCalls: number
+  /** Null when the session failed before reporting any. */
+  readonly toolCalls: number | null
   readonly durationMs: number
+  /** Why the session failed (a harness error kind, or `invalid-output`); null when it succeeded. */
+  readonly failure: string | null
 }
 
 /** What the sessions produced. A review that could not finish is never read as a pass. */

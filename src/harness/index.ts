@@ -1,12 +1,19 @@
-import { Effect, Layer } from "effect"
+import { Duration, Effect, Layer } from "effect"
 import type { Config, Env, HarnessConfig } from "../config.ts"
 import { Harness, HarnessError, type HarnessRequest, type HarnessResult, type HarnessShape } from "../ports.ts"
-import { aiSdk, openRouterBinding } from "./aiSdk.ts"
-import { claudeCli } from "./claudeCli.ts"
-import { codexCli } from "./codexCli.ts"
+import { aiSdk, OPENROUTER_CREDENTIALS, openRouterBinding } from "./aiSdk.ts"
+import { CLAUDE_CREDENTIALS, claudeCli } from "./claudeCli.ts"
+import { CODEX_CREDENTIALS, codexCli } from "./codexCli.ts"
 import { defaultMcpLauncher, type Launcher } from "./mcpSource.ts"
 
 export { runMcpSource } from "./mcpSource.ts"
+
+/** The variables each harness kind accepts as its credential; any one of them is enough. */
+export const harnessCredentials: Readonly<Record<HarnessConfig["kind"], ReadonlyArray<string>>> = {
+  "claude-cli": CLAUDE_CREDENTIALS,
+  "codex-cli": CODEX_CREDENTIALS,
+  "ai-sdk": OPENROUTER_CREDENTIALS
+}
 
 export interface HarnessOptions {
   readonly env: Env
@@ -30,7 +37,10 @@ const adapter = (config: HarnessConfig, options: HarnessOptions): Run => {
   }
 }
 
-/** Dispatches each request to the adapter of its profile's harness key. */
+/**
+ * Dispatches each request to the adapter of its profile's harness key. This is the one owner of the session timeout:
+ * adapters do not time themselves out, and interruption makes each one stop its vendor work.
+ */
 export const makeHarness = (harnesses: Config["harnesses"], options: HarnessOptions): HarnessShape => {
   const adapters = new Map(Object.entries(harnesses).map(([key, config]) => [key, adapter(config, options)]))
   return {
@@ -38,7 +48,12 @@ export const makeHarness = (harnesses: Config["harnesses"], options: HarnessOpti
       const run = adapters.get(request.slot.profile.harness)
       return run === undefined
         ? Effect.fail(new HarnessError({ kind: "vendor", detail: `no harness configured under "${request.slot.profile.harness}"` }))
-        : run(request)
+        : run(request).pipe(
+          Effect.timeoutOrElse({
+            duration: request.timeout,
+            orElse: () => Effect.fail(new HarnessError({ kind: "timeout", detail: `no result within ${Duration.format(request.timeout)}` }))
+          })
+        )
     }
   }
 }

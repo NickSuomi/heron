@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
-import { Duration, Effect } from "effect"
+import { Effect } from "effect"
 import { claudeCli } from "../src/harness/claudeCli.ts"
-import type { HarnessError } from "../src/ports.ts"
 import { type Captured, fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
 import { answerSchema, jobEnv, requestFor } from "./fixtures/harness/request.ts"
 
@@ -12,10 +12,10 @@ afterAll(repo.cleanup)
 const mcp = { command: "/opt/node", args: ["/opt/heron/dist/cli.js", "mcp-source"] }
 const SHELL_VARS = ["PWD", "OLDPWD", "SHLVL", "_"]
 
-const run = (fixture: string, options: { code?: number | "hang"; source?: boolean; timeout?: Duration.Duration } = {}) => {
+const run = (fixture: string, options: { code?: number; source?: boolean } = {}) => {
   const fake = fakeCli(repo.root, fixture, options.code ?? 0)
   const adapter = claudeCli({ command: fake.bin, env: jobEnv, mcp })
-  const request = requestFor("alpha", options.source === false ? null : repo.source, options.timeout)
+  const request = requestFor("alpha", options.source === false ? null : repo.source)
   return { effect: adapter(request), captured: () => JSON.parse(readFileSync(fake.capture, "utf8")) as Captured }
 }
 
@@ -57,7 +57,10 @@ describe("claude-cli harness", () => {
         }
       })
       expect(stdin).toBe("What number does a.ts export?")
-      expect(Object.keys(env).filter((k) => !SHELL_VARS.includes(k)).sort()).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "HOME", "HTTPS_PROXY", "PATH"])
+      expect(Object.keys(env).filter((k) => !SHELL_VARS.includes(k)).sort()).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HOME", "HTTPS_PROXY", "PATH"])
+      // A fresh home per session: no operator CLAUDE.md, auto-memory, skills, hooks or stored login.
+      const home = join(dirname(flag(argv, "--system-prompt-file")!), "home")
+      expect([env["HOME"], env["CLAUDE_CONFIG_DIR"]]).toEqual([home, home])
       expect(JSON.stringify(env)).not.toContain("must-not-leak")
     }))
 
@@ -79,12 +82,5 @@ describe("claude-cli harness", () => {
     Effect.gen(function*() {
       const error = yield* Effect.flip(run("claude-violation.synthetic.jsonl").effect)
       expect([error.kind, error.detail]).toEqual(["tool-violation", "model called Bash"])
-    }))
-
-  it.live("times out instead of waiting for a hung process", () =>
-    Effect.gen(function*() {
-      const started = Date.now()
-      const error: HarnessError = yield* Effect.flip(run("claude-success.jsonl", { code: "hang", timeout: Duration.millis(500) }).effect)
-      expect([error.kind, error.detail, Date.now() - started < 3000]).toEqual(["timeout", "no result within 500ms", true])
     }))
 })
