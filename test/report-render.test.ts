@@ -140,7 +140,7 @@ const hostile = [
   "^alert#12 [vulnerability:5] *iteration:9",
   "https://gitlab.example.com/group/app/-/issues/9",
   "http://evil.test/x",
-  "www.evil.test/x",
+  "www.evil.com/x",
   "https://x.test/$a$b"
 ]
 

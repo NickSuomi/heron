@@ -28,7 +28,8 @@ export const parseMarker = (body: string): Marker | null => {
  * Model- and vendor-written text is plain text, never markdown. Every ASCII punctuation character is backslash-escaped,
  * so no code span, fence, emphasis, link, image, heading, list, quote, table, HTML or entity can open and no line can
  * start with the `/` of a quick action. Each escaped character is also followed by a word joiner (U+2060), which renders
- * as nothing but breaks every GitLab reference, mention and autolink pattern, cross-project forms included; the joiner
+ * as nothing but breaks every sigil-based GitLab reference, mention and autolink pattern, cross-project forms included
+ * (a bare commit hash has no sigil and may still link); the joiner
  * goes after the escaped character because a backslash escapes only the character right after it. Single newlines
  * become two-space hard breaks and blank lines stay paragraph breaks; indentation is dropped so no line becomes a code
  * block. The cost: quoted code and URLs show as literal text, and copied text carries the invisible joiners.
