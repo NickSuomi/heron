@@ -1,0 +1,1 @@
+Check that the change fits the surrounding design: responsibilities stay in the module that owns them, new interfaces are no wider than their callers need, and nothing duplicates an existing mechanism.

@@ -1,0 +1,47 @@
+{
+  "forge": { "kind": "gitlab", "url": "https://gitlab.example.com", "project": "group/app", "botUserId": 1001 },
+  "admission": { "allowedTriggerUserIds": [2001, 2002] },
+  "labels": {
+    "inProgress": "review::in progress",
+    "pass": "review::passed",
+    "changesRequested": "review::changes requested",
+    "blocked": "review::blocked"
+  },
+  "backend": "claude",
+  "harnesses": {
+    "claude": { "kind": "claude-cli", "concurrency": 2 },
+    "codex": { "kind": "codex-cli", "concurrency": 1 },
+    "router": { "kind": "ai-sdk", "provider": "openrouter", "concurrency": 4 }
+  },
+  "profiles": {
+    "quick": { "model": "<fast model id>", "effort": "low" },
+    "deep": { "model": "<strong model id>", "effort": "high" },
+    "second-opinion": { "harness": "router", "model": "<vendor>/<model id>", "effort": "medium" }
+  },
+  "gates": {
+    "design": { "instructions": "examples/instructions/design.md" },
+    "correctness": { "instructions": "examples/instructions/correctness.md" },
+    "security": { "instructions": "examples/instructions/security.md" }
+  },
+  "lanes": [
+    { "name": "light", "shape": "single", "gates": ["correctness"], "reviewer": "quick" },
+    { "name": "standard", "shape": "gated", "gates": ["design", "correctness", "security"], "gate": "quick", "supervisor": "deep" },
+    {
+      "name": "critical",
+      "shape": "dual",
+      "gates": ["design", "correctness", "security"],
+      "branches": [
+        { "gate": "quick", "supervisor": "deep" },
+        { "gate": "second-opinion", "supervisor": "second-opinion" }
+      ],
+      "judge": "deep"
+    }
+  ],
+  "defaultLane": "standard",
+  "rules": [
+    { "id": "docs-only", "lane": "light", "when": "all", "paths": ["**/*.md", "docs/**"] },
+    { "id": "auth", "lane": "critical", "when": "any", "paths": ["src/auth/**", "**/*.sql"] }
+  ],
+  "policy": { "instructions": ["examples/instructions/policy.md"] },
+  "limits": { "maxTurns": 40, "sessionTimeoutSeconds": 900 }
+}
