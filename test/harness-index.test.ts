@@ -10,19 +10,15 @@ const repo = makeRepo()
 afterAll(repo.cleanup)
 
 const harnesses = {
-  alpha: { kind: "claude-cli", concurrency: 1 },
-  beta: { kind: "codex-cli", concurrency: 1 },
+  alpha: { kind: "claude-cli", concurrency: 1, command: fakeCli(repo.root, "claude-success.jsonl").bin },
+  beta: { kind: "codex-cli", concurrency: 1, command: fakeCli(repo.root, "codex-success.synthetic.jsonl").bin },
   gamma: { kind: "ai-sdk", provider: "openrouter", concurrency: 1 }
 } as Readonly<Record<HarnessKey, HarnessConfig>>
 
 describe("makeHarness", () => {
   it.effect("dispatches by the profile's harness key", () =>
     Effect.gen(function*() {
-      const harness = makeHarness(harnesses, {
-        env: jobEnv,
-        claudeCommand: fakeCli(repo.root, "claude-success.jsonl").bin,
-        codexCommand: fakeCli(repo.root, "codex-success.synthetic.jsonl").bin
-      })
+      const harness = makeHarness(harnesses, { env: jobEnv })
       const claude = yield* harness.run(requestFor("alpha", repo.source))
       const codex = yield* harness.run(requestFor("beta", repo.source))
       const api = yield* Effect.flip(harness.run(requestFor("gamma", null)))

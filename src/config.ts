@@ -23,9 +23,9 @@ const Text = Schema.String.check(Schema.isMinLength(1))
 const Positive = Schema.Int.check(Schema.isGreaterThan(0))
 
 const HarnessFile = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("claude-cli"), concurrency: Positive }),
-  Schema.Struct({ kind: Schema.Literal("codex-cli"), concurrency: Positive }),
-  Schema.Struct({ kind: Schema.Literal("ai-sdk"), provider: Schema.Literal("openrouter"), concurrency: Positive })
+  Schema.Struct({ kind: Schema.Literal("claude-cli"), concurrency: Positive, command: Schema.optionalKey(Text) }),
+  Schema.Struct({ kind: Schema.Literal("codex-cli"), concurrency: Positive, command: Schema.optionalKey(Text) }),
+  Schema.Struct({ kind: Schema.Literal("ai-sdk"), provider: Schema.Literal("openrouter"), concurrency: Positive, baseUrl: Schema.optionalKey(Text) })
 ])
 export type HarnessConfig = typeof HarnessFile.Type
 
@@ -127,6 +127,8 @@ export const envVars: ReadonlyArray<EnvVar> = [
   { name: "HERON_PROFILE_*_MODEL", target: ["profiles", "*", "model"], kind: "string", description: "Model of one profile." },
   { name: "HERON_PROFILE_*_EFFORT", target: ["profiles", "*", "effort"], kind: "string", description: "Reasoning effort of one profile." },
   { name: "HERON_HARNESS_*_CONCURRENCY", target: ["harnesses", "*", "concurrency"], kind: "int", description: "Parallel sessions on one harness." },
+  { name: "HERON_HARNESS_*_COMMAND", target: ["harnesses", "*", "command"], kind: "string", description: "Vendor CLI path for a claude-cli or codex-cli harness." },
+  { name: "HERON_HARNESS_*_BASE_URL", target: ["harnesses", "*", "baseUrl"], kind: "string", description: "API base URL for an ai-sdk harness." },
   { name: "GITLAB_TOKEN", target: null, kind: "secret", description: "Bot token for the GitLab API. Never passed to a harness." },
   { name: "GITLAB_USER_ID", target: null, kind: "int", description: "Triggering user when --triggered-by is absent; GitLab CI sets it." },
   { name: "CLAUDE_CODE_OAUTH_TOKEN", target: null, kind: "secret", description: "Token for the claude-cli harness." },

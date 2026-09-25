@@ -1,35 +1,15 @@
 #!/usr/bin/env node
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Console, Effect, Layer, Option, Schema } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 import pkg from "../package.json" with { type: "json" }
 import { type Config, configSource, type Env, type HarnessConfig, loadConfig } from "./config.ts"
 import { UserId } from "./domain.ts"
-import { Forge, ForgeError, Harness, HarnessError } from "./ports.ts"
+import { GitLabForge } from "./forge/gitlab.ts"
+import { HarnessLive, runMcpSource } from "./harness/index.ts"
 import { reviewOnce } from "./review.ts"
-
-class NotImplemented extends Schema.TaggedError<NotImplemented>()("NotImplemented", { feature: Schema.String }) {
-  override get message() {
-    return `${this.feature} is not implemented in this build`
-  }
-}
-
-const missingForge = () => Effect.fail(new ForgeError({ operation: "any", detail: "the GitLab forge adapter is not implemented in this build" }))
-const unavailable = Layer.mergeAll(
-  Layer.succeed(Forge)({
-    snapshot: missingForge,
-    live: missingForge,
-    findReport: missingForge,
-    createNote: missingForge,
-    updateNote: missingForge,
-    updateLabels: missingForge,
-    checkout: missingForge
-  }),
-  Layer.succeed(Harness)({
-    run: () => Effect.fail(new HarnessError({ kind: "vendor", detail: "the harness adapters are not implemented in this build" }))
-  })
-)
 
 const env: Env = process.env
 const configFlag = Flag.String("config").pipe(Flag.withDescription("Config file path"), Flag.optional)
@@ -68,9 +48,12 @@ const review = Command.make("review", {
       ref: { project: config.forge.project, iid: flags.mr },
       triggeredBy: yield* triggeredBy(flags.triggeredBy),
       publish: !flags.dryRun
-    })
+    }).pipe(
+      Effect.provide(Layer.mergeAll(GitLabForge.layer(config), HarnessLive(config, { env }))),
+      Effect.provide(NodeHttpClient.layerUndici)
+    )
     yield* Console.log(result.note.kind === "dry-run" ? result.body : `${result.review.verdict}: note ${result.note.note} ${result.note.kind}`)
-  }).pipe(Effect.provide(unavailable))).pipe(Command.withDescription("Review one merge request at its current head"))
+  })).pipe(Command.withDescription("Review one merge request at its current head"))
 
 const check = Command.make("check", { config: configFlag }, (flags) =>
   load(flags.config).pipe(Effect.flatMap((config) => Console.log(describe(config))))).pipe(
@@ -79,16 +62,16 @@ const check = Command.make("check", { config: configFlag }, (flags) =>
 
 const configCommand = Command.make("config").pipe(Command.withSubcommands([check]), Command.withDescription("Config commands"))
 
-const stub = (name: string, what: string) =>
-  Command.make(name, {}, () => Effect.fail(new NotImplemented({ feature: `\`heron ${name}\`` }))).pipe(Command.withDescription(what))
-
 const heron = Command.make("heron").pipe(
   Command.withSubcommands([
     review,
-    configCommand,
-    stub("mcp-source", "Internal: read-only source server for harnesses"),
-    stub("watch", "Review assigned merge requests as they change")
+    configCommand
   ])
 )
 
-Command.run(heron, { version: pkg.version }).pipe(Effect.provide(NodeServices.layer), NodeRuntime.runMain)
+// The MCP server owns stdout for its protocol, so it must start before the CLI framework can write anything.
+if (process.argv[2] === "mcp-source") {
+  await runMcpSource(process.argv.slice(3))
+} else {
+  Command.run(heron, { version: pkg.version }).pipe(Effect.provide(NodeServices.layer), NodeRuntime.runMain)
+}

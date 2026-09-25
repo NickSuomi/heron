@@ -10,12 +10,6 @@ export { runMcpSource } from "./mcpSource.ts"
 
 export interface HarnessOptions {
   readonly env: Env
-  /** Defaults to `claude` on PATH. */
-  readonly claudeCommand?: string
-  /** Defaults to `codex` on PATH. */
-  readonly codexCommand?: string
-  /** Defaults to the provider's own base URL. */
-  readonly openRouterBaseUrl?: string
   /** How a CLI harness starts `heron mcp-source`; defaults to this Node binary running the Heron CLI entry. */
   readonly mcpLauncher?: Launcher
 }
@@ -26,11 +20,11 @@ const adapter = (config: HarnessConfig, options: HarnessOptions): Run => {
   const mcp = options.mcpLauncher ?? defaultMcpLauncher()
   switch (config.kind) {
     case "claude-cli":
-      return claudeCli({ command: options.claudeCommand ?? "claude", env: options.env, mcp })
+      return claudeCli({ command: config.command ?? "claude", env: options.env, mcp })
     case "codex-cli":
-      return codexCli({ command: options.codexCommand ?? "codex", env: options.env, mcp })
+      return codexCli({ command: config.command ?? "codex", env: options.env, mcp })
     case "ai-sdk": {
-      const binding = openRouterBinding(options.env, options.openRouterBaseUrl)
+      const binding = openRouterBinding(options.env, config.baseUrl)
       return binding instanceof HarnessError ? () => Effect.fail(binding) : aiSdk(binding)
     }
   }
