@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","cwd":"/work","session_id":"5f0c2b1e-0000-4000-8000-000000000001","tools":["StructuredOutput","mcp__heron__grep"],"mcp_servers":[{"name":"heron","status":"connected"}],"model":"claude-sonnet-5"}
+{"type":"assistant","message":{"model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"cat a.ts"}}]}}
+{"type":"assistant","message":{"model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_2","name":"StructuredOutput","input":{"answer":42}}]}}
+{"type":"result","subtype":"success","is_error":false,"session_id":"5f0c2b1e-0000-4000-8000-000000000001","total_cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":5},"permission_denials":[],"structured_output":{"answer":42}}
