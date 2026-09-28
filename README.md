@@ -124,6 +124,10 @@ node scripts/check-readme-contract.mjs README.md
 
 `pnpm check` runs the TypeScript type checker and the Vitest suite, including a test that fails when the environment variable table in [docs/configuration.md](docs/configuration.md) differs from the code. GitHub Actions runs the same install, type check, tests, and build on every push to `main` and every pull request.
 
+## Acknowledgements
+
+The public site in [`site/`](site/) uses the ripple effect from [Canvas UI](https://canvasui.dev) ([source](https://github.com/DavidHDev/canvas-ui)) on its hero. Canvas UI is licensed under MIT with a Commons Clause: you may use the components, including commercially, but you may not sell, sublicense, or redistribute them on their own, bundled, or ported. The vendored copy under `site/src/canvas-ui/` keeps the upstream license text. See [`site/README.md`](site/README.md).
+
 ## License
 
 This project is licensed under the Apache License 2.0. See [LICENSE](./LICENSE).

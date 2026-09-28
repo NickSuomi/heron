@@ -1,0 +1,539 @@
+---
+import Base from "../layouts/Base.astro";
+
+const title = "Heron — a code-review bot you run yourself";
+const description =
+  "Heron reviews one GitLab merge request at its current head with models you choose, posts one report, and never approves or merges.";
+
+const flow = [
+  {
+    label: "Lanes",
+    caption: "path rules pick the depth",
+    lines: ["path rules pick", "the depth"],
+  },
+  {
+    label: "Gates",
+    caption: "UI, design, spec, standards",
+    lines: ["UI, design, spec,", "standards"],
+  },
+  {
+    label: "Supervisor",
+    caption: "checks the gates against the source",
+    lines: ["checks the gates", "against the source"],
+  },
+  {
+    label: "Judge",
+    caption: "reconciles two blind branches",
+    lines: ["reconciles two", "blind branches"],
+  },
+];
+
+const backends = [
+  {
+    name: "Claude Code",
+    line: "Runs the review through your own Claude Code CLI and account.",
+  },
+  {
+    name: "Codex",
+    line: "Runs the review through your own Codex CLI and account.",
+  },
+  {
+    name: "OpenRouter",
+    line: "Runs the review against the OpenRouter API with a key you provide.",
+  },
+];
+
+const verdicts = [
+  { label: "PASS", cls: "pass" },
+  { label: "CHANGES REQUESTED", cls: "changes" },
+  { label: "BLOCKED", cls: "blocked" },
+  { label: "SUPERSEDED", cls: "superseded" },
+];
+---
+
+<Base title={title} description={description}>
+  <header class="hero" id="hero">
+    <canvas id="ripple-output" aria-hidden="true"></canvas>
+    <div class="hero-inner">
+      <img
+        class="mark mark-light"
+        src="/heron/brand/assets/heron-mark.svg"
+        alt=""
+        width="140"
+        height="140"
+      />
+      <img
+        class="mark mark-dark"
+        src="/heron/brand/assets/heron-mark-on-dark.svg"
+        alt=""
+        width="140"
+        height="140"
+      />
+      <h1>Heron</h1>
+      <p class="tagline">
+        A self-hosted code-review bot for GitLab merge requests, reviewing
+        one merge request at its head and never approving or merging.
+      </p>
+      <div class="cta-row">
+        <a class="btn primary" href="https://github.com/NickSuomi/heron">View on GitHub</a>
+        <a class="btn outline" href="https://github.com/NickSuomi/heron/tree/main/docs">Read the docs</a>
+      </div>
+    </div>
+    <svg class="water-line" viewBox="0 0 1200 4" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="0" y1="2" x2="1200" y2="2" />
+    </svg>
+  </header>
+
+  <main>
+    <section>
+      <div class="section-grid">
+        <div class="section-label">01</div>
+        <div class="section-body">
+          <h2>What it does</h2>
+          <p>
+            Heron reviews one merge request at its current head. Models that
+            you choose read the diff and the source at that commit and
+            return findings. Heron turns the findings into a verdict, writes
+            one report note on the merge request, and sets a label for the
+            verdict. It never starts inline discussion threads, approves, or
+            merges.
+          </p>
+          <p class="muted">
+            The verdict is one of four fixed words, decided by code, not by
+            the model.
+          </p>
+          <div class="badges">
+            {verdicts.map((v) => (
+              <span class={`badge badge-${v.cls}`}>{v.label}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-grid">
+        <div class="section-label">02</div>
+        <div class="section-body-wide">
+          <h2>How it works</h2>
+          <figure
+            class="diagram"
+            role="img"
+            aria-label="Lanes choose gates, gates run under a supervisor, and a judge settles disagreement between two independent branches."
+          >
+            <svg viewBox="0 0 1000 190" preserveAspectRatio="xMidYMid meet" class="diagram-desktop">
+              <defs>
+                <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="var(--heron-link)"></path>
+                </marker>
+              </defs>
+              <g stroke="var(--heron-link)" stroke-width="1.5" marker-end="url(#arrow)">
+                <line x1="180" y1="60" x2="278" y2="60"></line>
+                <line x1="440" y1="60" x2="538" y2="60"></line>
+                <line x1="700" y1="60" x2="798" y2="60"></line>
+              </g>
+              <g font-family="var(--heron-font-sans)" text-anchor="middle">
+                {flow.map((node, i) => {
+                  const x = [20, 280, 540, 800][i];
+                  const w = 160;
+                  const cx = x + w / 2;
+                  return (
+                    <g>
+                      <rect x={x} y="30" width={w} height="60" rx="12" fill="var(--heron-surface)" stroke="var(--heron-border)"></rect>
+                      <text x={cx} y="65" font-size="17" font-weight="700" fill="var(--heron-text)">{node.label}</text>
+                      <text x={cx} y="112" font-size="12.5" fill="var(--heron-text-muted)">
+                        <tspan x={cx} dy="0">{node.lines[0]}</tspan>
+                        <tspan x={cx} dy="16">{node.lines[1]}</tspan>
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            </svg>
+
+            <div class="diagram-mobile">
+              {flow.map((node, i) => (
+                <div class="flow-step">
+                  <div class="flow-node">{node.label}</div>
+                  <p class="flow-caption">{node.caption}</p>
+                  {i < flow.length - 1 && (
+                    <svg class="flow-arrow" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                      <line x1="12" y1="2" x2="12" y2="18" stroke="var(--heron-link)" stroke-width="1.5"></line>
+                      <path d="M7 14 L12 20 L17 14" fill="none" stroke="var(--heron-link)" stroke-width="1.5"></path>
+                    </svg>
+                  )}
+                </div>
+              ))}
+            </div>
+          </figure>
+          <p>
+            Path rules in the config pick a lane, for example one reviewer
+            for a docs change, gates with a supervisor for most changes, or
+            two independent branches and a judge for sensitive paths. Each
+            session reads the reviewed commit through three read-only tools:
+            <code>grep</code>, <code>list_files</code>, and <code>read_file</code>. They cannot run
+            commands or change files.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-grid">
+        <div class="section-label">03</div>
+        <div class="section-body-wide">
+          <h2>Backends</h2>
+          <div class="cards">
+            {backends.map((b) => (
+              <div class="card">
+                <h3>{b.name}</h3>
+                <p>{b.line}</p>
+              </div>
+            ))}
+          </div>
+          <p class="muted">
+            The two CLI backends run a vendor tool under an account that
+            belongs to you, and the vendor sets the terms for automated and
+            shared use of that account. For shared runners or public
+            projects, use the OpenRouter API key instead.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-grid">
+        <div class="section-label">04</div>
+        <div class="section-body">
+          <h2>Security</h2>
+          <p>
+            The GitLab token stays out of the models and their tools: it
+            reaches only the GitLab API and a git fetch, both scoped to your
+            forge URL. Each backend runs as a child process with an
+            allowlisted environment, so it never sees credentials for the
+            other backends or for GitLab. Models read source through three
+            tools that reject absolute paths, parent directory paths, and
+            files outside the reviewed commit.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-grid">
+        <div class="section-label">05</div>
+        <div class="section-body">
+          <h2>Quick start</h2>
+          <div class="code-card">
+            <button class="copy-btn" type="button" aria-label="Copy command">Copy</button>
+            <pre><code id="quickstart-code">git clone https://github.com/NickSuomi/heron.git
+cd heron
+pnpm install --frozen-lockfile
+pnpm heron config check --config heron.config.example.json</code></pre>
+          </div>
+          <p class="muted">Node 24 or later, pnpm 11, and git. See the README for the full walkthrough.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <img src="/heron/brand/assets/heron-mark.svg" alt="" width="22" height="22" />
+      <a href="https://github.com/NickSuomi/heron/blob/main/LICENSE">Apache-2.0</a>
+      <a href="https://github.com/NickSuomi/heron">GitHub</a>
+      <a href="/heron/brand/">Design book</a>
+      <a href="https://github.com/NickSuomi/canvas-ui">Made with Canvas UI</a>
+    </div>
+  </footer>
+
+  <style>
+    .hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 88vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4rem clamp(20px, 5vw, 48px);
+      background: linear-gradient(
+        180deg,
+        var(--heron-bg) 0%,
+        var(--heron-surface) 100%
+      );
+      isolation: isolate;
+    }
+    #ripple-output {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .hero-inner {
+      position: relative;
+      z-index: 2;
+      max-width: 40rem;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .mark {
+      display: block;
+      margin: 0 auto 1.75rem;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.08));
+    }
+    .mark-dark {
+      display: none;
+    }
+    @media (prefers-color-scheme: dark) {
+      .mark-light {
+        display: none;
+      }
+      .mark-dark {
+        display: block;
+      }
+    }
+    h1 {
+      font-size: clamp(3.5rem, 10vw, 7rem);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      margin: 0 0 1.25rem;
+    }
+    .tagline {
+      color: var(--heron-text-muted);
+      font-size: 1.1875rem;
+      max-width: 32rem;
+      margin: 0 auto 2.25rem;
+    }
+    .cta-row {
+      display: flex;
+      justify-content: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.7rem 1.4rem;
+      border-radius: 999px;
+      border: 1px solid var(--heron-border);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9375rem;
+      color: var(--heron-text);
+      background: var(--heron-surface);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .btn:hover {
+      text-decoration: none;
+      transform: translateY(-1px);
+    }
+    .btn.primary {
+      background: var(--heron-color-slate, #4a5a6a);
+      color: #fff;
+      border-color: transparent;
+    }
+    .btn.outline {
+      background: transparent;
+    }
+    .water-line {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      z-index: 2;
+    }
+    .water-line line {
+      stroke: var(--heron-mark-water);
+      stroke-width: 2;
+      opacity: 0.6;
+    }
+
+    .badges {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 1.25rem;
+    }
+    .badge {
+      font-family: var(--heron-font-mono);
+      font-size: var(--heron-size-xs);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      padding: 0.3em 0.7em;
+      border-radius: var(--heron-radius-pill);
+    }
+    .badge-pass {
+      background: var(--heron-pass-bg);
+      color: var(--heron-pass-on);
+    }
+    .badge-changes {
+      background: var(--heron-changes-bg);
+      color: var(--heron-changes-on);
+    }
+    .badge-blocked {
+      background: var(--heron-blocked-bg);
+      color: var(--heron-blocked-on);
+    }
+    .badge-superseded {
+      background: var(--heron-superseded-bg);
+      color: var(--heron-superseded-on);
+    }
+
+    .diagram {
+      margin: 1.5rem 0 2rem;
+    }
+    .diagram-desktop {
+      display: none;
+      width: 100%;
+      height: auto;
+      max-width: 100%;
+    }
+    .diagram-mobile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    @media (min-width: 720px) {
+      .diagram-desktop {
+        display: block;
+      }
+      .diagram-mobile {
+        display: none;
+      }
+    }
+    .flow-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    .flow-node {
+      background: var(--heron-surface);
+      border: 1px solid var(--heron-border);
+      border-radius: 12px;
+      padding: 0.75rem 1.5rem;
+      font-weight: 700;
+      min-width: 140px;
+    }
+    .flow-caption {
+      color: var(--heron-text-muted);
+      font-size: var(--heron-size-sm);
+      margin: 0.5rem 0;
+      max-width: 22ch;
+    }
+    .flow-arrow {
+      margin: 0.25rem 0;
+    }
+
+    .section-body-wide {
+      min-width: 0;
+      max-width: 100%;
+    }
+    .section-body-wide > p {
+      max-width: 64ch;
+    }
+
+    .cards {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: 1fr;
+      margin: 1.5rem 0 1.25rem;
+    }
+    @media (min-width: 640px) {
+      .cards {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+    .card {
+      border: 1px solid var(--heron-border);
+      border-radius: var(--heron-radius-lg);
+      padding: 1.5rem;
+      background: var(--heron-surface);
+    }
+    .card h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1rem;
+    }
+    .card p {
+      margin: 0;
+      font-size: 0.9375rem;
+      color: var(--heron-text-muted);
+    }
+
+    .code-card {
+      position: relative;
+      margin: 1.5rem 0 0.75rem;
+    }
+    .code-card pre {
+      margin: 0;
+      background: var(--heron-code-bg);
+      border: 1px solid var(--heron-border);
+      border-radius: var(--heron-radius-lg);
+    }
+    .copy-btn {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      font-family: var(--heron-font-mono);
+      font-size: var(--heron-size-xs);
+      padding: 0.35em 0.7em;
+      border-radius: var(--heron-radius-sm);
+      border: 1px solid var(--heron-border);
+      background: var(--heron-surface);
+      color: var(--heron-text);
+      cursor: pointer;
+    }
+    .copy-btn:hover {
+      background: var(--heron-bg);
+    }
+  </style>
+
+  <script>
+    import { createRipple } from "../canvas-ui/ripple/RippleVanilla";
+
+    const hero = document.getElementById("hero") as HTMLElement | null;
+    const output = document.getElementById(
+      "ripple-output",
+    ) as HTMLCanvasElement | null;
+    if (hero && output) {
+      const source = document.createElement("canvas");
+      source.style.display = "none";
+      hero.appendChild(source);
+
+      const instance = createRipple(
+        { source, content: hero, output },
+        {
+          trigger: "click",
+          amplitude: 0.6,
+          wavelength: 90,
+          rings: 3,
+          decay: 0.6,
+          shine: 0.8,
+          interval: 6,
+        },
+      );
+
+      if (instance) {
+        const rect = () => hero.getBoundingClientRect();
+        const r = rect();
+        instance.splash(r.width * 0.72, r.height * 0.62, 1);
+      }
+    }
+
+    const copyBtn = document.querySelector(".copy-btn");
+    const code = document.getElementById("quickstart-code");
+    if (copyBtn && code) {
+      copyBtn.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(code.textContent ?? "");
+        const original = copyBtn.textContent;
+        copyBtn.textContent = "Copied";
+        setTimeout(() => {
+          copyBtn.textContent = original;
+        }, 1500);
+      });
+    }
+  </script>
+</Base>
