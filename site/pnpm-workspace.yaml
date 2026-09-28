@@ -1,1 +1,5 @@
 minimumReleaseAge: 10080
+# esbuild verifies its platform binary; sharp only serves Astro image processing, which the site does not use.
+allowBuilds:
+  esbuild: true
+  sharp: false
