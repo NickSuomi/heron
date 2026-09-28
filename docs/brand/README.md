@@ -1,388 +1,245 @@
 # Heron design book
 
-Heron is a self-hosted code-review bot for GitLab merge requests. It reviews one merge request at its current head, posts one report comment, and sets workflow labels. It never edits code, approves, or merges.
+Heron is a self-hosted code-review bot for GitLab merge requests. It reviews one merge request at its current head, writes one report note, and sets a verdict label. It never approves, merges, or edits code.
 
-This book sets the rules for how Heron looks and sounds. The files it describes live next to it:
+This book sets the rules for how Heron looks, moves, and sounds. The files it describes live next to it:
 
 - `tokens.json` and `tokens.css` hold every colour, font, size, space, and radius value.
-- `assets/` holds the logo, favicon, and social preview as SVG, with PNG exports.
-- `tools/build_assets.py` writes every SVG in `assets/` from one set of paths.
+- `assets/` holds the mark, the lockups, the favicon, and the social preview as SVG, with PNG renders.
 - `tools/build_tokens.py` writes both token files and prints the contrast tables in this book.
-- `tools/build_site.py` writes `site/index.html`, the one-page version of this book.
+- `tools/build_assets.py` writes every SVG in `assets/` from one heron drawing.
+- `tools/build_site.py` writes `site/public/brand/index.html`, the web version of this book, and copies the assets and fonts next to it.
 
 To change a colour or a path, edit the script and run it. Do not edit the generated files by hand.
 
+## The idea
+
+The site is one face of a dark monolith. A merge request's code climbs the face as the reader scrolls and folds over the top edge. The heron stands on that edge and looks down at what comes over. Each gate is a band the code passes through. A line the heron objects to is marked once as it crosses the edge, then pinned as a finding. When the page reaches its end, the face lies flat and the verdict is what remains.
+
+Everything in the brand serves that picture: a night-dark surface, hairline edges, one cold light, and a bird that stays still.
+
 ## Principles
 
-1. **Watch, then act once.** Heron reads the whole merge request, then posts one comment. It does not post a stream of partial comments, and the brand does not decorate with motion.
-2. **Point at the line.** Every finding names a file and a line. A finding without a location is a note, and the report says so.
-3. **Calm is a feature.** A blocked merge request is ordinary news. Colour, words, and shape report the state and do not raise the alarm.
-4. **Stable words for machines, soft styling for people.** The verdict words PASS, CHANGES REQUESTED, BLOCKED, and SUPERSEDED never change. Styling can sit next to them but never replaces them.
-5. **Nothing leaves the page.** The site, the comment, and the assets load no external fonts, scripts, images, or trackers.
+1. **Stillness first.** Heron reads the whole merge request, then writes one note. The brand moves only when the reader scrolls, and the heron moves once.
+2. **Point at the line.** Every finding names a path and a line at the reviewed head.
+3. **Calm is a feature.** CHANGES REQUESTED is ordinary news. Colour and words report the state and do not raise the alarm.
+4. **Stable words for machines.** The verdict words PASS, CHANGES REQUESTED, BLOCKED, and SUPERSEDED never change. Styling can sit next to them but never replaces them.
+5. **Nothing leaves the page.** The site, the design book, and the assets load no external fonts, scripts, images, or trackers.
 
-## Name and story
+## Name
 
-A heron stands still in shallow water and watches for a long time. When it moves, it moves once, and it is exact. Heron the tool works the same way. It waits for a merge request head, reads it in full, and makes one precise report.
-
-Write the name as "Heron" in prose and `heron` in code. Other names:
+Write the name as "Heron" in prose and `heron` in code. Do not write "HERON", "HeronBot", or "the Heron".
 
 | Thing | Name |
 |---|---|
 | Product name in prose | Heron |
 | Package | `heron-review` |
-| Command-line binary | `heron` |
+| Command | `heron` (from source: `pnpm heron`) |
 | Repository | `NickSuomi/heron` |
-| Label prefix | `heron::` |
-
-Do not write "HERON", "HeronBot", or "the Heron".
-
-## Logo
-
-### Construction
-
-The mark is a heron standing on one leg in the shallows, drawn with one line weight. It sits on a 128 by 128 unit grid.
-
-| Part | Construction |
-|---|---|
-| Stroke | 5 units, round caps, round joins. Scale the stroke with the mark. |
-| Head | A crest to the rear, a round crown, and an eye dot of radius 1.6 at (74, 23). |
-| Beak | A filled dagger from (82, 22) to the tip at (112, 30). It is the only filled shape. |
-| Neck and body | One line: the throat, an S-curve neck, the chest, the belly, the tail at (20, 91), and the back. The back stops short of the neck. That gap keeps the drawing open and light. |
-| Legs | The standing leg drops straight from (50, 80) to (50, 118) and crosses the water line. The other leg folds under the body. |
-| Water | Two strokes at y 110, 3 units wide, broken where the leg enters the water. |
-
-The wordmark `heron` is drawn with the same 5-unit monoline stroke as the mark, not set in a font. It needs no font to render, and it matches the mark's line exactly. In the horizontal lockup, the wordmark is scaled to 0.95 and its baseline sits at y 108, on the same water line as the heron.
-
-| File | Use |
-|---|---|
-| `assets/heron-mark.svg` | Colour mark on light backgrounds |
-| `assets/heron-mark-on-dark.svg` | Colour mark on dark backgrounds |
-| `assets/heron-mark-mono-ink.svg` | One colour, ink, for print and light backgrounds |
-| `assets/heron-mark-mono-white.svg` | One colour, white, for dark or photo backgrounds |
-| `assets/heron-lockup.svg` | Mark and wordmark on light backgrounds |
-| `assets/heron-lockup-on-dark.svg` | Mark and wordmark on dark backgrounds |
-| `assets/heron-lockup-mono-ink.svg` | One-colour lockup, ink |
-| `assets/heron-lockup-mono-white.svg` | One-colour lockup, white |
-| `assets/favicon.svg` | Browser tab and app icon |
-| `assets/heron-mark-512.png` | Raster mark, 512 by 512, transparent |
-| `assets/social-preview.svg`, `assets/social-preview.png` | Repository social preview, 1280 by 640 |
-
-### Clear space
-
-Keep 16 units of empty space around the 128-unit box on every side. That is one eighth of the mark's height. At 64 px, keep 8 px clear. Text, other logos, and the edge of the container stay outside that space.
-
-### Minimum size
-
-| Asset | Smallest size |
-|---|---|
-| Mark | 24 px tall |
-| Lockup | 120 px wide |
-| Favicon | 16 px |
-
-Below 24 px, use `favicon.svg`. It drops the eye, the folded leg, and the water line, and it thickens the stroke to 9 units on a slate tile.
-
-### Misuse
-
-- Do not fill the body or add a second standing leg. The drawing is one open line on one leg.
-- Do not rotate, flip, stretch, or skew the mark. The heron faces right, toward the text.
-- Do not colour the line anything other than `slate`, `mist`, `ink`, or white.
-- Do not set the wordmark in a font. Use the drawn paths.
-- Do not add shadows, outlines, gradients, or a speech bubble.
-- Do not animate the heron flapping or pecking. If anything moves, it is one short fade.
-- Do not place the colour mark on a background where the line falls below 3:1. Use a one-colour version there.
 
 ## Colour
 
-The four seed colours stay as approved: Mist `#EEF2F1`, Slate heron `#4A5A6A`, Reed green `#6E8B3D`, and Beak amber `#E0A526`. Reed and amber are too light for text on Mist, so the palette adds darker text variants of each, a rust for BLOCKED, and a dark theme.
+The palette is a near-black with a slight cool tint, three raised surfaces, grey text set by opacity, and one accent. The accent is **plume** `#9097CC`, the blue-grey of a grey heron's back at dusk. It is desaturated on purpose: it reads as light on the night surface, not as a brand colour competing with the code. Plume marks exactly the things the heron looks at: a caught line, a pinned finding, the verdict, and the rim light.
 
 ### Palette
 
 | Token | Hex | Role |
 |---|---|---|
-| `mist` | `#EEF2F1` | Light page background |
-| `slate` | `#4A5A6A` | Heron line, secondary text, SUPERSEDED |
-| `reed` | `#6E8B3D` | Water line. Graphics only, never text. |
-| `amber` | `#E0A526` | Beak, CHANGES REQUESTED fill. Never text on light. |
-| `ink` | `#1F2A33` | Body text on light |
-| `paper` | `#FFFFFF` | Cards and comment surfaces on light |
-| `shallows` | `#E2E9E7` | Code blocks on light |
-| `line` | `#C9D3D1` | Borders on light |
-| `reed-deep` | `#4F6A26` | Links and PASS text on light |
-| `amber-deep` | `#8A5A00` | CHANGES REQUESTED text on light |
-| `rust` | `#A8432A` | BLOCKED on light |
-| `night` | `#151C22` | Dark page background |
-| `night-raised` | `#1E2730` | Cards on dark |
-| `night-deep` | `#0F1418` | Code blocks on dark |
-| `night-line` | `#33414C` | Borders on dark |
-| `fog` | `#E6ECEA` | Body text on dark |
-| `slate-light` | `#A7B4BF` | Secondary text and SUPERSEDED on dark |
-| `reed-light` | `#9DBB67` | Links and PASS on dark |
-| `amber-light` | `#E8B54A` | CHANGES REQUESTED on dark |
-| `rust-light` | `#E0826B` | BLOCKED on dark |
+| `night` | `#08090C` | Page base |
+| `night-1` | `#0E1014` | First raised surface: bands, code |
+| `night-2` | `#13151A` | Cards, the heron's body |
+| `night-3` | `#1A1D23` | Hover, pressed, active rows |
+| `hairline` | `#1C1D1F` | 1px borders. In CSS: white at 8% |
+| `hairline-strong` | `#2B2B2E` | Emphasised borders and the rim. In CSS: white at 14% |
+| `frost` | `#F4F5F8` | Primary text |
+| `frost-2` | `#9FA0A3` | Secondary text. In CSS: frost at 64% |
+| `frost-3` | `#7E7F82` | Tertiary text. In CSS: frost at 50% |
+| `frost-4` | `#454649` | Line numbers, rules, disabled. In CSS: frost at 26%. Never body text |
+| `plume` | `#9097CC` | The accent |
+| `plume-deep` | `#3B4070` | Accent fills and glows |
+| `sage` | `#86B8A5` | PASS on night |
+| `sand` | `#D2B48C` | CHANGES REQUESTED on night, outside the site |
+| `rose` | `#D48F8F` | BLOCKED on night |
+| `paper` | `#F7F8FA` | Light background, for README images and print |
+| `paper-line` | `#DCDEE3` | Borders on light |
+| `ink` | `#0D0E12` | Text on light |
+| `ink-2` | `#5B5F6B` | Secondary text on light |
+| `plume-ink` | `#4C5391` | Accent on light |
+| `sage-ink`, `sand-ink`, `rose-ink` | `#2F6B55`, `#7A5520`, `#9A3B3B` | Verdict text on light |
+
+The site uses plume for the CHANGES REQUESTED verdict it shows, because that verdict is what the heron found. Sage, sand, and rose exist for places that show all four verdicts side by side, such as labels and dashboards. SUPERSEDED uses `frost-2`: it is not a judgement.
+
+### Surfaces and light
+
+- Layer surfaces instead of drawing boxes. A card is `night-2` or a 3% to 1% white gradient, a 1px `hairline` border, and a 4% white inner highlight on its top edge.
+- Borders are always 1px. Radii are 6, 10, and 14 px, plus pills.
+- Light comes from one side: a soft plume radial glow where the heron stands, and a faint white beam at about 110 degrees across the sky. Glows stay under 22% opacity.
+- The display headline uses gradient text from soft white to 52% white, top to bottom. The verdict word runs from soft white to plume. No other text uses a gradient.
 
 ### Theme tokens
 
-Components use theme tokens, never palette tokens. `tokens.css` switches the theme with `prefers-color-scheme`.
+Components use theme tokens, never palette tokens. The site is dark only. `.heron-light` in `tokens.css` supplies light values for documents and README images on white.
 
-| Theme token | Light | Dark |
+| Theme token | Dark | Light |
 |---|---|---|
-| `--heron-bg` | `mist` | `night` |
-| `--heron-surface` | `paper` | `night-raised` |
-| `--heron-code-bg` | `shallows` | `night-deep` |
-| `--heron-text` | `ink` | `fog` |
-| `--heron-text-muted` | `slate` | `slate-light` |
-| `--heron-link` | `reed-deep` | `reed-light` |
-| `--heron-border` | `line` | `night-line` |
-| `--heron-pass` | `reed-deep` | `reed-light` |
-| `--heron-changes` | `amber-deep` | `amber-light` |
-| `--heron-blocked` | `rust` | `rust-light` |
-| `--heron-superseded` | `slate` | `slate-light` |
-| `--heron-{verdict}-bg` and `--heron-{verdict}-on` | Badge fill and badge text | Badge fill and badge text |
+| `--heron-bg` | `night` | `paper` |
+| `--heron-surface` | `night-2` | `paper` |
+| `--heron-code-bg` | `night-1` | `paper` |
+| `--heron-text` | `frost` | `ink` |
+| `--heron-text-muted` | `frost-2` | `ink-2` |
+| `--heron-text-faint` | `frost-3` | `ink-2` |
+| `--heron-border` | `hairline` | `paper-line` |
+| `--heron-accent` | `plume` | `plume-ink` |
+| `--heron-pass`, `--heron-changes`, `--heron-blocked`, `--heron-superseded` | `sage`, `sand`, `rose`, `frost-2` | `sage-ink`, `sand-ink`, `rose-ink`, `ink-2` |
 
 ### Contrast
 
-`tools/build_tokens.py` computes every ratio below with the WCAG 2.x relative-luminance formula. AA needs 4.5:1 for body text. AAA needs 7:1. Every recommended text pair passes AA.
+`tools/build_tokens.py` computes every ratio below with the WCAG 2.x relative-luminance formula. AA needs 4.5:1 for body text, AAA needs 7:1. Every text pair passes AA. Borders are decorative and carry no meaning alone.
 
 | Theme | Text token | Background token | Text | Background | Ratio | WCAG |
 |---|---|---|---|---|---|---|
-| light | `text` | `bg` | `#1F2A33` | `#EEF2F1` | 12.95 | AAA |
-| light | `text` | `surface` | `#1F2A33` | `#FFFFFF` | 14.61 | AAA |
-| light | `text` | `code-bg` | `#1F2A33` | `#E2E9E7` | 11.86 | AAA |
-| light | `text-muted` | `bg` | `#4A5A6A` | `#EEF2F1` | 6.28 | AA |
-| light | `text-muted` | `surface` | `#4A5A6A` | `#FFFFFF` | 7.09 | AAA |
-| light | `text-muted` | `code-bg` | `#4A5A6A` | `#E2E9E7` | 5.75 | AA |
-| light | `link` | `bg` | `#4F6A26` | `#EEF2F1` | 5.44 | AA |
-| light | `link` | `surface` | `#4F6A26` | `#FFFFFF` | 6.14 | AA |
-| light | `pass` | `bg` | `#4F6A26` | `#EEF2F1` | 5.44 | AA |
-| light | `pass` | `surface` | `#4F6A26` | `#FFFFFF` | 6.14 | AA |
-| light | `changes` | `bg` | `#8A5A00` | `#EEF2F1` | 5.25 | AA |
-| light | `changes` | `surface` | `#8A5A00` | `#FFFFFF` | 5.93 | AA |
-| light | `blocked` | `bg` | `#A8432A` | `#EEF2F1` | 5.31 | AA |
-| light | `blocked` | `surface` | `#A8432A` | `#FFFFFF` | 6.00 | AA |
-| light | `superseded` | `bg` | `#4A5A6A` | `#EEF2F1` | 6.28 | AA |
-| light | `superseded` | `surface` | `#4A5A6A` | `#FFFFFF` | 7.09 | AAA |
-| light | `pass-on` | `pass-bg` | `#FFFFFF` | `#4F6A26` | 6.14 | AA |
-| light | `changes-on` | `changes-bg` | `#1F2A33` | `#E0A526` | 6.67 | AA |
-| light | `blocked-on` | `blocked-bg` | `#FFFFFF` | `#A8432A` | 6.00 | AA |
-| light | `superseded-on` | `superseded-bg` | `#FFFFFF` | `#4A5A6A` | 7.09 | AAA |
-| dark | `text` | `bg` | `#E6ECEA` | `#151C22` | 14.37 | AAA |
-| dark | `text` | `surface` | `#E6ECEA` | `#1E2730` | 12.64 | AAA |
-| dark | `text` | `code-bg` | `#E6ECEA` | `#0F1418` | 15.48 | AAA |
-| dark | `text-muted` | `bg` | `#A7B4BF` | `#151C22` | 8.13 | AAA |
-| dark | `text-muted` | `surface` | `#A7B4BF` | `#1E2730` | 7.15 | AAA |
-| dark | `text-muted` | `code-bg` | `#A7B4BF` | `#0F1418` | 8.75 | AAA |
-| dark | `link` | `bg` | `#9DBB67` | `#151C22` | 7.97 | AAA |
-| dark | `link` | `surface` | `#9DBB67` | `#1E2730` | 7.02 | AAA |
-| dark | `pass` | `bg` | `#9DBB67` | `#151C22` | 7.97 | AAA |
-| dark | `pass` | `surface` | `#9DBB67` | `#1E2730` | 7.02 | AAA |
-| dark | `changes` | `bg` | `#E8B54A` | `#151C22` | 9.12 | AAA |
-| dark | `changes` | `surface` | `#E8B54A` | `#1E2730` | 8.03 | AAA |
-| dark | `blocked` | `bg` | `#E0826B` | `#151C22` | 6.20 | AA |
-| dark | `blocked` | `surface` | `#E0826B` | `#1E2730` | 5.46 | AA |
-| dark | `superseded` | `bg` | `#A7B4BF` | `#151C22` | 8.13 | AAA |
-| dark | `superseded` | `surface` | `#A7B4BF` | `#1E2730` | 7.15 | AAA |
-| dark | `pass-on` | `pass-bg` | `#151C22` | `#9DBB67` | 7.97 | AAA |
-| dark | `changes-on` | `changes-bg` | `#151C22` | `#E8B54A` | 9.12 | AAA |
-| dark | `blocked-on` | `blocked-bg` | `#151C22` | `#E0826B` | 6.20 | AA |
-| dark | `superseded-on` | `superseded-bg` | `#151C22` | `#A7B4BF` | 8.13 | AAA |
-
-Graphics need 3:1 against their background (WCAG 1.4.11). The amber beak on Mist is 1.94:1. It is decorative there: the slate line alone makes the heron recognisable, and the one-colour versions carry no amber.
+| dark | `text` | `bg` | `#F4F5F8` | `#08090C` | 18.26 | AAA |
+| dark | `text` | `surface` | `#F4F5F8` | `#13151A` | 16.75 | AAA |
+| dark | `text` | `code-bg` | `#F4F5F8` | `#0E1014` | 17.47 | AAA |
+| dark | `text-muted` | `bg` | `#9FA0A3` | `#08090C` | 7.61 | AAA |
+| dark | `text-muted` | `surface` | `#9FA0A3` | `#13151A` | 6.98 | AA |
+| dark | `text-faint` | `bg` | `#7E7F82` | `#08090C` | 4.97 | AA |
+| dark | `accent` | `bg` | `#9097CC` | `#08090C` | 7.10 | AAA |
+| dark | `accent` | `surface` | `#9097CC` | `#13151A` | 6.51 | AA |
+| dark | `pass` | `bg` | `#86B8A5` | `#08090C` | 8.92 | AAA |
+| dark | `changes` | `bg` | `#D2B48C` | `#08090C` | 10.10 | AAA |
+| dark | `blocked` | `bg` | `#D48F8F` | `#08090C` | 7.70 | AAA |
+| dark | `superseded` | `bg` | `#9FA0A3` | `#08090C` | 7.61 | AAA |
+| light | `text` | `bg` | `#0D0E12` | `#F7F8FA` | 18.15 | AAA |
+| light | `text` | `surface` | `#0D0E12` | `#F7F8FA` | 18.15 | AAA |
+| light | `text` | `code-bg` | `#0D0E12` | `#F7F8FA` | 18.15 | AAA |
+| light | `text-muted` | `bg` | `#5B5F6B` | `#F7F8FA` | 6.00 | AA |
+| light | `text-muted` | `surface` | `#5B5F6B` | `#F7F8FA` | 6.00 | AA |
+| light | `text-faint` | `bg` | `#5B5F6B` | `#F7F8FA` | 6.00 | AA |
+| light | `accent` | `bg` | `#4C5391` | `#F7F8FA` | 6.69 | AA |
+| light | `accent` | `surface` | `#4C5391` | `#F7F8FA` | 6.69 | AA |
+| light | `pass` | `bg` | `#2F6B55` | `#F7F8FA` | 5.89 | AA |
+| light | `changes` | `bg` | `#7A5520` | `#F7F8FA` | 6.28 | AA |
+| light | `blocked` | `bg` | `#9A3B3B` | `#F7F8FA` | 6.45 | AA |
+| light | `superseded` | `bg` | `#5B5F6B` | `#F7F8FA` | 6.00 | AA |
 
 | Theme | Graphic token | Background token | Graphic | Background | Ratio | Use |
 |---|---|---|---|---|---|---|
-| light | `mark-line` | `bg` | `#4A5A6A` | `#EEF2F1` | 6.28 | pass 3:1 |
-| light | `mark-line` | `surface` | `#4A5A6A` | `#FFFFFF` | 7.09 | pass 3:1 |
-| light | `mark-water` | `bg` | `#6E8B3D` | `#EEF2F1` | 3.43 | pass 3:1 |
-| light | `mark-beak` | `bg` | `#E0A526` | `#EEF2F1` | 1.94 | decorative only |
-| dark | `mark-line` | `bg` | `#EEF2F1` | `#151C22` | 15.24 | pass 3:1 |
-| dark | `mark-line` | `surface` | `#EEF2F1` | `#1E2730` | 13.40 | pass 3:1 |
-| dark | `mark-water` | `bg` | `#9DBB67` | `#151C22` | 7.97 | pass 3:1 |
-| dark | `mark-beak` | `bg` | `#E0A526` | `#151C22` | 7.85 | pass 3:1 |
+| dark | `mark-line` | `bg` | `#F4F5F8` | `#08090C` | 18.26 | pass 3:1 |
+| dark | `border-strong` | `bg` | `#2B2B2E` | `#08090C` | 1.41 | decorative only |
+| light | `mark-line` | `bg` | `#0D0E12` | `#F7F8FA` | 18.15 | pass 3:1 |
+| light | `border-strong` | `bg` | `#DCDEE3` | `#F7F8FA` | 1.27 | decorative only |
 
 ## Typography
 
 | Role | Family | Fallback stack | Licence |
 |---|---|---|---|
-| Text and headings | Nunito Sans | Inter, then the system sans | SIL Open Font License 1.1, [OFL.txt](https://github.com/googlefonts/NunitoSans/blob/main/OFL.txt) |
-| Alternate text face | Inter | the system sans | SIL Open Font License 1.1, [LICENSE.txt](https://github.com/rsms/inter/blob/master/LICENSE.txt) |
-| Code, paths, CLI | IBM Plex Mono | `ui-monospace`, Menlo, Consolas | SIL Open Font License 1.1, [LICENSE.txt](https://github.com/IBM/plex/blob/master/LICENSE.txt) |
+| Display, headings, text | Inter, variable, with the optical-size axis | system sans | SIL Open Font License 1.1, [LICENSE.txt](https://github.com/rsms/inter/blob/master/LICENSE.txt) |
+| Code, paths, verdict marker | JetBrains Mono, variable | `ui-monospace`, Menlo, Consolas | SIL Open Font License 1.1, [OFL.txt](https://github.com/JetBrains/JetBrainsMono/blob/master/OFL.txt) |
 
-IBM Plex carries the Reserved Font Name "Plex". If you subset or modify the font files, the result cannot use the name Plex. Referencing the installed family by name in CSS is fine.
+The site self-hosts both families from the `@fontsource-variable` packages. The licence texts ship with the site at `fonts/Inter-OFL.txt` and `fonts/JetBrainsMono-OFL.txt`, and next to the design book at `brand/fonts/`. With `font-optical-sizing: auto`, Inter switches to its display cut at large sizes, so there is one family for both roles.
 
-The site loads no web fonts. It names the families first, so a reader who has them installed sees them, and everyone else gets the system face. To self-host the fonts later, copy the `woff2` files into the site and add `@font-face` rules with `font-display: swap`. Keep the licence file next to them.
+| Token | Size | Weight | Tracking | Use |
+|---|---|---|---|---|
+| `--heron-size-display` | 3rem to 9.5rem | 520 | -0.045em | The one headline per page, gradient text |
+| `--heron-size-2xl` | 3.5rem | 500 | -0.03em | Verdict word, section titles |
+| `--heron-size-xl` | 2rem | 500 | -0.03em | Gate names, card titles |
+| `--heron-size-lg` | 1.25rem | 400 | -0.011em | Lead paragraph |
+| `--heron-size-base` | 1rem | 400 | -0.011em | Body |
+| `--heron-size-sm` | 0.875rem | 400 | 0 | Code, tables |
+| `--heron-size-xs` | 0.75rem | 500 | 0.12em | Mono labels in capitals |
 
-| Token | Size | Use |
-|---|---|---|
-| `--heron-size-2xl` | 2.5rem | Page title |
-| `--heron-size-xl` | 1.75rem | Section heading |
-| `--heron-size-lg` | 1.25rem | Verdict line, lead paragraph |
-| `--heron-size-base` | 1rem | Body |
-| `--heron-size-sm` | 0.875rem | Tables, code |
-| `--heron-size-xs` | 0.8125rem | Labels, captions |
+Body line height is 1.6, display line height 0.95. Keep body lines under 72 characters. Headings use sentence case. Verdict words and mono labels are the only capitals. Mono type turns off ligatures and contextual alternates, so `=>` and `<!--` show as typed.
 
-Body line height is 1.6. Headings are weight 700 at line height 1.2. Keep body lines under 72 characters wide. Headings use sentence case. Verdict words are the one exception and always appear in capitals.
+## The heron
 
-## Iconography
+### Drawing
 
-Icons follow the mark: one stroke weight, round caps and joins, no fills except for one small solid detail. Draw them on a 24 px grid with a 1.5 px stroke, and colour them with `currentColor`.
+The heron stands on an edge, neck in an S, head lowered, bill pointed down over the edge. It is a duotone silhouette: a `night-2` body with a 1.3 to 1.6 unit edge line in frost at about 72%, a solid bill, and legs as a single line. On dark, a faint plume glow sits behind the feet, as if the edge catches a cold light. The drawing has no eye and no pupil, and it never gets one.
 
-Each verdict has a shape, so the state never depends on colour alone:
+`tools/build_assets.py` holds the drawing once, in a 200 by 280 unit box, facing left with its feet on y 277. The site's perch uses it as drawn, facing into the page. The mark mirrors it to face the wordmark. Those are the only two orientations.
 
-| Verdict | Shape | Unicode | Colour token |
-|---|---|---|---|
-| PASS | filled circle | `U+25CF` ● | `--heron-pass` |
-| CHANGES REQUESTED | half-filled circle | `U+25D0` ◐ | `--heron-changes` |
-| BLOCKED | filled square | `U+25A0` ■ | `--heron-blocked` |
-| SUPERSEDED | hollow circle | `U+25CB` ○ | `--heron-superseded` |
+### Mark and lockup
 
-These four characters are geometric shapes, not emoji, and they render as text in GitLab. Do not use emoji anywhere in Heron output.
+The mark places the heron on a 128 by 128 grid, standing on a 1.2 unit rim line at y 117.2. The wordmark `heron` is drawn as monoline paths, not set in a font, with its baseline on the same rim, so the word and the bird share one edge.
+
+| File | Use |
+|---|---|
+| `assets/heron-mark.svg` | Duotone mark on light |
+| `assets/heron-mark-on-dark.svg` | Duotone mark with rim glow on dark |
+| `assets/heron-mark-mono-ink.svg`, `assets/heron-mark-mono-white.svg` | One-colour solid silhouette |
+| `assets/heron-lockup.svg`, `assets/heron-lockup-on-dark.svg` | Mark and wordmark, light and dark |
+| `assets/heron-lockup-mono-ink.svg`, `assets/heron-lockup-mono-white.svg` | One-colour lockups. The site header uses the white one |
+| `assets/favicon.svg` | Solid frost silhouette on a `night` tile with a plume rim |
+| `assets/heron-mark-512.png` | Raster of the dark mark, 512 by 512, transparent |
+| `assets/social-preview.svg`, `assets/social-preview.png` | Repository and link preview, 1280 by 640 |
+
+Keep one eighth of the mark's height clear on every side. The smallest mark is 24 px tall and the smallest lockup is 120 px wide. Below 24 px, use the favicon.
+
+### Misuse
+
+- Do not add an eye, a pupil, or a face.
+- Do not colour the heron with the accent. Plume is the light around it, not the bird.
+- Do not rotate, stretch, or flip it beyond the two orientations above.
+- Do not set the wordmark in a font.
+- Do not animate the heron flapping, walking, or idling.
+
+## Motion
+
+Motion follows the reader's scroll, and only that.
+
+1. **The fold.** Canvas UI [Bend](https://canvasui.dev/docs/components/bend) folds the face out over its top and bottom edges. Each fold zone is a quarter of the viewport height and reaches 84 degrees with a rounded crease. Each edge flattens as the page nears that end of the scroll, over 70% of the viewport height. Tilt and overscroll tumble are off, so the heron stays registered on the rim.
+2. **The fallback fold.** Without HTML-in-canvas, CSS scroll-driven animations (`animation-timeline: view()`) tip each line with `perspective` and `rotateX` over the same quarter-height zones.
+3. **The strike.** A caught line gets one plume underline, drawn right to left in 260 ms, and its finding plate lights up over 700 ms. The heron moves once per visit: one 1100 ms strike of the neck when the blocker crosses the edge.
+4. **Nothing loops and nothing autoplays.** No idle animation, no parallax, no cursor effects.
+5. **Reduced motion.** With `prefers-reduced-motion: reduce`, the CSS fold and the strike are off, Bend snaps instead of easing, and every finding is shown pinned from the start. The page stays complete.
 
 ## Voice and tone
 
-Heron writes like a patient senior reviewer who has read the whole change. It is calm, kind, and exact. It uses plain English and short sentences. It cites the file and the line. It explains the consequence, then suggests the fix. It never hypes, scolds, or guesses at intent.
+Heron writes like a patient senior reviewer who has read the whole change: calm, plain, and exact. It names the path and the line, says what happens, then suggests the fix. It never hypes, scolds, or guesses at intent.
 
 | Do | Don't |
 |---|---|
-| `src/upload/client.ts:88` retries on HTTP 429 with no limit. If the server never sends `Retry-After`, the job never ends. | Critical bug!!! Infinite loop in the upload client. |
-| This merge request changes the public `parseConfig` signature. Two callers in `cli/` still pass the old shape. | You broke the API. |
-| No findings in the UI gate. | Awesome work, looks amazing! |
-| The spec gate could not read `docs/spec.md`, so spec coverage is unknown. | Something went wrong. |
-| A newer head arrived at `9ab41c0`. This report covers `3f9c2e1` and is SUPERSEDED. | Outdated review, ignore. |
-| Consider moving the retry limit into `UploadConfig`. | You should obviously move this. |
+| Archive deletes the project instead of archiving it (`src/projects/archive.ts:14`). | Critical bug!!! You deleted everything. |
+| The archive button is enabled with nothing selected. | Awesome work, just one tiny thing! |
+| The review could not finish: session `b1.gate.spec` failed. | Something went wrong. |
+| The source branch moved during the review. These results describe `abc2c194` only. | Outdated review, ignore. |
 
 Rules:
 
-- Say what happens to a person or a system, not how the code feels. "Uploads hang" beats "this is fragile".
-- One finding per point. Put the location first.
-- Use "must change" only when the merge request cannot merge safely without the change. Use "consider" for everything else.
-- Report what Heron could not check. A skipped gate is stated, never hidden.
-- No exclamation marks, no emoji, no "simply", no "just".
+- Say what happens to a person or a system, not how the code feels.
+- One finding per point. Put the location in the finding.
+- State what Heron did not check. The report has a "Not checked" section for that.
+- No exclamation marks, no emoji, no "simply", no "just", no long dashes.
+- Page copy only states what the Heron docs state. No invented numbers, logos, or quotes.
 
-## GitLab report comment
+## The report note
 
-Heron posts exactly one comment per head. The comment has four parts, in this order:
+Heron writes one note per merge request and updates it on the next run. The format comes from `src/report.ts`:
 
-1. The verdict line: shape, product name, and the verdict word.
-2. A short summary: what Heron reviewed and what matters.
-3. Findings, each with a file and line.
-4. Two collapsed sections: `REVIEW CHECKS` and `AGENT PROVENANCE`.
+1. A hidden marker: `<!-- heron:v1 mr=… head=… config=… verdict=… -->`.
+2. The heading `## Heron review: VERDICT`.
+3. The reviewed head and lane, then the summary.
+4. `### Findings`: blockers first, then advisories, each with its gate and a link to `path:line` at the reviewed head.
+5. `### Not checked`, when a session reported limits.
+6. Two collapsed sections: `REVIEW CHECKS` (gate status table, matched rules, plan, config digest) and `AGENT PROVENANCE` (session, role, backend, model, effort, tokens, tool calls, duration, vendor cost, result).
 
-The first line of the comment is a hidden HTML marker. Tools parse the marker and the verdict word. People read everything else. The field names in the marker, the finding labels, and the model names below are illustrative. The product's own report schema wins where it differs.
+Model-written text is posted as escaped plain text, never as Markdown. The brand does not restyle the note. GitLab renders it.
 
-Full example, in GitLab-flavoured Markdown:
+## Labels
 
-````markdown
-<!-- heron-report verdict="CHANGES REQUESTED" head="3f9c2e1d" mr="42" -->
-### ◐ Heron: CHANGES REQUESTED
+Heron adds the verdict label named in its config and removes the other managed labels. It does not create labels, so they must already exist in the project or a parent group. Colours are yours to choose in GitLab. These values fit the palette and carry white text:
 
-Reviewed !42 at `3f9c2e1d`, risk lane **standard**, 4 gates, 1 min 27 s.
-
-The new upload retry loop can run forever when the server answers HTTP 429 without a `Retry-After` header. Two findings must change before merge. One is a suggestion.
-
-#### Findings
-
-1. **Must change.** `src/upload/client.ts:88`
-   The loop retries on 429 with no attempt limit. If the server never sends `Retry-After`, the CI job runs until it times out. `UploadConfig.maxRetries` already exists. Use it here.
-
-2. **Must change.** `src/upload/client.ts:112`
-   The catch block drops the original error and throws `new Error("upload failed")`. Logs lose the status code. Pass the original error as `cause`.
-
-3. **Consider.** `docs/upload.md:14`
-   The docs still describe three retries. After the fix above, link to the `maxRetries` setting instead of repeating the number.
-
-<details>
-<summary>REVIEW CHECKS (4 gates, 2 with findings)</summary>
-
-| Gate | Result | Findings | Time |
-|---|---|---|---|
-| Standards | ◐ findings | 1 suggestion | 22 s |
-| Spec | ◐ findings | 2 | 41 s |
-| UI | ○ skipped: no UI files changed | 0 | 0 s |
-| Design | ● pass | 0 | 18 s |
-| Supervisor | ◐ CHANGES REQUESTED | 3 | 6 s |
-| Judge | not configured | | |
-
-Plan: risk lane `standard`, chosen from 6 changed files and 212 changed lines.
-
-</details>
-
-<details>
-<summary>AGENT PROVENANCE</summary>
-
-| Role | Access | Model | Input head |
-|---|---|---|---|
-| Gates | Claude subscription | `claude-sonnet-4-5` | `3f9c2e1d` |
-| Supervisor | ChatGPT subscription (Codex) | `gpt-5-codex` | `3f9c2e1d` |
-
-Heron `0.1.0`, config `heron.yml` at `3f9c2e1d`. Heron does not edit code, approve, or merge. This comment was written by an automated reviewer.
-
-</details>
-````
-
-Layout rules for the comment:
-
-- The heading is level 3 so it sits under GitLab's own note chrome without shouting.
-- The verdict line holds one shape and the exact verdict word. Never bold the whole summary.
-- Every finding starts with its label and a location in code font. Locations use `path:line` or `path:start-end`.
-- A PASS report with no findings replaces the findings list with the sentence "No findings." Do not add praise.
-- A SUPERSEDED report keeps its original findings, adds the shape ○ to its heading, and names the newer head in the first sentence.
-- Keep both `<details>` blocks collapsed. Leave a blank line after `<summary>` so GitLab renders the Markdown inside.
-
-## CLI output
-
-The terminal output is plain ASCII. One step per line. The label column is 11 characters wide. The verdict word appears in full on the last line so scripts can match it.
-
-```text
-$ heron review --mr 42
-heron 0.1.0  reviewing !42 at 3f9c2e1d
-plan        risk lane standard, gates: standards, spec, ui, design
-gate        standards ......... 1 suggestion           22s
-gate        spec .............. 2 findings             41s
-gate        ui ................ skipped (no UI files)   0s
-gate        design ............ pass                   18s
-supervisor  verdict ........... CHANGES REQUESTED       6s
-judge       not configured
-report      posted note on !42
-labels      added heron::changes-requested, removed heron::reviewing
-
-verdict     CHANGES REQUESTED  (3 findings, 1m 27s)
-```
-
-Colour is optional and never carries meaning alone. The words carry it.
-
-| Element | ANSI colour | Truecolor token |
+| Label (example config) | Colour | White text |
 |---|---|---|
-| PASS, `pass` | green | `reed-light` `#9DBB67` |
-| CHANGES REQUESTED, findings | yellow | `amber-light` `#E8B54A` |
-| BLOCKED, errors | red | `rust-light` `#E0826B` |
-| SUPERSEDED, skipped, timings, dot leaders | dim | `slate-light` `#A7B4BF` |
-| Labels in the left column | bold | none |
-
-Use the 16 named ANSI colours by default, so the reader's terminal theme decides the exact shade. Use the truecolor values only when the user asks for them. Print no colour when `NO_COLOR` is set or when output is not a terminal.
-
-## Workflow labels
-
-GitLab scoped labels (`heron::`) keep exactly one Heron state on a merge request at a time. These names are suggestions. The product's configured label names win.
-
-| Label | Colour | Meaning |
-|---|---|---|
-| `heron::reviewing` | `#4A5A6A` slate | A review of the current head is running. |
-| `heron::pass` | `#4F6A26` reed-deep | The latest report is PASS. |
-| `heron::changes-requested` | `#E0A526` amber | The latest report is CHANGES REQUESTED. |
-| `heron::blocked` | `#A8432A` rust | The latest report is BLOCKED. |
-
-GitLab picks the label text colour on its own. The table below shows both candidates. Check the rendered label once on your instance.
-
-| Label | Background | White text | Ink text | Use text |
-|---|---|---|---|---|
-| `heron::reviewing` | `#4A5A6A` | 7.09 | 2.06 | white |
-| `heron::pass` | `#4F6A26` | 6.14 | 2.38 | white |
-| `heron::changes-requested` | `#E0A526` | 2.19 | 6.67 | ink |
-| `heron::blocked` | `#A8432A` | 6.00 | 2.44 | white |
+| `review::in progress` | `#4C5391` plume-ink | 7.11:1 |
+| `review::passed` | `#2F6B55` sage-ink | 6.26:1 |
+| `review::changes requested` | `#7A5520` sand-ink | 6.67:1 |
+| `review::blocked` | `#9A3B3B` rose-ink | 6.86:1 |
 
 ## README header
 
-Use the lockup, centred, with a dark-mode source. GitHub renders `<picture>` in Markdown and swaps the image with the reader's theme.
+Use the lockup, centred, with a dark-mode source:
 
 ```html
 <p align="center">
@@ -391,20 +248,17 @@ Use the lockup, centred, with a dark-mode source. GitHub renders `<picture>` in 
     <img alt="Heron" src="docs/brand/assets/heron-lockup.svg" width="344">
   </picture>
 </p>
-<p align="center">Calm, exact code review for GitLab merge requests.</p>
 ```
-
-Put at most three badges under the tagline, for example licence, CI, and latest release. Badge images come from the forge or a pinned badge service. Keep them on one line.
 
 ## Social preview
 
-`assets/social-preview.png` is 1280 by 640 px, under 70 KB. It shows the mark, the wordmark, the tagline, and the repository address on Mist. Keep text inside a 64 px margin, because some sites crop the edges. To use it, upload the PNG in the repository's settings under **Social preview**.
+`assets/social-preview.png` is 1280 by 640 px. It shows the rim, the heron on it under a cold beam, the headline "Every line passes the heron.", the tagline, and the repository address. Text stays inside a 64 px margin. The SVG embeds the Latin subsets of Inter and JetBrains Mono as data URIs, so it renders the same without the fonts installed. Upload the PNG in the repository settings under **Social preview**.
 
-The SVG draws the tagline and the address as outlines taken from Nunito Sans and IBM Plex Mono, so it looks the same on a machine with neither font installed. `tools/build_assets.py` makes the outlines from the font files you pass with `--fonts`. The font files are not stored in this repository.
+## Rebuilding
 
-## Rebuilding the assets
-
-1. Run `python3 docs/brand/tools/build_tokens.py` to write the token files and print the contrast tables.
-2. Download `NunitoSans[YTLC,opsz,wdth,wght].ttf` and `IBMPlexMono-Regular.ttf` from [google/fonts](https://github.com/google/fonts) into one directory, install `fonttools`, and run `python3 docs/brand/tools/build_assets.py --fonts <that directory>` to write the SVGs.
-3. Rasterise the PNGs with any SVG renderer, for example `rsvg-convert -w 512 -h 512 docs/brand/assets/heron-mark.svg -o docs/brand/assets/heron-mark-512.png`.
-4. Open the PNGs and check that the heron still reads as a heron at 32 px.
+1. Run `pnpm install` in `site/`. The asset and book scripts read the font files from `site/node_modules`.
+2. Run `python3 docs/brand/tools/build_tokens.py` to write the token files and print the contrast tables.
+3. Run `python3 docs/brand/tools/build_assets.py` to write the SVGs.
+4. Render the PNGs with a renderer that loads data-URI fonts, such as headless Chromium: the mark at 512 by 512 with a transparent background, and the social preview at 1280 by 640.
+5. Run `python3 docs/brand/tools/build_site.py` to write the design book page and copy the assets and fonts into `site/public/brand/`.
+6. Open the PNGs and check that the heron still reads as a heron at 32 px.

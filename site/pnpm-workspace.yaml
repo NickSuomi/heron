@@ -1,5 +1,4 @@
 minimumReleaseAge: 10080
-# esbuild verifies its platform binary; sharp only serves Astro image processing, which the site does not use.
+# esbuild verifies its platform binary during install. Nothing else needs a build script.
 allowBuilds:
   esbuild: true
-  sharp: false
