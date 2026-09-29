@@ -95,7 +95,13 @@ export const foldClaudeEvents = (
       const model = str(message["model"])
       if (apiModel === null && model !== null && !model.startsWith("<")) apiModel = model
       const error = str(event["error"])
-      if (error !== null) note(new HarnessError({ kind: errorKind(error), detail: `Claude Code reported ${error}` }))
+      if (error !== null) {
+        const reason = (Array.isArray(message["content"]) ? message["content"].filter(isRecord) : [])
+          .flatMap((block) => (block["type"] === "text" ? [str(block["text"]) ?? ""] : []))
+          .join(" ")
+          .trim()
+        note(new HarnessError({ kind: errorKind(error), detail: `Claude Code reported ${error}${reason === "" ? "" : `: ${clip(redact(reason))}`}` }))
+      }
       for (const block of Array.isArray(message["content"]) ? message["content"].filter(isRecord) : []) {
         if (block["type"] !== "tool_use") continue
         const name = str(block["name"]) ?? ""
