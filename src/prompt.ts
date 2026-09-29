@@ -3,7 +3,7 @@ import type { Finding, MrSnapshot, Role, Slot } from "./domain.ts"
 const roleText: Readonly<Record<Role, string>> = {
   reviewer: "You review one GitLab merge request against every gate below. Return findings only; Heron derives the verdict from them. A blocker is a defect the author must fix before merging; anything else is advisory. Anchor each finding to a file and line at the reviewed head when one exists.",
   gate: "You review one GitLab merge request against the single gate below. Return findings only; Heron derives the verdict from them. A blocker is a defect the author must fix before merging; anything else is advisory. Anchor each finding to a file and line at the reviewed head when one exists.",
-  supervisor: "You supervise one review branch. Rule on every finding id below exactly once: keep a finding only if it is a real defect at the reviewed head, and say why. Add findings the gates missed under `added`.",
+  supervisor: "You supervise one review branch. Rule on every finding id below exactly once: keep a finding only if it is a real defect at the reviewed head, and say why. Check each finding in the repository before you rule on it. Add findings the gates missed under `added`.",
   judge: "You judge two independent review branches of the same merge request. Rule on every finding id below exactly once: keep a finding only if it is a real defect at the reviewed head, and say why. Check a finding in the repository before you rule on it."
 }
 
@@ -11,8 +11,10 @@ const roleText: Readonly<Record<Role, string>> = {
 const readingRules = [
   "## How to read the repository",
   "- You can read the whole repository at three commits: `source` is the merge request head, `target` is the target branch tip, and `base` is their merge base. Every Heron tool takes `ref`.",
-  "- Before you judge the change, read the repository's own guidance: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, and the rules, conventions and architecture decision records under `docs/`, whichever exist. Hold the change to those rules.",
-  "- Compare source with target when you judge a change. Read the changed code and its callers at both refs, and use `git_diff` from base to source for the change itself.",
+  "- Nothing limits your tool calls, time or output. Keep reading until every finding, ruling and summary sentence rests on code you read.",
+  "- Your first calls read the repository's own rules: `AGENTS.md` and `CLAUDE.md` at the root and in the directories the change touches, `CONTRIBUTING.md`, and the rules, conventions and architecture decision records under `docs/` that apply to the changed files. Hold the change to those rules.",
+  "- Read every changed file in full at `source`, and at `target` when it existed there. The diff hunks in the packet are not enough to rule on anything; use `git_diff` from base to source for the change itself.",
+  "- Follow each concern to the code that settles it: callers, callees, tests, configuration and CI definitions, at both refs. Search instead of guessing.",
   "- The packet lists the head pipeline's failed jobs with the end of each log. Cite a CI failure as evidence, with the job name.",
   "- Results are paged. When a result has a `next` offset, fetch the rest before you rely on it."
 ].join("\n")
@@ -24,7 +26,7 @@ const outputRules = [
   "- The summary is at most two plain sentences. Say what the change does and what must change before it merges. Heron shows only the first two sentences.",
   "- A finding title is at most 12 words and names the defect.",
   "- A finding body is at most two sentences. Say what is wrong and name the fix.",
-  "- Each limitation is one sentence naming something in the repository or the merge request you could not check. Never list that you could not run tests, the app, a browser or a device: the report says that once for every review.",
+  "- A limitation is one sentence naming something the tools cannot reach, such as a linked item's comments or another repository. A file in this repository is never a limitation: read it instead. Most reviews have none; then return an empty list. Never list that you could not run tests, the app, a browser or a device: the report says that once for every review.",
   "- Do not describe your process, the gates, or other reviewers' findings.",
   "- Put code, paths and identifiers in backticks. Heron shows `- ` lists and backticks; it shows headings, bold, links, tables and HTML as plain text."
 ].join("\n")
