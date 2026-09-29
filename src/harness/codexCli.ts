@@ -19,18 +19,24 @@ const SECRETS = ["CODEX_API_KEY"]
 export const CODEX_CREDENTIALS = [...SECRETS, "CODEX_HOME"]
 const ALLOWED = ["PATH", "HOME", "LANG", ...CODEX_CREDENTIALS]
 
+const TOOL_OUTPUT_TOKENS = 1_000_000
+/** Codex waits 60 s for an MCP tool by default; a first language-server call on a large repository can take longer. */
+const TOOL_TIMEOUT_SECONDS = 86_400
+
 /** `-c` values are TOML; JSON strings and string arrays are valid TOML literals. */
 const toml = (value: string | ReadonlyArray<string>) => JSON.stringify(value)
 
 /**
  * Flags verified against `codex exec --help` of codex-cli 0.101.0; config keys against the Codex config reference
  * (features.shell_tool, features.unified_exec, web_search, approval_policy, tools.view_image, project_doc_max_bytes,
- * mcp_servers.<id>.{command,args,required,enabled_tools}). The prompt, instructions first, arrives on stdin (`-`).
+ * mcp_servers.<id>.{command,args,required,enabled_tools,tool_timeout_sec}); tool_output_token_limit is a key the 0.101.0
+ * binary contains. The prompt, instructions first, arrives on stdin (`-`). Codex keeps no shell: a shell could read its
+ * own auth file, so the model reads only through Heron's tools.
  */
 export const codexArgs = (
   request: HarnessRequest,
   files: { readonly schema: string; readonly cwd: string },
-  server: Launcher | null,
+  server: Launcher,
   operatorServers: ReadonlyArray<string>
 ) => [
   "exec",
@@ -48,12 +54,13 @@ export const codexArgs = (
   "-c", `approval_policy=${toml("never")}`,
   "-c", "tools.view_image=false",
   "-c", "project_doc_max_bytes=0",
-  ...(server === null ? [] : [
-    "-c", `mcp_servers.${MCP_SERVER_NAME}.command=${toml(server.command)}`,
-    "-c", `mcp_servers.${MCP_SERVER_NAME}.args=${toml(server.args)}`,
-    "-c", `mcp_servers.${MCP_SERVER_NAME}.required=true`,
-    "-c", `mcp_servers.${MCP_SERVER_NAME}.enabled_tools=${toml(sourceToolNames)}`
-  ]),
+  // Codex's own caps on a tool result, raised so they never cut a Heron tool short; Heron's tools page large results.
+  "-c", `tool_output_token_limit=${TOOL_OUTPUT_TOKENS}`,
+  "-c", `mcp_servers.${MCP_SERVER_NAME}.command=${toml(server.command)}`,
+  "-c", `mcp_servers.${MCP_SERVER_NAME}.args=${toml(server.args)}`,
+  "-c", `mcp_servers.${MCP_SERVER_NAME}.required=true`,
+  "-c", `mcp_servers.${MCP_SERVER_NAME}.tool_timeout_sec=${TOOL_TIMEOUT_SECONDS}`,
+  "-c", `mcp_servers.${MCP_SERVER_NAME}.enabled_tools=${toml(sourceToolNames)}`,
   ...operatorServers.flatMap((name) => ["-c", `mcp_servers.${name}.enabled=false`]),
   "-"
 ]
@@ -180,7 +187,7 @@ export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) 
       await mkdir(cwd)
       await writeFile(schema, JSON.stringify(request.outputSchema))
     })
-    const server = request.source === null ? null : mcpSourceCommand(options.mcp, request.source)
+    const server = mcpSourceCommand(options.mcp, request.source)
     const env = childEnv(options.env, ALLOWED)
     const disabled = yield* operatorServers({ command: options.command, env, cwd })
     const run = yield* runJsonLines(

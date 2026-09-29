@@ -12,10 +12,10 @@ afterAll(repo.cleanup)
 const mcp = { command: "/opt/node", args: ["/opt/heron/dist/cli.js", "mcp-source"] }
 const SHELL_VARS = ["PWD", "OLDPWD", "SHLVL", "_"]
 
-const run = (fixture: string, options: { code?: number; source?: boolean } = {}) => {
+const run = (fixture: string, options: { code?: number; maxTurns?: number | null } = {}) => {
   const fake = fakeCli(repo.root, fixture, options.code ?? 0)
   const adapter = claudeCli({ command: fake.bin, env: jobEnv, mcp })
-  const request = requestFor("alpha", options.source === false ? null : repo.source)
+  const request = requestFor("alpha", repo.source, null, options.maxTurns === undefined ? 6 : options.maxTurns)
   return { effect: adapter(request), captured: () => JSON.parse(readFileSync(fake.capture, "utf8")) as Captured }
 }
 
@@ -34,42 +34,75 @@ describe("claude-cli harness", () => {
       })
     }))
 
-  it.effect("passes locked-down flags, the heron server only, and an allowlisted env", () =>
+  it.effect("confines the native read tools to the three trees and passes locked-down flags and an allowlisted env", () =>
     Effect.gen(function*() {
       const { captured, effect } = run("claude-success.jsonl")
       yield* effect
       const { argv, env, files, stdin } = captured()
-      expect(argv.slice(0, 5)).toEqual(["-p", "--output-format", "stream-json", "--verbose", "--json-schema"])
-      expect(JSON.parse(flag(argv, "--json-schema")!)).toEqual(answerSchema)
-      expect([flag(argv, "--model"), flag(argv, "--effort"), flag(argv, "--tools"), flag(argv, "--allowedTools")]).toEqual(["model-x", "low", "", "mcp__heron"])
-      expect([flag(argv, "--permission-mode"), flag(argv, "--permission-prompts"), flag(argv, "--setting-sources"), flag(argv, "--max-turns")]).toEqual(["dontAsk", "none", "", "6"])
-      expect(argv).toContain("--strict-mcp-config")
-      expect(argv).toContain("--no-session-persistence")
-      expect(files[flag(argv, "--system-prompt-file")!]).toBe("You review code.")
-      expect(JSON.parse(files[flag(argv, "--mcp-config")!]!)).toEqual({
+      const dir = dirname(flag(argv, "--system-prompt-file")!)
+      const { base, source, target } = repo.source.trees
+      const rule = (path: string) => `Read(/${path}/**)`
+      expect(argv).toEqual([
+        "-p", "--output-format", "stream-json", "--verbose",
+        "--json-schema", JSON.stringify(answerSchema),
+        "--model", "model-x", "--effort", "low",
+        "--system-prompt-file", join(dir, "system-prompt.md"),
+        "--tools", "Read,Grep,Glob",
+        "--restricted",
+        "--add-dir", source, target, base,
+        "--strict-mcp-config",
+        "--mcp-config", join(dir, "mcp.json"),
+        "--allowedTools", "mcp__heron", rule(source), rule(target), rule(base),
+        "--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent",
+        "Read(//proc/**)", "Read(//sys/**)", rule(join(dir, "home")),
+        "--permission-mode", "dontAsk",
+        "--permission-prompts", "none",
+        "--setting-sources", "",
+        "--no-session-persistence",
+        "--max-turns", "6"
+      ])
+      expect(rule(source)).toBe(`Read(//${source.slice(1)}/**)`)
+      expect(files[join(dir, "system-prompt.md")]).toBe([
+        "You review code.",
+        "",
+        "## Native file tools",
+        "Read, Grep and Glob work on three read-only trees. Use these absolute paths with them:",
+        `- source: \`${source}\``,
+        `- target: \`${target}\``,
+        `- base: \`${base}\``,
+        "The Heron tools (`mcp__heron__*`) read the same commits; pass `ref` to them instead of a path."
+      ].join("\n"))
+      expect(JSON.parse(files[join(dir, "mcp.json")]!)).toEqual({
         mcpServers: {
           heron: {
             type: "stdio",
             command: "/opt/node",
-            args: ["/opt/heron/dist/cli.js", "mcp-source", "--git-dir", repo.source.gitDir, "--commit", repo.source.commit],
+            args: ["/opt/heron/dist/cli.js", "mcp-source", "--checkout", JSON.stringify(repo.source)],
             env: {}
           }
         }
       })
       expect(stdin).toBe("What number does a.ts export?")
-      expect(Object.keys(env).filter((k) => !SHELL_VARS.includes(k)).sort()).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HOME", "HTTPS_PROXY", "PATH"])
+      expect(Object.keys(env).filter((k) => !SHELL_VARS.includes(k)).sort()).toEqual([
+        "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HOME", "HTTPS_PROXY", "MAX_MCP_OUTPUT_TOKENS", "MCP_TOOL_TIMEOUT", "PATH"
+      ])
       // A fresh home per session: no operator CLAUDE.md, auto-memory, skills, hooks or stored login.
-      const home = join(dirname(flag(argv, "--system-prompt-file")!), "home")
-      expect([env["HOME"], env["CLAUDE_CONFIG_DIR"]]).toEqual([home, home])
+      const home = join(dir, "home")
+      expect([env["HOME"], env["CLAUDE_CONFIG_DIR"], env["MAX_MCP_OUTPUT_TOKENS"], env["MCP_TOOL_TIMEOUT"]]).toEqual([home, home, "1000000", "86400000"])
       expect(JSON.stringify(env)).not.toContain("must-not-leak")
     }))
 
-  it.effect("gives the judge no MCP server at all", () =>
+  it.effect("passes no turn limit unless the operator set one", () =>
     Effect.gen(function*() {
-      const { captured, effect } = run("claude-success.jsonl", { source: false })
+      const { captured, effect } = run("claude-success.jsonl", { maxTurns: null })
       yield* effect
-      const { argv } = captured()
-      expect([argv.includes("--strict-mcp-config"), argv.includes("--mcp-config"), argv.includes("--allowedTools")]).toEqual([true, false, false])
+      expect(captured().argv.includes("--max-turns")).toBe(false)
+    }))
+
+  it.effect("counts native Read, Grep and Glob calls as tool calls, not violations", () =>
+    Effect.gen(function*() {
+      const result = yield* run("claude-native.synthetic.jsonl").effect
+      expect([result.output, result.toolCalls]).toEqual([{ answer: 42 }, 3])
     }))
 
   it.effect("reports a missing login as auth", () =>
@@ -85,6 +118,18 @@ describe("claude-cli harness", () => {
         "vendor",
         "Claude Code reported invalid_request: API Error: 400 Claude Code 2.1.274 does not support this model; version 2.1.280 or newer is required. Run 'claude update', or update the Claude desktop app, then try again."
       ])
+    }))
+
+  it.effect("keeps a session whose only denied calls were native reads outside the trees", () =>
+    Effect.gen(function*() {
+      const result = yield* run("claude-denied-read.synthetic.jsonl").effect
+      expect(result.reportedModel).toBe("claude-sonnet-5")
+    }))
+
+  it.effect("still fails a session when a tool outside the read-only set was denied", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(run("claude-denied-bash.synthetic.jsonl").effect)
+      expect([error.kind, error.detail]).toEqual(["tool-violation", "denied tool calls: Bash"])
     }))
 
   it.effect("rejects a session that used a tool other than the heron server", () =>

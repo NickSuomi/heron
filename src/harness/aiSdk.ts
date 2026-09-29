@@ -2,6 +2,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider"
 import {
   APICallError,
   generateText,
+  isLoopFinished,
   isStepCount,
   jsonSchema,
   type JSONSchema7,
@@ -14,8 +15,8 @@ import {
 import { Effect } from "effect"
 import { z } from "zod"
 import type { Env } from "../config.ts"
-import { HarnessError, type HarnessRequest, type HarnessResult, type SourceCheckout } from "../ports.ts"
-import { runSourceTool, sourceTools } from "./sourceTools.ts"
+import { HarnessError, type HarnessRequest, type HarnessResult } from "../ports.ts"
+import { runSourceTool, sourceTools, toolContext, type ToolContext } from "./sourceTools.ts"
 
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>
 
@@ -28,13 +29,13 @@ export interface AiSdkBinding {
 }
 
 /** The source tools as AI SDK tools. Tool failures go back to the model as text so it can correct itself. */
-export const aiSourceTools = (source: SourceCheckout): ToolSet =>
+export const aiSourceTools = (ctx: ToolContext): ToolSet =>
   Object.fromEntries(sourceTools.map((t) => [
     t.name,
     tool({
       description: t.description,
       inputSchema: z.object(t.input),
-      execute: async (args: unknown, { abortSignal }) => (await Effect.runPromise(runSourceTool(t, source, args), { signal: abortSignal })).text
+      execute: async (args: unknown, { abortSignal }) => (await Effect.runPromise(runSourceTool(t, ctx, args), { signal: abortSignal })).text
     })
   ]))
 
@@ -50,7 +51,9 @@ const failure = (error: unknown): HarnessError => {
 }
 
 export const aiSdk = (binding: AiSdkBinding) => (request: HarnessRequest) =>
-  Effect.gen(function*() {
+  Effect.scoped(Effect.gen(function*() {
+    // The language servers the tools start live exactly as long as this session.
+    const ctx = yield* toolContext(request.source)
     const providerOptions = binding.options(request.slot.profile.effort)
     if (typeof providerOptions === "string") return yield* new HarnessError({ kind: "vendor", detail: providerOptions })
     const result = yield* Effect.tryPromise({
@@ -59,8 +62,9 @@ export const aiSdk = (binding: AiSdkBinding) => (request: HarnessRequest) =>
           model: binding.model(request.slot.profile.model),
           instructions: request.instructions,
           prompt: request.prompt,
-          tools: request.source === null ? {} : aiSourceTools(request.source),
-          stopWhen: isStepCount(request.maxTurns),
+          tools: aiSourceTools(ctx),
+          // With no operator limit the loop runs until the model answers without calling a tool.
+          stopWhen: request.maxTurns === null ? isLoopFinished() : isStepCount(request.maxTurns),
           // The core decodes the output against its schema; the AI SDK only needs the JSON Schema to constrain generation.
           output: Output.object({ schema: jsonSchema(request.outputSchema as JSONSchema7) }),
           providerOptions,
@@ -86,7 +90,7 @@ export const aiSdk = (binding: AiSdkBinding) => (request: HarnessRequest) =>
       },
       toolCalls: r.steps.reduce((n, s) => n + s.toolCalls.length, 0)
     } satisfies HarnessResult
-  })
+  }))
 
 /** OpenRouter's documented reasoning efforts (`OpenRouterProviderOptions.reasoning.effort`, provider 3.0.0). */
 const OPENROUTER_EFFORTS = ["xhigh", "high", "medium", "low", "minimal", "none"] as const

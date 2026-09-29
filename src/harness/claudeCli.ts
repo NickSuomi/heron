@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { Effect } from "effect"
 import type { Env } from "../config.ts"
 import type { Usage } from "../domain.ts"
-import { HarnessError, type HarnessRequest, type HarnessResult } from "../ports.ts"
+import { HarnessError, type HarnessRequest, type HarnessResult, TREE_REFS } from "../ports.ts"
 import { type Launcher, MCP_SERVER_NAME, mcpSourceCommand } from "./mcpSource.ts"
 import { childEnv, clip, isRecord, num, redactor, runJsonLines, str, tempDir } from "./process.ts"
 
@@ -19,29 +19,72 @@ export const CLAUDE_CREDENTIALS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY
 const SECRETS = CLAUDE_CREDENTIALS
 /** HOME and CLAUDE_CONFIG_DIR are never inherited: each session gets a fresh, empty home. */
 const ALLOWED = ["PATH", "LANG", ...SECRETS]
+/**
+ * Claude Code's own caps on one MCP tool call, raised so they never cut a Heron tool short: output tokens (default
+ * 25,000) and the wait for a result, in milliseconds. Heron's tools page large results themselves.
+ */
+const UNLIMITED = { MAX_MCP_OUTPUT_TOKENS: "1000000", MCP_TOOL_TIMEOUT: "86400000" }
 
 const TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`
 /** Claude Code delivers `--json-schema` output through this built-in tool. */
 const STRUCTURED_OUTPUT_TOOL = "StructuredOutput"
+/**
+ * Claude Code's built-in read-only file tools. Glob is its file-listing tool: Claude Code 2.1.281 has no separate LS
+ * tool (`--tools "Read,Grep,Glob,LS"` starts a session with only Glob, Grep and Read).
+ */
+export const NATIVE_TOOLS = ["Read", "Grep", "Glob"] as const
+/** Tools that write, run code, reach the network or start other agents; listed so no setting can turn them on. */
+const FORBIDDEN_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"]
 
-/** Flags verified against `claude --help` of Claude Code 2.1.281 and code.claude.com/docs/en/cli-reference. */
-export const claudeArgs = (request: HarnessRequest, files: { readonly systemPrompt: string; readonly mcpConfig: string | null }) => [
-  "-p",
-  "--output-format", "stream-json",
-  "--verbose",
-  "--json-schema", JSON.stringify(request.outputSchema),
-  "--model", request.slot.profile.model,
-  "--effort", request.slot.profile.effort,
-  "--system-prompt-file", files.systemPrompt,
-  "--tools", "",
-  "--strict-mcp-config",
-  ...(files.mcpConfig === null ? [] : ["--mcp-config", files.mcpConfig, "--allowedTools", `mcp__${MCP_SERVER_NAME}`]),
-  "--permission-mode", "dontAsk",
-  "--permission-prompts", "none",
-  "--setting-sources", "",
-  "--no-session-persistence",
-  "--max-turns", String(request.maxTurns)
-]
+/** A Claude Code path rule: `//` starts an absolute path (code.claude.com/docs/en/permissions, Read and Edit rules). */
+const under = (dir: string) => `//${dir.replace(/^\/+/, "")}/**`
+
+export interface ClaudeFiles {
+  readonly systemPrompt: string
+  readonly mcpConfig: string
+  /** The session's private home; reads there are denied even though no allow rule reaches it. */
+  readonly home: string
+}
+
+/**
+ * Flags verified against `claude --help` of Claude Code 2.1.281 and code.claude.com/docs/en/cli-reference and
+ * /permissions. The three trees are working directories (`--add-dir`), so the native tools read them without a prompt;
+ * the allow rules name them again, and `dontAsk` denies every other read. `--restricted` confines the file tools to the
+ * working directories and ignores user, project and local settings.
+ */
+export const claudeArgs = (request: HarnessRequest, files: ClaudeFiles) => {
+  const trees = TREE_REFS.map((r) => request.source.trees[r])
+  return [
+    "-p",
+    "--output-format", "stream-json",
+    "--verbose",
+    "--json-schema", JSON.stringify(request.outputSchema),
+    "--model", request.slot.profile.model,
+    "--effort", request.slot.profile.effort,
+    "--system-prompt-file", files.systemPrompt,
+    "--tools", NATIVE_TOOLS.join(","),
+    "--restricted",
+    "--add-dir", ...trees,
+    "--strict-mcp-config",
+    "--mcp-config", files.mcpConfig,
+    "--allowedTools", `mcp__${MCP_SERVER_NAME}`, ...trees.map((t) => `Read(${under(t)})`),
+    "--disallowedTools", ...FORBIDDEN_TOOLS, `Read(${under("proc")})`, `Read(${under("sys")})`, `Read(${under(files.home)})`,
+    "--permission-mode", "dontAsk",
+    "--permission-prompts", "none",
+    "--setting-sources", "",
+    "--no-session-persistence",
+    ...(request.maxTurns === null ? [] : ["--max-turns", String(request.maxTurns)])
+  ]
+}
+
+/** Tells the model where the native tools find each tree; the Heron tools take `ref` instead of a path. */
+export const nativeToolsText = (source: HarnessRequest["source"]) =>
+  [
+    "## Native file tools",
+    "Read, Grep and Glob work on three read-only trees. Use these absolute paths with them:",
+    ...TREE_REFS.map((r) => `- ${r}: \`${source.trees[r]}\``),
+    "The Heron tools (`mcp__heron__*`) read the same commits; pass `ref` to them instead of a path."
+  ].join("\n")
 
 /** Error categories Claude Code puts on assistant and `system/api_retry` events. */
 const errorKind = (category: string): HarnessError["kind"] =>
@@ -105,7 +148,7 @@ export const foldClaudeEvents = (
       for (const block of Array.isArray(message["content"]) ? message["content"].filter(isRecord) : []) {
         if (block["type"] !== "tool_use") continue
         const name = str(block["name"]) ?? ""
-        if (name.startsWith(TOOL_PREFIX)) toolCalls++
+        if (name.startsWith(TOOL_PREFIX) || (NATIVE_TOOLS as ReadonlyArray<string>).includes(name)) toolCalls++
         else if (name !== STRUCTURED_OUTPUT_TOOL) note(new HarnessError({ kind: "tool-violation", detail: `model called ${name}` }))
       }
     } else if (type === "system" && event["subtype"] === "api_retry") {
@@ -118,7 +161,10 @@ export const foldClaudeEvents = (
 
   const failure = failures[0] ?? null
   if (result === null) return failure ?? new HarnessError({ kind: "no-output", detail: "Claude Code ended without a result event" })
-  const denials = Array.isArray(result["permission_denials"]) ? result["permission_denials"].filter(isRecord) : []
+  // A denied native read (a path outside the trees) only tells the model no; the session goes on. Any other denied
+  // tool means the model reached for something it must never have.
+  const denials = (Array.isArray(result["permission_denials"]) ? result["permission_denials"].filter(isRecord) : [])
+    .filter((d) => !(NATIVE_TOOLS as ReadonlyArray<string>).includes(str(d["tool_name"]) ?? ""))
   if (denials.length > 0) {
     return new HarnessError({ kind: "tool-violation", detail: `denied tool calls: ${denials.map((d) => str(d["tool_name"]) ?? "?").join(", ")}` })
   }
@@ -148,25 +194,25 @@ export const foldClaudeEvents = (
 export const claudeCli = (options: ClaudeCliOptions) => (request: HarnessRequest) =>
   Effect.scoped(Effect.gen(function*() {
     const dir = yield* tempDir
+    // An empty working directory: nothing of the reviewed repository (its CLAUDE.md, .claude/ or .mcp.json) sits where
+    // Claude Code discovers project configuration. The trees are reached through --add-dir.
     const cwd = join(dir, "cwd")
     // `--bare` would also skip user state, but it never reads CLAUDE_CODE_OAUTH_TOKEN. An empty home keeps token
     // auth and loads no operator CLAUDE.md, auto-memory, skills, plugins, hooks or stored login.
     const home = join(dir, "home")
     const systemPrompt = join(dir, "system-prompt.md")
-    const mcpConfig = request.source === null ? null : join(dir, "mcp.json")
+    const mcpConfig = join(dir, "mcp.json")
     yield* Effect.promise(async () => {
       await mkdir(cwd)
       await mkdir(home)
-      await writeFile(systemPrompt, request.instructions)
-      if (mcpConfig !== null && request.source !== null) {
-        const server = mcpSourceCommand(options.mcp, request.source)
-        const config = { mcpServers: { [MCP_SERVER_NAME]: { type: "stdio", command: server.command, args: server.args, env: {} } } }
-        await writeFile(mcpConfig, JSON.stringify(config))
-      }
+      await writeFile(systemPrompt, `${request.instructions}\n\n${nativeToolsText(request.source)}`)
+      const server = mcpSourceCommand(options.mcp, request.source)
+      const config = { mcpServers: { [MCP_SERVER_NAME]: { type: "stdio", command: server.command, args: server.args, env: {} } } }
+      await writeFile(mcpConfig, JSON.stringify(config))
     })
-    const env = { ...childEnv(options.env, ALLOWED), HOME: home, CLAUDE_CONFIG_DIR: home }
+    const env = { ...childEnv(options.env, ALLOWED), HOME: home, CLAUDE_CONFIG_DIR: home, ...UNLIMITED }
     const run = yield* runJsonLines(
-      { command: options.command, args: claudeArgs(request, { systemPrompt, mcpConfig }), env, cwd, stdin: request.prompt }
+      { command: options.command, args: claudeArgs(request, { systemPrompt, mcpConfig, home }), env, cwd, stdin: request.prompt }
     )
     const redact = redactor(env, SECRETS)
     const folded = foldClaudeEvents(run.events, redact)

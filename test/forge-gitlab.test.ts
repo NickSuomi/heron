@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { NodeServices } from "@effect/platform-node"
@@ -11,6 +11,7 @@ import { GitLabForge } from "../src/forge/gitlab.ts"
 import { Forge } from "../src/ports.ts"
 import { printMarker } from "../src/report.ts"
 import { configOf, sha } from "./fakes.ts"
+import { makeWork, sourceChanges } from "./fixtures/harness/repo.ts"
 
 const TOKEN = "glpat-test-secret-0123456789"
 const config = configOf()
@@ -25,6 +26,7 @@ interface Sent {
 }
 interface Reply {
   readonly status?: number
+  /** Sent as JSON, or as it is when it is a string (a job log). */
   readonly body: unknown
   readonly headers?: Record<string, string>
 }
@@ -48,7 +50,7 @@ const fakeGitLab = (replies: ReadonlyArray<Reply>) => {
       if (reply === undefined) throw new Error(`unexpected request ${request.method} ${url.pathname}`)
       return HttpClientResponse.fromWeb(
         request,
-        new Response(JSON.stringify(reply.body), { status: reply.status ?? 200, headers: reply.headers ?? {} })
+        new Response(typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body), { status: reply.status ?? 200, headers: reply.headers ?? {} })
       )
     })
   )
@@ -107,14 +109,18 @@ describe("GitLab forge", () => {
         { body: mergeRequest() },
         page([diff("src/a.ts"), diff("src/new.ts", { new_file: true })], "2"),
         page([diff("src/moved.ts", { old_path: "src/old.ts", renamed_file: true })], ""),
-        { body: [version()] }
+        { body: [version()] },
+        page([], ""),
+        page([], "")
       ])
       const snapshot = yield* withForge(fake, (forge) => forge.snapshot(ref))
       expect(fake.sent).toEqual([
         { method: "GET", path: MR, query: {} },
         { method: "GET", path: `${MR}/diffs`, query: { per_page: "100", page: "1" } },
         { method: "GET", path: `${MR}/diffs`, query: { per_page: "100", page: "2" } },
-        { method: "GET", path: `${MR}/versions`, query: { per_page: "1" } }
+        { method: "GET", path: `${MR}/versions`, query: { per_page: "1" } },
+        { method: "GET", path: `${MR}/closes_issues`, query: { per_page: "100", page: "1" } },
+        { method: "GET", path: `${MR}/related_issues`, query: { per_page: "100", page: "1" } }
       ])
       expect(fake.authorization[0]).toBe(`Bearer ${TOKEN}`)
       expect(snapshot).toEqual({
@@ -132,8 +138,59 @@ describe("GitLab forge", () => {
           { path: "src/a.ts", oldPath: null, status: "modified", diff: "@@ -1 +1 @@\n-old\n+new in src/a.ts\n" },
           { path: "src/new.ts", oldPath: null, status: "added", diff: "@@ -1 +1 @@\n-old\n+new in src/new.ts\n" },
           { path: "src/moved.ts", oldPath: "src/old.ts", status: "renamed", diff: "@@ -1 +1 @@\n-old\n+new in src/moved.ts\n" }
-        ]
+        ],
+        issues: [],
+        pipeline: null
       })
+    }))
+
+  it.effect("snapshot carries the linked issues and the failed jobs' log tails, with secrets removed", () =>
+    Effect.gen(function*() {
+      const issue = (id: number, iid: number, title: string) => ({
+        id,
+        iid,
+        title,
+        description: `Details of ${iid}.`,
+        state: "opened",
+        web_url: `https://gitlab.example.com/group/app/-/issues/${iid}`,
+        references: { full: `group/app#${iid}` }
+      })
+      const log = [
+        "\x1b[0KRunning with gitlab-runner 18.0",
+        "section_start:1700000000:step_script\r\x1b[0K\x1b[32;1m$ pnpm test\x1b[0m",
+        ...Array.from({ length: 205 }, (_, i) => `line ${i + 1}`),
+        "progress 10%\rprogress 100%",
+        `token ${TOKEN} and glpat-${"x".repeat(20)} and sk-ant-oat01-${"y".repeat(24)}`,
+        "FAIL test/app.test.ts > adds",
+        ""
+      ].join("\n")
+      const fake = fakeGitLab([
+        { body: mergeRequest({ changes_count: "1", head_pipeline: { id: 900, project_id: 55, status: "failed", web_url: "https://gitlab.example.com/group/app/-/pipelines/900" } }) },
+        page([diff("src/a.ts")], ""),
+        { body: [version()] },
+        page([issue(1, 12, "Totals are wrong")], ""),
+        page([issue(1, 12, "Totals are wrong"), issue(2, 14, "Follow-up")], ""),
+        page([{ id: 7001, name: "unit", stage: "test", web_url: "https://gitlab.example.com/group/app/-/jobs/7001" }], ""),
+        { body: log }
+      ])
+      const snapshot = yield* withForge(fake, (forge) => forge.snapshot(ref))
+      expect(fake.sent.slice(4)).toEqual([
+        { method: "GET", path: `${MR}/related_issues`, query: { per_page: "100", page: "1" } },
+        { method: "GET", path: "/api/v4/projects/55/pipelines/900/jobs", query: { "scope[]": "failed", per_page: "100", page: "1" } },
+        { method: "GET", path: "/api/v4/projects/55/jobs/7001/trace", query: {} }
+      ])
+      expect(snapshot.issues).toEqual([
+        { reference: "group/app#12", relation: "closes", title: "Totals are wrong", description: "Details of 12.", state: "opened", webUrl: "https://gitlab.example.com/group/app/-/issues/12" },
+        { reference: "group/app#14", relation: "related", title: "Follow-up", description: "Details of 14.", state: "opened", webUrl: "https://gitlab.example.com/group/app/-/issues/14" }
+      ])
+      const tail = snapshot.pipeline!.failedJobs[0]!.logTail.split("\n")
+      expect([snapshot.pipeline!.id, snapshot.pipeline!.status, tail.length, tail[0], tail.slice(-3)]).toEqual([
+        900,
+        "failed",
+        200,
+        "line 9",
+        ["progress 100%", "token [redacted] and [redacted] and [redacted]", "FAIL test/app.test.ts > adds"]
+      ])
     }))
 
   const incomplete: ReadonlyArray<readonly [string, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, string]> = [
@@ -311,38 +368,70 @@ describe("GitLab forge", () => {
 describe("GitLab forge checkout", () => {
   const work = mkdtempSync(join(tmpdir(), "heron-forge-test-"))
   afterAll(() => rmSync(work, { recursive: true, force: true }))
-  const git = (...args: Array<string>) =>
-    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-C", work, ...args], { encoding: "utf8" }).trim()
-  git("init", "--quiet")
-  writeFileSync(join(work, "a.txt"), "first\n")
-  git("add", "a.txt")
-  git("commit", "--quiet", "-m", "first")
-  const head = git("rev-parse", "HEAD") as ReturnType<typeof sha>
+  const { base, source, target } = makeWork(work)
+  const revision = { head: source, start: target, base }
   const project = { http_url_to_repo: `file://${work}` }
 
-  it.live("fetches exactly the head into a private repository that is gone after the scope", () =>
+  it.live("fetches the head, the target tip and the merge base with history into read-only trees that are gone after the scope", () =>
     Effect.gen(function*() {
       const fake = fakeGitLab([{ body: project }])
       const inside = yield* withForge(fake, (forge) =>
-        Effect.scoped(Effect.map(forge.checkout(ref, head), (checkout) => ({
-          checkout,
-          type: execFileSync("git", ["--git-dir", checkout.gitDir, "cat-file", "-t", head], { encoding: "utf8" }).trim(),
-          config: readFileSync(join(checkout.gitDir, "config"), "utf8")
-        }))))
+        Effect.scoped(Effect.map(forge.checkout(ref, revision), (checkout) => {
+          const tree = (r: keyof typeof checkout.trees) => readdirSync(join(checkout.trees[r], "src")).sort()
+          let writable: string
+          try {
+            writeFileSync(join(checkout.trees.source, "src/math.ts"), "changed")
+            writable = "wrote"
+          } catch (e) {
+            writable = (e as NodeJS.ErrnoException).code ?? "error"
+          }
+          return {
+            checkout,
+            files: { source: tree("source"), target: tree("target"), base: tree("base") },
+            math: readFileSync(join(checkout.trees.source, "src/math.ts"), "utf8"),
+            history: execFileSync("git", ["--git-dir", checkout.gitDir, "rev-list", "--count", source], { encoding: "utf8" }).trim(),
+            writable,
+            modes: [statSync(join(checkout.trees.target, "src")).mode & 0o222, statSync(join(checkout.trees.target, "src/math.ts")).mode & 0o222],
+            config: readFileSync(join(checkout.gitDir, "config"), "utf8")
+          }
+        })))
       expect(fake.sent).toEqual([{ method: "GET", path: "/api/v4/projects/group%2Fapp", query: {} }])
-      expect(inside.checkout.commit).toBe(head)
-      expect(inside.type).toBe("commit")
+      expect(inside.checkout.commits).toEqual({ source, target, base })
+      expect(inside.files).toEqual({
+        source: ["app.ts", "broken.ts", "math.ts"],
+        target: ["app.ts", "math.ts", "target-only.ts"],
+        base: ["app.ts", "math.ts"]
+      })
+      expect(inside.math).toBe(sourceChanges["src/math.ts"])
+      expect([inside.history, inside.writable, inside.modes]).toEqual(["2", "EACCES", [0, 0]])
       expect(inside.config).not.toContain(TOKEN)
       expect(existsSync(inside.checkout.gitDir)).toBe(false)
+      expect(existsSync(inside.checkout.trees.source)).toBe(false)
+    }))
+
+  it.live("writes a symbolic link in the repository as a plain file, so no tree path leads outside", () =>
+    Effect.gen(function*() {
+      const linked = mkdtempSync(join(tmpdir(), "heron-forge-link-"))
+      const commits = makeWork(linked)
+      symlinkSync("/etc/passwd", join(linked, "passwd"))
+      execFileSync("git", ["-C", linked, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", "passwd"])
+      execFileSync("git", ["-C", linked, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "link"])
+      const head = execFileSync("git", ["-C", linked, "rev-parse", "HEAD"], { encoding: "utf8" }).trim() as typeof source
+      const seen = yield* withForge(fakeGitLab([{ body: { http_url_to_repo: `file://${linked}` } }]), (forge) =>
+        Effect.scoped(Effect.map(forge.checkout(ref, { head, start: commits.target, base: commits.base }), (c) => {
+          const path = join(c.trees.source, "passwd")
+          return [lstatSync(path).isSymbolicLink(), readFileSync(path, "utf8")]
+        }))).pipe(Effect.ensuring(Effect.sync(() => rmSync(linked, { recursive: true, force: true }))))
+      expect(seen).toEqual([false, "/etc/passwd"])
     }))
 
   it.live("runs git with an allowlisted environment and no operator git config", () =>
     Effect.gen(function*() {
       const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
       const bin = join(work, "..", `${basename(work)}-bin`)
-      const seen = join(bin, "env.json")
+      const seen = join(bin, "calls.jsonl")
       mkdirSync(bin, { recursive: true })
-      writeFileSync(join(bin, "git"), `#!/bin/sh\n"${process.execPath}" -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' "${seen}"\nexec "${realGit}" "$@"\n`)
+      writeFileSync(join(bin, "git"), `#!/bin/sh\n"${process.execPath}" -e 'require("fs").appendFileSync(process.argv[1], JSON.stringify({ args: process.argv.slice(2), env: process.env }) + "\\n")' "${seen}" "$@"\nexec "${realGit}" "$@"\n`)
       chmodSync(join(bin, "git"), 0o755)
       const ambient = [
         "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
@@ -362,11 +451,20 @@ describe("GitLab forge checkout", () => {
         apply(saved)
         rmSync(bin, { recursive: true, force: true })
       })
-      const env = yield* withForge(fakeGitLab([{ body: project }]), (forge) => Effect.scoped(forge.checkout(ref, head))).pipe(
-        Effect.map(() => JSON.parse(readFileSync(seen, "utf8")) as Record<string, string>),
+      const calls = yield* withForge(fakeGitLab([{ body: project }]), (forge) => Effect.scoped(forge.checkout(ref, revision))).pipe(
+        Effect.map(() =>
+          readFileSync(seen, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { args: Array<string>; env: Record<string, string> })
+        ),
         Effect.ensuring(restore)
       )
-      const keys = Object.keys(env).filter((k) => !["PWD", "OLDPWD", "SHLVL", "_"].includes(k)).sort()
+      const shell = ["PWD", "OLDPWD", "SHLVL", "_"]
+      const env = calls.find((c) => c.args.includes("fetch"))!.env
+      const keys = Object.keys(env).filter((k) => !shell.includes(k)).sort()
+      // Building the trees needs no credential, so those git runs never see one.
+      const tree = calls.find((c) => c.args.includes("checkout-index"))!.env
+      expect(Object.keys(tree).filter((k) => !shell.includes(k)).sort()).toEqual([
+        "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_INDEX_FILE", "GIT_TERMINAL_PROMPT", "HOME", "NO_PROXY", "PATH"
+      ])
       expect([keys, env["NO_PROXY"], env["HOME"], env["GIT_CONFIG_GLOBAL"], env["GIT_CONFIG_NOSYSTEM"]]).toEqual([
         [
           "GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_KEY_0", "GIT_CONFIG_KEY_1", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_VALUE_0",
@@ -383,7 +481,7 @@ describe("GitLab forge checkout", () => {
     Effect.gen(function*() {
       const fake = fakeGitLab([{ body: project }])
       const before = leftovers()
-      const error = yield* Effect.flip(withForge(fake, (forge) => Effect.scoped(forge.checkout(ref, sha("9")))))
+      const error = yield* Effect.flip(withForge(fake, (forge) => Effect.scoped(forge.checkout(ref, { ...revision, head: sha("9") }))))
       expect(error.message).toMatch(/^checkout: git fetch exited 128: /)
       expect(leftovers()).toEqual(before)
     }))

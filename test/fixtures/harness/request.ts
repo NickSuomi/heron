@@ -9,7 +9,12 @@ export const answerSchema = {
   additionalProperties: false
 }
 
-export const requestFor = (harness: string, source: SourceCheckout | null, timeout = Duration.seconds(20)): HarnessRequest => ({
+export const requestFor = (
+  harness: string,
+  source: SourceCheckout,
+  timeout: Duration.Duration | null = Duration.seconds(20),
+  maxTurns: number | null = 6
+): HarnessRequest => ({
   slot: {
     id: "reviewer" as SessionId,
     role: "reviewer",
@@ -20,7 +25,7 @@ export const requestFor = (harness: string, source: SourceCheckout | null, timeo
   prompt: "What number does a.ts export?",
   source,
   outputSchema: answerSchema,
-  maxTurns: 6,
+  maxTurns,
   timeout
 })
 

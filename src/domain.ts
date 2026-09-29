@@ -32,6 +32,32 @@ export interface Change {
   readonly diff: string
 }
 
+export interface LinkedIssue {
+  /** GitLab's full reference, for example `group/app#12`. */
+  readonly reference: string
+  readonly relation: "closes" | "related"
+  readonly title: string
+  readonly description: string
+  readonly state: string
+  readonly webUrl: string
+}
+
+export interface FailedJob {
+  readonly name: string
+  readonly stage: string
+  readonly webUrl: string
+  /** The last lines of the job log, with ANSI codes and known secrets removed. */
+  readonly logTail: string
+}
+
+/** The merge request's head pipeline as GitLab reported it when the snapshot was taken. */
+export interface PipelineContext {
+  readonly id: number
+  readonly status: string
+  readonly webUrl: string
+  readonly failedJobs: ReadonlyArray<FailedJob>
+}
+
 /** Everything a review reads from the forge, captured once at one head. */
 export interface MrSnapshot {
   readonly ref: MrRef
@@ -43,8 +69,11 @@ export interface MrSnapshot {
   readonly webUrl: string
   readonly projectWebUrl: string
   readonly labels: ReadonlyArray<string>
+  /** `head` is the source branch commit, `start` the target branch tip the diff was taken against, `base` their merge base. */
   readonly revision: { readonly base: Sha; readonly start: Sha; readonly head: Sha }
   readonly changes: ReadonlyArray<Change>
+  readonly issues: ReadonlyArray<LinkedIssue>
+  readonly pipeline: PipelineContext | null
 }
 
 export interface Profile {
@@ -120,7 +149,7 @@ const Line = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 
 const described = (description: string) => Schema.String.annotate({ description })
 const summary = described("At most two plain sentences: what the change does and what must change before it merges.")
-const limitations = Schema.Array(described("One sentence naming something you could not check."))
+const limitations = Schema.Array(described("One sentence naming something in the repository or the merge request you could not check."))
 
 const modelFinding = (gates: NonEmptyReadonlyArray<Gate>) =>
   Schema.Struct({

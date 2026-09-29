@@ -62,7 +62,9 @@ export const snapshotAt = (head: Sha, changes: ReadonlyArray<Change>): MrSnapsho
   projectWebUrl: "https://gitlab.example.com/group/app",
   labels: [],
   revision: { base: sha("b"), start: sha("b"), head },
-  changes
+  changes,
+  issues: [],
+  pipeline: null
 })
 
 export interface ForgeState {
@@ -109,7 +111,12 @@ export const fakeForge = (
         state.labelWrites.push(t)
         state.labels = [...state.labels.filter((l) => !t.remove.includes(l)), ...t.add.filter((l) => !state.labels.includes(l))]
       }),
-    checkout: (_, head) => call(() => ({ gitDir: "/nonexistent/fake.git", commit: head }))
+    checkout: (_, revision) =>
+      call(() => ({
+        gitDir: "/nonexistent/fake.git",
+        commits: { source: revision.head, target: revision.start, base: revision.base },
+        trees: { source: "/nonexistent/source", target: "/nonexistent/target", base: "/nonexistent/base" }
+      }))
   })
   return { state, layer }
 }

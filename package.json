@@ -32,11 +32,15 @@
     "gen-env-table": "node scripts/gen-env-table.ts"
   },
   "dependencies": {
+    "@ast-grep/cli": "0.45.3",
     "@effect/platform-node": "4.0.0-rc.115",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@openrouter/ai-sdk-provider": "3.0.0",
+    "@vscode/ripgrep": "1.18.0",
     "ai": "7.0.106",
     "effect": "4.0.0-rc.115",
+    "typescript-5": "npm:typescript@5.9.3",
+    "typescript-language-server": "6.0.0",
     "zod": "4.6.5"
   },
   "devDependencies": {

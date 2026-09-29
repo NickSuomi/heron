@@ -67,7 +67,7 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
   const sessions: Array<SessionRecord> = []
   const packet = packetText(snapshot)
 
-  const run = <S extends Schema.ConstraintDecoder<unknown>>(slot: Slot, schema: S, prompt: string, access: SourceCheckout | null) =>
+  const run = <S extends Schema.ConstraintDecoder<unknown>>(slot: Slot, schema: S, prompt: string) =>
     Effect.gen(function*() {
       const started = yield* Clock.currentTimeMillis
       const record = (result: HarnessResult | null, failure: string | null) =>
@@ -86,10 +86,10 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
         slot,
         instructions: instructionsFor(slot, config.policy),
         prompt,
-        source: access,
+        source,
         outputSchema: outputJsonSchema(schema),
         maxTurns: config.limits.maxTurns,
-        timeout: Duration.seconds(config.limits.sessionTimeoutSeconds)
+        timeout: config.limits.sessionTimeoutSeconds === null ? null : Duration.seconds(config.limits.sessionTimeoutSeconds)
       }).pipe(
         Effect.tapError((e) => record(null, e.kind)),
         Effect.onInterrupt(() => record(null, "interrupted")),
@@ -118,10 +118,10 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
   const runBranch = (branch: Branch) =>
     Effect.gen(function*() {
       const outputs = yield* Effect.forEach(branch.gates, (slot) =>
-        run(slot, reviewOutput(slot.gates), packet, source).pipe(Effect.map((out) => ({ slot, out }))), { concurrency: "unbounded" })
+        run(slot, reviewOutput(slot.gates), packet).pipe(Effect.map((out) => ({ slot, out }))), { concurrency: "unbounded" })
       const inputs = outputs.flatMap(({ out, slot }) => assignIds(slot.id, out.findings))
       const sup = branch.supervisor
-      const out = yield* run(sup, synthesisOutput(sup.gates, "supervisor"), `${packet}\n\n${findingsText("Gate findings", inputs)}`, source)
+      const out = yield* run(sup, synthesisOutput(sup.gates, "supervisor"), `${packet}\n\n${findingsText("Gate findings", inputs)}`)
       return {
         summary: out.summary,
         findings: yield* synthesize(inputs, out, sup),
@@ -133,7 +133,7 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
   const complete = Effect.gen(function*() {
     switch (plan.shape) {
       case "single": {
-        const out = yield* run(plan.reviewer, reviewOutput(plan.reviewer.gates), packet, source)
+        const out = yield* run(plan.reviewer, reviewOutput(plan.reviewer.gates), packet)
         return { summary: out.summary, findings: assignIds(plan.reviewer.id, out.findings), rulings: [], limitations: out.limitations }
       }
       case "gated":
@@ -143,7 +143,7 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
         const inputs = [...b1.findings, ...b2.findings]
         const judge = plan.judge
         const prompt = [packet, `## Branch 1 summary\n\n${b1.summary}`, `## Branch 2 summary\n\n${b2.summary}`, findingsText("Branch findings", inputs)].join("\n\n")
-        const out = yield* run(judge, synthesisOutput(judge.gates, "judge"), prompt, null)
+        const out = yield* run(judge, synthesisOutput(judge.gates, "judge"), prompt)
         return {
           summary: out.summary,
           findings: yield* synthesize(inputs, out, judge),
@@ -173,7 +173,7 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const head = snapshot.revision.head
   const base = { snapshot, classification, plan, configDigest: config.digest }
 
-  const reviewed = Effect.scoped(Effect.flatMap(forge.checkout(ref, head), (source) => execute(config, plan, snapshot, source)))
+  const reviewed = Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source)))
   if (!request.publish) {
     const { outcome, sessions } = yield* reviewed
     const review: Review = { ...base, sessions, outcome, verdict: verdictOf(outcome), liveHead: null }
