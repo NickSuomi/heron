@@ -1,10 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import type { UserId } from "../src/domain.ts"
-import { HarnessError, type HarnessRequest } from "../src/ports.ts"
+import { ForgeError, HarnessError, type HarnessRequest } from "../src/ports.ts"
 import { parseMarker } from "../src/report.ts"
 import { reviewOnce } from "../src/review.ts"
-import { change, configOf, fakeForge, fakeHarness, finding, keepAll, reviewOut, type Script, sha } from "./fakes.ts"
+import { change, configOf, fakeForge, fakeHarness, finding, keepAll, promptIds, reviewOut, type Script, sha } from "./fakes.ts"
 
 const config = configOf()
 const ref = { project: "group/app", iid: 7 }
@@ -237,5 +237,163 @@ describe("reviewOnce", () => {
       }, { delay: 20 })
       yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
       expect(Object.fromEntries(peak)).toEqual({ alpha: 2, beta: 1 })
+    }))
+})
+
+/** Publishes a first review at `a`, then moves the head to `c` with `delta` as the change between them. */
+const reviewedThenPushed = (answers: Record<string, Script>, changes = [change("src/app.ts")]) =>
+  Effect.gen(function*() {
+    const forge = fakeForge({ head: sha("a"), changes })
+    yield* run(forge, answers)
+    forge.state.head = sha("c")
+    forge.state.delta = (from, to) => from === sha("a") && to === sha("c") ? [change("src/other.ts", "added")] : null
+    return forge
+  })
+
+const promptsOf = (seen: ReadonlyArray<HarnessRequest>, id: string) => seen.filter((r) => r.slot.id === id).map((r) => r.prompt)
+
+describe("re-review", () => {
+  it.effect("reviews only the new commits and lets the supervisor rule on each earlier finding", () =>
+    Effect.gen(function*() {
+      const forge = yield* reviewedThenPushed(gated)
+      const seen: Array<HarnessRequest> = []
+      const result = yield* run(forge, {
+        ...gated,
+        "gate.design": () => reviewOut([finding("design", "blocker", "New helper skips validation")])
+      }, { onRun: (r) => seen.push(r) })
+      const [gatePrompt] = promptsOf(seen, "gate.design")
+      const [supervisorPrompt] = promptsOf(seen, "supervisor")
+      expect(forge.state.deltaCalls).toEqual([[sha("a"), sha("c")]])
+      expect([
+        gatePrompt!.includes(`## Changes since \`${sha("a")}\``),
+        gatePrompt!.includes("### added `src/other.ts`"),
+        gatePrompt!.includes("### modified `src/app.ts`"),
+        gatePrompt!.includes("## Earlier findings")
+      ]).toEqual([true, true, false, false])
+      expect(supervisorPrompt!.includes("## Earlier findings")).toBe(true)
+      expect(result.review.verdict).toBe("CHANGES REQUESTED")
+      expect(result.review.outcome.kind === "complete" && result.review.outcome.findings.map((f) => f.id)).toEqual([
+        "gate.design#1",
+        "gate.correctness#1",
+        "earlier#1"
+      ])
+      expect(result.body).toContain("Re-review of `aaaaaaaa..cccccccc`: 1 of 1 earlier findings carried.")
+      expect(result.body).toContain("| `supervisor` | `earlier#1` advisory in correctness | kept | real |")
+      expect(result.note).toEqual({ kind: "updated", note: 100 })
+      expect(parseMarker(forge.state.notes.get(100)!)?.head).toBe(sha("c"))
+    }))
+
+  it.effect("drops an earlier finding the supervisor rules fixed, and the verdict follows the kept findings", () =>
+    Effect.gen(function*() {
+      const forge = yield* reviewedThenPushed({ ...gated, "gate.design": () => reviewOut([finding("design", "blocker", "Leaky abstraction")]) })
+      expect(parseMarker(forge.state.notes.get(100)!)?.verdict).toBe("CHANGES REQUESTED")
+      const result = yield* run(forge, {
+        "gate.design": () => reviewOut(),
+        "gate.correctness": () => reviewOut(),
+        "supervisor": (r) => ({
+          summary: "Fixed.",
+          decisions: promptIds(r).map((id) => ({ id, keep: id !== "earlier#1", reason: id === "earlier#1" ? "The new commit removed it." : "real" })),
+          added: [],
+          limitations: []
+        })
+      })
+      expect(result.review.verdict).toBe("PASS")
+      expect(result.body).toContain("Re-review of `aaaaaaaa..cccccccc`: 1 of 2 earlier findings carried.")
+      expect(result.body).toContain("| `supervisor` | `earlier#1` Leaky abstraction | dropped | The new commit removed it\\.⁠ |")
+    }))
+
+  it.effect("has the single reviewer rule on the earlier findings and add new ones", () =>
+    Effect.gen(function*() {
+      const forge = yield* reviewedThenPushed({ reviewer: () => reviewOut([finding("correctness", "blocker", "Broken link")]) }, [change("README.md")])
+      forge.state.delta = () => [change("docs/guide.md")]
+      const seen: Array<HarnessRequest> = []
+      const result = yield* run(forge, {
+        reviewer: () => ({
+          summary: "Link fixed.",
+          decisions: [{ id: "earlier#1", keep: false, reason: "The link now resolves." }],
+          added: [finding("correctness", "advisory", "Typo in the new heading")],
+          limitations: []
+        })
+      }, { onRun: (r) => seen.push(r) })
+      expect(Object.keys((seen[0]!.outputSchema["properties"] ?? {}) as object)).toEqual(["summary", "decisions", "added", "limitations"])
+      expect(result.review.verdict).toBe("PASS")
+      expect(result.review.outcome.kind === "complete" && result.review.outcome.findings.map((f) => `${f.id} ${f.title}`)).toEqual([
+        "reviewer#1 Typo in the new heading"
+      ])
+      expect(result.body).toContain("| `reviewer` | `earlier#1` Broken link | dropped | The link now resolves\\.⁠ |")
+    }))
+
+  it.effect("gives the earlier findings to the judge in a dual lane, not to the branches", () =>
+    Effect.gen(function*() {
+      const dual: Record<string, Script> = {
+        "b1.gate.design": () => reviewOut([finding("design", "blocker", "Session outlives logout")]),
+        "b1.gate.correctness": () => reviewOut(),
+        "b1.supervisor": keepAll({ added: [] }),
+        "b2.gate.design": () => reviewOut(),
+        "b2.gate.correctness": () => reviewOut(),
+        "b2.supervisor": keepAll({ added: [] }),
+        "judge": keepAll()
+      }
+      const forge = yield* reviewedThenPushed(dual, [change("src/auth/login.ts")])
+      const seen: Array<HarnessRequest> = []
+      const result = yield* run(forge, { ...dual, "b1.gate.design": () => reviewOut() }, { onRun: (r) => seen.push(r) })
+      expect(["b1.supervisor", "b2.supervisor", "judge"].map((id) => promptsOf(seen, id)[0]!.includes("## Earlier findings"))).toEqual([false, false, true])
+      expect([result.review.verdict, result.review.outcome.kind === "complete" && result.review.outcome.findings.map((f) => f.id)]).toEqual([
+        "CHANGES REQUESTED",
+        ["earlier#1"]
+      ])
+    }))
+
+  it.effect("takes the same path on a dry run and writes nothing", () =>
+    Effect.gen(function*() {
+      const forge = yield* reviewedThenPushed(gated)
+      const note = forge.state.notes.get(100)
+      const labels = [...forge.state.labels]
+      const result = yield* run(forge, gated, { publish: false })
+      expect([result.note, result.review.rereview?.from, forge.state.notes.get(100) === note, forge.state.labels]).toEqual([
+        { kind: "dry-run" },
+        sha("a"),
+        true,
+        labels
+      ])
+      expect(result.body).toContain("Re-review of `aaaaaaaa..cccccccc`: 1 of 1 earlier findings carried.")
+    }))
+
+  const fallbacks: ReadonlyArray<readonly [string, (forge: ReturnType<typeof fakeForge>) => void]> = [
+    ["the head has not moved", (forge) => void (forge.state.head = sha("a"))],
+    ["the earlier head is not an ancestor of the new one", (forge) => void (forge.state.delta = () => null)],
+    ["the config digest changed", (forge) => void forge.state.notes.set(100, forge.state.notes.get(100)!.replace(config.digest, "e".repeat(64)))],
+    ["the target branch moved", (forge) => void (forge.state.start = sha("d"))],
+    ["the merge base moved", (forge) => void (forge.state.base = sha("d"))],
+    ["the lane changed", (forge) => void (forge.state.changes = [change("src/app.ts"), change("src/auth/login.ts")])],
+    ["the earlier note carries no findings data", (forge) => void forge.state.notes.set(100, forge.state.notes.get(100)!.replace(/<!-- heron:prior [^\n]*\n$/, ""))],
+    ["the forge cannot compare the heads", (forge) => void (forge.state.delta = () => new ForgeError({ operation: "delta", detail: "HTTP 404" }))]
+  ]
+  for (const [name, change] of fallbacks) {
+    it.effect(`reviews the whole change when ${name}`, () =>
+      Effect.gen(function*() {
+        const forge = yield* reviewedThenPushed(gated)
+        change(forge)
+        const seen: Array<HarnessRequest> = []
+        const everyLane: Record<string, Script> = {
+          ...gated,
+          ...Object.fromEntries(["b1", "b2"].flatMap((b) => [
+            [`${b}.gate.design`, () => reviewOut()],
+            [`${b}.gate.correctness`, () => reviewOut()],
+            [`${b}.supervisor`, keepAll({ added: [] })]
+          ])),
+          "judge": keepAll()
+        }
+        const result = yield* run(forge, everyLane, { onRun: (r) => seen.push(r) })
+        expect([result.review.rereview, seen.some((r) => r.prompt.includes("## Earlier findings")), result.body.includes("Re-review")]).toEqual([null, false, false])
+        expect(seen.every((r) => r.prompt.includes("### modified `src/app.ts`"))).toBe(true)
+      }))
+  }
+
+  it.effect("reviews the whole change after a BLOCKED review, which leaves no findings to carry", () =>
+    Effect.gen(function*() {
+      const forge = yield* reviewedThenPushed({ ...gated, "gate.design": () => new HarnessError({ kind: "quota", detail: "limit reached" }) })
+      const result = yield* run(forge, gated)
+      expect([parseMarker(forge.state.notes.get(100)!)?.verdict, result.review.rereview, forge.state.deltaCalls]).toEqual(["PASS", null, []])
     }))
 })

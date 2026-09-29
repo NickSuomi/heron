@@ -15,7 +15,7 @@ Status: alpha. Version 0.0.0, not published to npm. Install from source.
 
 ## What is Heron?
 
-Heron reviews one merge request at its current head. Language models that you choose read the diff, the whole repository at the merge request head and at the target branch, the linked issues, and the failed CI jobs, then return findings. Heron turns the findings into a verdict, writes one report note on the merge request, and sets a label for the verdict. When the merge request changes and you run Heron again, it updates the same note.
+Heron reviews one merge request at its current head. Language models that you choose read the diff, the whole repository at the merge request head and at the target branch, the linked issues, and the failed CI jobs, then return findings. Heron turns the findings into a verdict, writes one report note on the merge request, and sets a label for the verdict. When the merge request changes and you run Heron again, it updates the same note, and when it safely can, it reviews only the commits pushed since its last review.
 
 The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUPERSEDED. The words are fixed so that scripts can match them.
 
@@ -31,16 +31,31 @@ The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUP
 
 1. Heron loads the config. If the config lists allowed users, Heron checks that the user who triggered the review is one of them.
 2. It reads the merge request and its full diff from the GitLab API at one head commit, with the issues the merge request closes or links and the last 200 lines of each failed job in the head pipeline. If GitLab truncated or collapsed any part of the diff, Heron stops without reviewing.
-3. Path rules choose a lane. The lane sets the gates (review concerns such as correctness or security) and the sessions that run them.
+3. Path rules choose a lane. The lane sets the gates (review concerns such as correctness or security) and the sessions that run them. Heron reads its own earlier report note and decides whether this run can be a [re-review](#re-reviews) of the newer commits only.
 4. Heron fetches the head, the target branch tip and their merge base, with history, into a temporary repository and writes a read-only working tree for each. Each session runs on the backend its profile names, reads the repository through the tools listed in [Backends](docs/backends.md#source-tools), and returns findings as JSON.
 5. Heron derives the verdict from the findings. If the branch moved during the review, the verdict is SUPERSEDED.
-6. Heron creates or updates its report note and sets the verdict label. The note starts with a hidden marker that records the head commit, the config digest, and the verdict.
+6. Heron creates or updates its report note and sets the verdict label. The note starts with a hidden marker that records the head commit, the config digest, and the verdict. A finished review also ends the note with a hidden line that holds the findings it kept, the merge base, the target branch tip, and the lane.
 
 The report is meant to be read in about 20 seconds. It shows the verdict, one line with the blocker and advisory counts, the head and the lane, a summary of at most two sentences, and each blocker with a link to `path:line` at the reviewed head. Three collapsed sections hold the rest:
 
 - The advisories.
 - REVIEW CHECKS: the gate status table, the supervisor's or judge's ruling on each finding with its reason, the rest of a longer summary, what the sessions could not check in the repository, one fixed line saying Heron does not run tests, the app, a browser or a device, and why the lane was chosen.
 - AGENT PROVENANCE: the model, backend, effort, tokens, time and result of each session, and the total tool calls and vendor-reported cost.
+
+### Re-reviews
+
+When the head has moved since Heron's last report, Heron reviews only the commits after the head in that report's marker, if all of these hold:
+
+- The note was written by `forge.botUserId` and records a finished review. A BLOCKED review and a note from a Heron version before re-reviews record no findings.
+- The config digest in the marker is the current one.
+- Path rules choose the same lane as for the earlier review.
+- The target branch tip and the merge base are the ones the earlier review saw. When the target branch moves or the source branch merges it, the earlier code can interact with the new target code in ways the new commits do not show.
+- GitLab reports the earlier head as an ancestor of the new head. A force push or a rebase fails this.
+- GitLab compares the two heads completely: no timeout, no collapsed or too-large file, and no error.
+
+Otherwise Heron reviews the whole change, as it does at an unchanged head.
+
+In a re-review, the packet holds the changes since the earlier head and lists every path the merge request changes. Each session can still read the whole repository at all three commits. The findings the earlier review kept, with ids `earlier#1`, `earlier#2` and so on, go to the session that rules last: the supervisor in a gated lane, the judge in a dual lane, or the reviewer in a single lane. That session keeps or drops each one with a reason, shown in the rulings table. Code derives the verdict from the kept findings, as in a full review. The report adds one line, for example ``Re-review of `1a2b3c4d..5e6f7a8b`: 2 of 3 earlier findings carried.`` A dry run reads the earlier note and takes the same path without writing anything.
 
 ## Quick start
 
@@ -101,7 +116,7 @@ This command was not run while this README was checked, because it needs a GitLa
 - `src/review.ts` holds `reviewOnce`, the one review pipeline. It talks to GitLab and to the models through two ports defined in `src/ports.ts`: `Forge` and `Harness`.
 - `src/policy.ts` holds the decisions as plain functions: admission, lane choice, the session plan, the verdict, label changes, and whether to create, update, or skip the note.
 - `src/forge/gitlab.ts` implements `Forge` over the GitLab REST API. `src/harness/` implements `Harness` for the three backends and the read-only source tools they share.
-- The hidden marker in the report note is the only state Heron keeps. There is no database.
+- The hidden marker and the hidden findings line in the report note are the only state Heron keeps. There is no database.
 
 Reference: [Configuration](docs/configuration.md), [Backends](docs/backends.md), [Security model](docs/security.md), [Design book](docs/brand/README.md).
 
@@ -112,6 +127,7 @@ Reference: [Configuration](docs/configuration.md), [Backends](docs/backends.md),
 - **No watcher.** Nothing reviews a merge request until someone runs `heron review`, for example from the [manual CI job](docs/gitlab-ci.md). A `heron watch` command is not implemented.
 - **Large diffs are not reviewed.** If GitLab caps, collapses, or is still preparing the diff, Heron stops with an error and posts nothing.
 - **Findings live in one note.** Heron does not open inline discussion threads.
+- **A re-review trusts the earlier review's coverage.** The gates look at the new commits only, so a defect in older commits that the earlier review missed stays missed. No option forces a full review of a moved head; changing the config digest or deleting the report note does.
 - **Merge request text can steer the model.** The author controls the diff and description the model reads. A PASS is one automated opinion, not a security approval. See [Security model](docs/security.md#limits-of-the-threat-model).
 - **Vendor terms limit the CLI backends.** Anthropic [does not allow](https://code.claude.com/docs/en/agent-sdk/overview) third-party products to offer claude.ai login or rate limits without approval. Heron offers no login: `claude-cli` runs your own authenticated Claude Code, and your plan's terms apply. OpenAI's [CI/CD auth guide](https://developers.openai.com/codex/auth/ci-cd-auth.md) says not to use ChatGPT-managed Codex auth for public or open-source repositories, so use `codex-cli` only for private repositories on trusted runners. For shared or public use, choose `ai-sdk` with an API key. Details are in [Backends](docs/backends.md#vendor-terms).
 

@@ -1,5 +1,5 @@
 import { Context, type Duration, type Effect, Schema, type Scope } from "effect"
-import type { JsonSchema, LabelTransition, Marker, MrRef, MrSnapshot, NoteId, Sha, Slot, Usage } from "./domain.ts"
+import type { Change, JsonSchema, LabelTransition, Marker, MrRef, MrSnapshot, NoteId, PriorReview, Sha, Slot, Usage } from "./domain.ts"
 
 export class ForgeError extends Schema.TaggedError<ForgeError>()("ForgeError", {
   operation: Schema.String,
@@ -22,6 +22,8 @@ export class IncompleteSnapshot extends Schema.TaggedError<IncompleteSnapshot>()
 export interface ReportNote {
   readonly id: NoteId
   readonly marker: Marker
+  /** Null when the note records no finished review, for example after a BLOCKED one. */
+  readonly prior: PriorReview | null
 }
 
 /** The three commits a review can read: the merge request head, the target branch tip, and their merge base. */
@@ -46,6 +48,8 @@ export interface ForgeShape {
   readonly createNote: (ref: MrRef, body: string) => Effect.Effect<NoteId, ForgeError>
   readonly updateNote: (ref: MrRef, note: NoteId, body: string) => Effect.Effect<void, ForgeError>
   readonly updateLabels: (ref: MrRef, transition: LabelTransition) => Effect.Effect<void, ForgeError>
+  /** The changes from `from` to `to`; null when `from` is not an ancestor of `to` or the forge cannot give the whole diff. */
+  readonly delta: (ref: MrRef, from: Sha, to: Sha) => Effect.Effect<ReadonlyArray<Change> | null, ForgeError>
   readonly checkout: (ref: MrRef, revision: MrSnapshot["revision"]) => Effect.Effect<SourceCheckout, ForgeError, Scope.Scope>
 }
 

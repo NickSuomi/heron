@@ -17,8 +17,10 @@ import {
   type Lane,
   type Marker,
   type ModelFinding,
+  type MrSnapshot,
   type NoteId,
   type Outcome,
+  type PriorReview,
   type ReviewPlan,
   type SessionId,
   sessionId,
@@ -95,6 +97,26 @@ export const slotsOf = (plan: ReviewPlan): ReadonlyArray<Slot> => {
 
 export const assignIds = (origin: SessionId, findings: ReadonlyArray<ModelFinding>): ReadonlyArray<Finding> =>
   findings.map((f, i) => ({ ...f, id: `${origin}#${i + 1}` as FindingId, origin }))
+
+/** The origin of the findings an earlier review kept; their ids are `earlier#n`. */
+export const EARLIER = sessionId(["earlier"])
+
+/**
+ * The earlier head a re-review may start from, with the findings to rule on again, or null when only a full review is
+ * safe. The note must record a finished review of another head under the same config digest and lane, taken against the
+ * same target tip and merge base. Whether that head is an ancestor of the new one is the forge's to check.
+ */
+export const rereviewStart = (
+  existing: { readonly marker: Marker; readonly prior: PriorReview | null } | null,
+  current: { readonly digest: string; readonly lane: Lane; readonly revision: MrSnapshot["revision"] }
+): { readonly from: Sha; readonly earlier: ReadonlyArray<Finding> } | null => {
+  const prior = existing?.prior ?? null
+  if (existing === null || prior === null) return null
+  const { marker } = existing
+  const safe = marker.head !== current.revision.head && marker.configDigest === current.digest && prior.lane === current.lane.name &&
+    prior.base === current.revision.base && prior.start === current.revision.start
+  return safe ? { from: marker.head, earlier: assignIds(EARLIER, prior.findings) } : null
+}
 
 export class SynthesisIncomplete extends Schema.TaggedError<SynthesisIncomplete>()("SynthesisIncomplete", {
   session: Schema.String,

@@ -76,5 +76,6 @@ export const sampleReview: Review = {
   outcome: sampleOutcome,
   verdict: "CHANGES REQUESTED",
   configDigest: "f".repeat(64),
-  liveHead: null
+  liveHead: null,
+  rereview: null
 }

@@ -18,7 +18,7 @@ describe("packetText", () => {
         failedJobs: [{ name: "unit", stage: "test", webUrl: "https://x/jobs/7001", logTail: "```\nFAIL adds" }]
       }
     }
-    const sections = packetText(snapshot).split("\n\n")
+    const sections = packetText(snapshot, null).split("\n\n")
     expect(sections.slice(1, 13)).toEqual([
       "Author: someone. Branch `feature` into `main`.",
       `Commits: source (head) \`${sha("c")}\`, target (\`main\` tip) \`${sha("b")}\`, base (merge base) \`${sha("a")}\`.`,
@@ -38,7 +38,7 @@ describe("packetText", () => {
   })
 
   it("says so when there is no linked issue and no pipeline", () => {
-    const sections = packetText(snapshotAt(sha("c"), [])).split("\n\n")
+    const sections = packetText(snapshotAt(sha("c"), []), null).split("\n\n")
     expect(sections.slice(5, 9)).toEqual(["## Linked issues", "(none)", "## Head pipeline", "(none)"])
   })
 })

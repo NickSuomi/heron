@@ -7,6 +7,7 @@ import {
   type MrSnapshot,
   type Outcome,
   outputJsonSchema,
+  type Rereview,
   type Review,
   type ReviewPlan,
   reviewOutput,
@@ -18,9 +19,9 @@ import {
   type Usage,
   type UserId
 } from "./domain.ts"
-import { admits, applySynthesis, assignIds, classify, labelTransition, planFor, publication, verdictOf } from "./policy.ts"
+import { admits, applySynthesis, assignIds, classify, labelTransition, planFor, publication, rereviewStart, verdictOf } from "./policy.ts"
 import { Forge, Harness, type HarnessResult, type SourceCheckout } from "./ports.ts"
-import { findingsText, instructionsFor, packetText } from "./prompt.ts"
+import { earlierText, findingsText, instructionsFor, packetText } from "./prompt.ts"
 import { renderReport } from "./report.ts"
 
 export class NotAdmitted extends Schema.TaggedError<NotAdmitted>()("NotAdmitted", {
@@ -60,12 +61,21 @@ interface BranchResult {
   readonly limitations: ReadonlyArray<string>
 }
 
-const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan, snapshot: MrSnapshot, source: SourceCheckout) {
+/** On a re-review the gates see only the new commits, and the last session of the plan rules on the earlier findings. */
+const execute = Effect.fn("execute")(function*(
+  config: Config,
+  plan: ReviewPlan,
+  snapshot: MrSnapshot,
+  source: SourceCheckout,
+  rereview: Rereview | null
+) {
   const harness = yield* Harness
   const permits = new Map<string, Semaphore.Semaphore>()
   for (const [key, h] of Object.entries(config.harnesses)) permits.set(key, yield* Semaphore.make(h.concurrency))
   const sessions: Array<SessionRecord> = []
-  const packet = packetText(snapshot)
+  const packet = packetText(snapshot, rereview)
+  const earlier = rereview?.earlier ?? []
+  const withEarlier = (prompt: string, adds: boolean) => rereview === null ? prompt : `${prompt}\n\n${earlierText(rereview, adds)}`
 
   const run = <S extends Schema.ConstraintDecoder<unknown>>(slot: Slot, schema: S, prompt: string) =>
     Effect.gen(function*() {
@@ -115,13 +125,15 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
       )
     )
 
-  const runBranch = (branch: Branch) =>
+  const runBranch = (branch: Branch, last: boolean) =>
     Effect.gen(function*() {
       const outputs = yield* Effect.forEach(branch.gates, (slot) =>
         run(slot, reviewOutput(slot.gates), packet).pipe(Effect.map((out) => ({ slot, out }))), { concurrency: "unbounded" })
-      const inputs = outputs.flatMap(({ out, slot }) => assignIds(slot.id, out.findings))
+      const found = outputs.flatMap(({ out, slot }) => assignIds(slot.id, out.findings))
+      const inputs = last ? [...found, ...earlier] : found
       const sup = branch.supervisor
-      const out = yield* run(sup, synthesisOutput(sup.gates, "supervisor"), `${packet}\n\n${findingsText("Gate findings", inputs)}`)
+      const gateFindings = `${packet}\n\n${findingsText("Gate findings", found)}`
+      const out = yield* run(sup, synthesisOutput(sup.gates, "supervisor"), last ? withEarlier(gateFindings, false) : gateFindings)
       return {
         summary: out.summary,
         findings: yield* synthesize(inputs, out, sup),
@@ -133,17 +145,28 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
   const complete = Effect.gen(function*() {
     switch (plan.shape) {
       case "single": {
-        const out = yield* run(plan.reviewer, reviewOutput(plan.reviewer.gates), packet)
-        return { summary: out.summary, findings: assignIds(plan.reviewer.id, out.findings), rulings: [], limitations: out.limitations }
+        const reviewer = plan.reviewer
+        if (rereview === null) {
+          const out = yield* run(reviewer, reviewOutput(reviewer.gates), packet)
+          return { summary: out.summary, findings: assignIds(reviewer.id, out.findings), rulings: [], limitations: out.limitations }
+        }
+        const out = yield* run(reviewer, synthesisOutput(reviewer.gates, "supervisor"), withEarlier(packet, true))
+        return {
+          summary: out.summary,
+          findings: yield* synthesize(earlier, out, reviewer),
+          rulings: rulingsOf(earlier, out, reviewer),
+          limitations: out.limitations
+        }
       }
       case "gated":
-        return yield* runBranch(plan.branch)
+        return yield* runBranch(plan.branch, true)
       case "dual": {
-        const [b1, b2] = yield* Effect.all([runBranch(plan.branches[0]), runBranch(plan.branches[1])], { concurrency: "unbounded" })
-        const inputs = [...b1.findings, ...b2.findings]
+        const [b1, b2] = yield* Effect.all([runBranch(plan.branches[0], false), runBranch(plan.branches[1], false)], { concurrency: "unbounded" })
+        const found = [...b1.findings, ...b2.findings]
+        const inputs = [...found, ...earlier]
         const judge = plan.judge
-        const prompt = [packet, `## Branch 1 summary\n\n${b1.summary}`, `## Branch 2 summary\n\n${b2.summary}`, findingsText("Branch findings", inputs)].join("\n\n")
-        const out = yield* run(judge, synthesisOutput(judge.gates, "judge"), prompt)
+        const prompt = [packet, `## Branch 1 summary\n\n${b1.summary}`, `## Branch 2 summary\n\n${b2.summary}`, findingsText("Branch findings", found)].join("\n\n")
+        const out = yield* run(judge, synthesisOutput(judge.gates, "judge"), withEarlier(prompt, false))
         return {
           summary: out.summary,
           findings: yield* synthesize(inputs, out, judge),
@@ -171,9 +194,16 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const classification = classify(config, snapshot.changes)
   const plan = planFor(classification.lane)
   const head = snapshot.revision.head
-  const base = { snapshot, classification, plan, configDigest: config.digest }
+  // A dry run reads the earlier note too, so it takes the same path as the published run would.
+  const resumable = rereviewStart(yield* forge.findReport(ref), { digest: config.digest, lane: classification.lane, revision: snapshot.revision })
+  // A forge that cannot compare the heads, for example because a force push removed the old one, means a full review.
+  const rereview: Rereview | null = resumable === null ? null : yield* forge.delta(ref, resumable.from, head).pipe(
+    Effect.map((changes) => changes === null ? null : { ...resumable, changes }),
+    Effect.orElseSucceed(() => null)
+  )
+  const base = { snapshot, classification, plan, configDigest: config.digest, rereview }
 
-  const reviewed = Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source)))
+  const reviewed = Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source, rereview)))
   if (!request.publish) {
     const { outcome, sessions } = yield* reviewed
     const review: Review = { ...base, sessions, outcome, verdict: verdictOf(outcome), liveHead: null }

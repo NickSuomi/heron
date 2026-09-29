@@ -9,8 +9,9 @@ import { TestClock } from "effect/testing"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { GitLabForge } from "../src/forge/gitlab.ts"
 import { Forge } from "../src/ports.ts"
-import { printMarker } from "../src/report.ts"
+import { parsePrior, printMarker, renderReport } from "../src/report.ts"
 import { configOf, sha } from "./fakes.ts"
+import { sampleOutcome, sampleReview } from "./report-sample.ts"
 import { makeWork, sourceChanges } from "./fixtures/harness/repo.ts"
 
 const TOKEN = "glpat-test-secret-0123456789"
@@ -21,7 +22,8 @@ const MR = "/api/v4/projects/group%2Fapp/merge_requests/7"
 interface Sent {
   readonly method: string
   readonly path: string
-  readonly query: Record<string, string>
+  /** A parameter the request repeats is recorded as the list of its values. */
+  readonly query: Record<string, string | ReadonlyArray<string>>
   readonly body?: unknown
 }
 interface Reply {
@@ -42,7 +44,10 @@ const fakeGitLab = (replies: ReadonlyArray<Reply>) => {
       sent.push({
         method: request.method,
         path: url.pathname,
-        query: Object.fromEntries(url.searchParams),
+        query: Object.fromEntries([...new Set(url.searchParams.keys())].map((k) => {
+          const values = url.searchParams.getAll(k)
+          return [k, values.length === 1 ? values[0]! : values]
+        })),
         ...(body === undefined ? {} : { body })
       })
       authorization.push(request.headers["authorization"])
@@ -248,7 +253,7 @@ describe("GitLab forge", () => {
         page([note(5, 555, marker(7))], "")
       ])
       const [first, second] = yield* withForge(fake, (forge) => Effect.all([forge.findReport(ref), forge.findReport(ref)]))
-      expect(first).toEqual({ id: 12, marker: { iid: 7, head: sha("c"), configDigest: "d".repeat(64), verdict: "PASS" } })
+      expect(first).toEqual({ id: 12, marker: { iid: 7, head: sha("c"), configDigest: "d".repeat(64), verdict: "PASS" }, prior: null })
       expect(second).toBeNull()
       expect(fake.sent).toEqual([
         { method: "GET", path: "/api/v4/user", query: {} },
@@ -257,6 +262,54 @@ describe("GitLab forge", () => {
         { method: "GET", path: `${MR}/notes`, query: { ...notes, page: "1" } }
       ])
     }))
+
+  it.effect("findReport reads the earlier findings from the bot's note only", () =>
+    Effect.gen(function*() {
+      const body = renderReport(sampleReview)
+      const fake = fakeGitLab([
+        { body: { id: 1001, username: "heron-bot" } },
+        page([note(3, 555, body), note(4, 1001, body)], ""),
+        page([note(3, 555, body)], "")
+      ])
+      const [ours, theirs] = yield* withForge(fake, (forge) => Effect.all([forge.findReport(ref), forge.findReport(ref)]))
+      expect([ours?.id, ours?.prior, theirs]).toEqual([4, parsePrior(body), null])
+      expect(ours?.prior?.findings.length).toBe(sampleOutcome.findings.length)
+    }))
+
+  const REPO = "/api/v4/projects/group%2Fapp/repository"
+
+  it.effect("delta returns the changes between two heads when the first is an ancestor of the second", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([
+        { body: { id: sha("a") } },
+        { body: { compare_timeout: false, diffs: [diff("src/a.ts"), diff("src/new.ts", { new_file: true })] } }
+      ])
+      const changes = yield* withForge(fake, (forge) => forge.delta(ref, sha("a"), sha("c")))
+      expect(changes?.map((c) => `${c.status} ${c.path}`)).toEqual(["modified src/a.ts", "added src/new.ts"])
+      expect(fake.sent).toEqual([
+        { method: "GET", path: `${REPO}/merge_base`, query: { "refs[]": [sha("a"), sha("c")] } },
+        { method: "GET", path: `${REPO}/compare`, query: { from: sha("a"), to: sha("c"), straight: "true" } }
+      ])
+    }))
+
+  it.effect("delta returns null after a force push, without comparing", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([{ body: { id: sha("e") } }])
+      expect(yield* withForge(fake, (forge) => forge.delta(ref, sha("a"), sha("c")))).toBeNull()
+      expect(fake.remaining()).toBe(0)
+    }))
+
+  for (const [name, compare] of [
+    ["a compare that timed out", { compare_timeout: true, diffs: [diff("src/a.ts")] }],
+    ["a collapsed file", { compare_timeout: false, diffs: [diff("src/a.ts", { collapsed: true })] }],
+    ["a too-large file", { compare_timeout: false, diffs: [diff("src/a.ts", { too_large: true })] }]
+  ] as const) {
+    it.effect(`delta returns null for ${name}`, () =>
+      Effect.gen(function*() {
+        const fake = fakeGitLab([{ body: { id: sha("a") } }, { body: compare }])
+        expect(yield* withForge(fake, (forge) => forge.delta(ref, sha("a"), sha("c")))).toBeNull()
+      }))
+  }
 
   it.effect("findReport refuses a token that belongs to another user", () =>
     Effect.gen(function*() {

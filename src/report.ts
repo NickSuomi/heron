@@ -1,6 +1,6 @@
 import { Schema } from "effect"
-import { type Finding, type Marker, type Review, Sha, type Verdict } from "./domain.ts"
-import { gateStatuses, slotsOf } from "./policy.ts"
+import { type Finding, type Marker, PriorReview, type Review, Sha, type Verdict } from "./domain.ts"
+import { EARLIER, gateStatuses, slotsOf } from "./policy.ts"
 
 const slugs: Readonly<Record<Verdict, string>> = {
   "PASS": "pass",
@@ -22,6 +22,23 @@ export const parseMarker = (body: string): Marker | null => {
   const [, iid, head, configDigest, slug] = m
   const verdict = verdictOfSlug.get(slug!)
   return verdict === undefined || !isSha(head) ? null : { iid: Number(iid), head, configDigest: configDigest!, verdict }
+}
+
+/*
+ * A finished review writes what the next run needs as the note's last line: base64url JSON in an HTML comment. The
+ * alphabet has no `>`, so the payload cannot close the comment or start markdown. Model text can reach the note source
+ * unescaped only inside a code span, which never holds a line break and never comes last, so only Heron writes that line.
+ */
+const printPrior = (p: PriorReview): string => `<!-- heron:prior v1 ${Buffer.from(JSON.stringify(p)).toString("base64url")} -->`
+
+const priorPattern = /\n<!-- heron:prior v1 ([A-Za-z0-9_-]+) -->\n$/
+const decodePrior = Schema.decodeUnknownOption(Schema.fromJsonString(PriorReview), { onExcessProperty: "error" })
+
+export const parsePrior = (body: string): PriorReview | null => {
+  const m = priorPattern.exec(body)
+  if (m === null) return null
+  const decoded = decodePrior(Buffer.from(m[1]!, "base64url").toString("utf8"))
+  return decoded._tag === "Some" ? decoded.value : null
 }
 
 /*
@@ -186,6 +203,8 @@ export const renderReport = (review: Review): string => {
   const moved = review.liveHead === null
     ? []
     : ["", `The source branch moved to ${code(short(review.liveHead))} during the review. These results describe ${code(short(head))} only.`]
+  const range = review.rereview === null ? "" : `Re-review of ${code(`${short(review.rereview.from)}..${short(head)}`)}`
+  const earlier = review.rereview?.earlier.length ?? 0
   const lines: Array<string> = [
     printMarker({ iid: snapshot.ref.iid, head, configDigest: review.configDigest, verdict }),
     `## Heron review: ${verdict}`,
@@ -197,12 +216,14 @@ export const renderReport = (review: Review): string => {
     ...gateStatuses(lane.gates, outcome).map(([g, s]) => `| ${g} | ${s} |`)
   ]
   if (outcome.kind === "incomplete") {
-    lines.push(where, ...moved, "", `The review could not finish: session ${code(outcome.session)} failed. ${inline(outcome.reason)}`)
+    lines.push(where, ...moved, ...(range === "" ? [] : ["", `${range} with ${earlier} earlier findings to rule on.`]))
+    lines.push("", `The review could not finish: session ${code(outcome.session)} failed. ${inline(outcome.reason)}`)
   } else {
     const blockers = outcome.findings.filter((f) => f.severity === "blocker")
     const advisories = outcome.findings.filter((f) => f.severity === "advisory")
     const { lead, rest } = splitSummary(outcome.summary)
     lines.push(`${count(blockers.length, "blocker", "blockers")} · ${count(advisories.length, "advisory", "advisories")} · ${where}`, ...moved)
+    if (range !== "") lines.push("", `${range}: ${outcome.findings.filter((f) => f.origin === EARLIER).length} of ${earlier} earlier findings carried.`)
     if (lead.length > 0) lines.push("", paragraphLine(lead))
     if (blockers.length > 0) lines.push("", "### Blockers", "", ...blockers.map((f) => findingItem(review, f)))
     if (advisories.length > 0) {
@@ -256,5 +277,9 @@ export const renderReport = (review: Review): string => {
       } tool calls, ${cost}.`
     ])
   )
+  if (outcome.kind === "complete") {
+    const findings = outcome.findings.map(({ body, gate, location, severity, title }) => ({ gate, severity, location, title, body }))
+    lines.push("", printPrior({ base: snapshot.revision.base, start: snapshot.revision.start, lane: lane.name, findings }))
+  }
   return lines.join("\n") + "\n"
 }

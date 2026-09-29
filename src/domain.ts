@@ -142,6 +142,7 @@ export interface ModelFinding {
 
 export interface Finding extends ModelFinding {
   readonly id: FindingId
+  /** The session that reported it, or `earlier` for a finding an earlier review kept. */
   readonly origin: SessionId
 }
 
@@ -263,7 +264,32 @@ export interface Review {
   readonly configDigest: string
   /** Set only when the head moved after the snapshot. */
   readonly liveHead: Sha | null
+  readonly rereview: Rereview | null
 }
+
+/** A re-review: since Heron's review at `from`, the source branch only gained commits and the target branch did not move. */
+export interface Rereview {
+  readonly from: Sha
+  /** The changes from `from` to the head. */
+  readonly changes: ReadonlyArray<Change>
+  /** The findings the review at `from` kept, for the last session of the plan to rule on again. */
+  readonly earlier: ReadonlyArray<Finding>
+}
+
+/** What a finished review records in its note, next to the marker, so the next run can review only newer commits. */
+export const PriorReview = Schema.Struct({
+  base: Sha,
+  start: Sha,
+  lane: Schema.String,
+  findings: Schema.Array(Schema.Struct({
+    gate: Schema.String,
+    severity: Severity,
+    location: Schema.NullOr(Schema.Struct({ path: Schema.String, line: Line })),
+    title: Schema.String,
+    body: Schema.String
+  }))
+})
+export type PriorReview = typeof PriorReview.Type
 
 export interface Marker {
   readonly iid: number

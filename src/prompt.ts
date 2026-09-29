@@ -1,4 +1,4 @@
-import type { Finding, MrSnapshot, Role, Slot } from "./domain.ts"
+import type { Change, Finding, MrSnapshot, Rereview, Role, Slot } from "./domain.ts"
 
 const roleText: Readonly<Record<Role, string>> = {
   reviewer: "You review one GitLab merge request against every gate below. Return findings only; Heron derives the verdict from them. A blocker is a defect the author must fix before merging; anything else is advisory. Anchor each finding to a file and line at the reviewed head when one exists.",
@@ -68,7 +68,22 @@ const pipelineText = (s: MrSnapshot): ReadonlyArray<string> => {
   ]
 }
 
-export const packetText = (s: MrSnapshot): string =>
+const changesText = (changes: ReadonlyArray<Change>): ReadonlyArray<string> =>
+  changes.map((c) =>
+    `### ${c.status} \`${c.path}\`${c.oldPath !== null && c.oldPath !== c.path ? ` (from \`${c.oldPath}\`)` : ""}\n\n\`\`\`diff\n${c.diff}\n\`\`\``
+  )
+
+/** A re-review shows the changes since the earlier review in full and lists the rest of the merge request by path. */
+const rereviewText = (s: MrSnapshot, r: Rereview): ReadonlyArray<string> => [
+  "## Re-review",
+  `Heron reviewed this merge request at \`${r.from}\`. Since then the source branch only gained commits, and the target branch did not move. Review what those commits change (\`git_diff\` from \`${r.from}\` to \`source\`), and read any other code you need to judge it.`,
+  `## Changes since \`${r.from}\``,
+  ...(r.changes.length === 0 ? ["(no file changed)"] : changesText(r.changes)),
+  "## Paths the merge request changes",
+  s.changes.map((c) => `- \`${c.path}\``).join("\n")
+]
+
+export const packetText = (s: MrSnapshot, rereview: Rereview | null): string =>
   [
     `# Merge request !${s.ref.iid}: ${s.title}`,
     `Author: ${s.author}. Branch \`${s.sourceBranch}\` into \`${s.targetBranch}\`.`,
@@ -77,13 +92,22 @@ export const packetText = (s: MrSnapshot): string =>
     s.description.trim() === "" ? "(none)" : s.description,
     ...issuesText(s),
     ...pipelineText(s),
-    "## Changes",
-    ...s.changes.map((c) =>
-      `### ${c.status} \`${c.path}\`${c.oldPath !== null && c.oldPath !== c.path ? ` (from \`${c.oldPath}\`)` : ""}\n\n\`\`\`diff\n${c.diff}\n\`\`\``
-    )
+    ...(rereview === null ? ["## Changes", ...changesText(s.changes)] : rereviewText(s, rereview))
   ].join("\n\n")
 
-export const findingsText = (title: string, findings: ReadonlyArray<Finding>): string =>
-  `## ${title}\n\n\`\`\`json\n${
+const findingsJson = (findings: ReadonlyArray<Finding>): string =>
+  `\`\`\`json\n${
     JSON.stringify(findings.map(({ body, gate, id, location, severity, title }) => ({ id, gate, severity, location, title, body })), null, 2)
   }\n\`\`\``
+
+export const findingsText = (title: string, findings: ReadonlyArray<Finding>): string => `## ${title}\n\n${findingsJson(findings)}`
+
+/** For the session that rules last; `adds` when that session also reviews the new commits itself and reports under `added`. */
+export const earlierText = (r: Rereview, adds: boolean): string =>
+  [
+    "## Earlier findings",
+    `Heron's review at \`${r.from}\` kept these findings. Rule on each one at the reviewed head: keep it only if the defect is still there, and drop it when the new commits fixed it.${
+      adds ? " Report the findings of your own review of the new commits under `added`." : ""
+    }`,
+    findingsJson(r.earlier)
+  ].join("\n\n")

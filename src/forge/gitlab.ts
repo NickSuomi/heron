@@ -6,7 +6,7 @@ import { ChildProcessSpawner } from "effect/unstable/process"
 import type { Config } from "../config.ts"
 import { type Change, type MrRef, type MrSnapshot, NoteId, Sha } from "../domain.ts"
 import { Forge, ForgeError, type ForgeShape, IncompleteSnapshot, type SourceCheckout, TREE_REFS } from "../ports.ts"
-import { parseMarker } from "../report.ts"
+import { parseMarker, parsePrior } from "../report.ts"
 import { fetchCommits, materialize, thaw } from "./git.ts"
 
 const User = Schema.Struct({ id: Schema.Int })
@@ -61,10 +61,12 @@ const Diff = Schema.Struct({
   collapsed: Schema.optionalKey(Schema.Boolean),
   too_large: Schema.optionalKey(Schema.Boolean)
 })
+const Commit = Schema.Struct({ id: Sha })
+const Compare = Schema.Struct({ compare_timeout: Schema.Boolean, diffs: Schema.Array(Diff) })
 const Note = Schema.Struct({ id: NoteId, body: Schema.String, system: Schema.Boolean, author: Schema.Struct({ id: Schema.Int }) })
 
 type Method = "GET" | "POST" | "PUT"
-type Query = Readonly<Record<string, string>>
+type Query = Readonly<Record<string, string | ReadonlyArray<string>>>
 
 const MAX_PAGES = 100
 const MAX_RETRY_AFTER_SECONDS = 60
@@ -278,7 +280,7 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
           .filter((n) => !n.system && n.author.id === me)
           .flatMap((n) => {
             const marker = parseMarker(n.body)
-            return marker !== null && marker.iid === ref.iid ? [{ id: n.id, marker }] : []
+            return marker !== null && marker.iid === ref.iid ? [{ id: n.id, marker, prior: parsePrior(n.body) }] : []
           })
           .sort((a, b) => a.id - b.id)
         return ours[0] ?? null
@@ -305,6 +307,16 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
         if (add.length > 0) body["add_labels"] = add.join(",")
         if (remove.length > 0) body["remove_labels"] = remove.join(",")
         yield* call("updateLabels", "PUT", mrPath(ref), Schema.Unknown, { body })
+      }),
+
+    delta: (ref, from, to) =>
+      Effect.gen(function*() {
+        const repo = `${projectPath(ref)}/repository`
+        const base = yield* call("delta", "GET", `${repo}/merge_base`, Commit, { query: { "refs[]": [from, to] } })
+        if (base.id !== from) return null
+        const compare = yield* call("delta", "GET", `${repo}/compare`, Compare, { query: { from, to, straight: "true" } })
+        const cut = compare.compare_timeout || compare.diffs.some((d) => d.collapsed === true || d.too_large === true)
+        return cut ? null : compare.diffs.map(change)
       }),
 
     checkout: (ref, revision) =>

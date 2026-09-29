@@ -114,7 +114,7 @@ A review session has no turn limit and no time limit by default. The model reads
 
 ## Config digest
 
-The digest is a SHA-256 over the effective config and the content of every instruction file. Heron writes it into the hidden marker of the report note and shows the first 12 characters in the report. A change to an instruction file changes the digest.
+The digest is a SHA-256 over the effective config and the content of every instruction file. Heron writes it into the hidden marker of the report note and shows the first 12 characters in the report. A change to an instruction file changes the digest. The next run after a digest change reviews the whole change, not only the newer commits.
 
 ## Environment variables
 

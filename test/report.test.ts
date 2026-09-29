@@ -1,7 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
-import { type Gate, type GateName, outputJsonSchema, reviewOutput, synthesisOutput } from "../src/domain.ts"
-import { parseMarker, printMarker } from "../src/report.ts"
+import { type Gate, type GateName, outputJsonSchema, reviewOutput, type SessionId, synthesisOutput } from "../src/domain.ts"
+import { parseMarker, parsePrior, printMarker, renderReport } from "../src/report.ts"
 import { sha } from "./fakes.ts"
+import { sampleOutcome, sampleReview } from "./report-sample.ts"
 
 describe("marker", () => {
   it("round-trips through a note body", () => {
@@ -14,6 +15,36 @@ describe("marker", () => {
   it("ignores notes without a well-formed marker", () => {
     expect(parseMarker("plain comment")).toBe(null)
     expect(parseMarker(`<!-- heron:v1 mr=1 head=${"a".repeat(40)} config=${"f".repeat(64)} verdict=maybe -->`)).toBe(null)
+  })
+})
+
+describe("earlier findings in the note", () => {
+  const body = renderReport(sampleReview)
+  const kept = sampleOutcome.findings.map(({ body, gate, location, severity, title }) => ({ gate, severity, location, title, body }))
+
+  it("round-trips the kept findings, the merge base, the target tip and the lane", () => {
+    expect(parsePrior(body)).toEqual({ base: sha("b"), start: sha("b"), lane: "standard", findings: kept })
+  })
+
+  it("is written only for a review that finished", () => {
+    const blocked = renderReport({ ...sampleReview, verdict: "BLOCKED", outcome: { kind: "incomplete", session: "supervisor" as SessionId, reason: "quota" } })
+    expect([parseMarker(blocked)?.verdict, parsePrior(blocked)]).toEqual(["BLOCKED", null])
+  })
+
+  it("is read only from the note's last line", () => {
+    const last = body.trimEnd().split("\n").at(-1)!
+    expect([parsePrior(`${body}a later line\n`), parsePrior(`${last}\n${body.replace(last, "")}`)]).toEqual([null, null])
+  })
+
+  it("ignores a damaged or foreign payload", () => {
+    const payload = (json: string) => `${body.replace(/<!-- heron:prior [^\n]*\n$/, "")}<!-- heron:prior v1 ${Buffer.from(json).toString("base64url")} -->\n`
+    expect([
+      parsePrior(body.replace(/(<!-- heron:prior v1 )(.)/, "$1*")),
+      parsePrior(payload("not json")),
+      parsePrior(payload(JSON.stringify({ base: sha("b"), start: sha("b"), lane: "standard", findings: [{ gate: "design" }] }))),
+      parsePrior(payload(JSON.stringify({ base: "b", start: sha("b"), lane: "standard", findings: [] }))),
+      parsePrior(payload(JSON.stringify({ base: sha("b"), start: sha("b"), lane: "standard", findings: [], extra: 1 })))
+    ]).toEqual([null, null, null, null, null])
   })
 })
 

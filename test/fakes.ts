@@ -2,7 +2,7 @@ import { Effect, Layer, Result } from "effect"
 import { type Config, decodeConfigFile, resolveConfig } from "../src/config.ts"
 import type { Change, LabelTransition, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
 import { Forge, ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
-import { parseMarker } from "../src/report.ts"
+import { parseMarker, parsePrior } from "../src/report.ts"
 
 export const sha = (c: string) => c.repeat(40) as Sha
 
@@ -69,11 +69,16 @@ export const snapshotAt = (head: Sha, changes: ReadonlyArray<Change>): MrSnapsho
 
 export interface ForgeState {
   head: Sha
+  base: Sha
+  start: Sha
   changes: ReadonlyArray<Change>
   labels: Array<string>
   notes: Map<number, string>
   nextNote: number
   labelWrites: Array<LabelTransition>
+  /** The changes from one head to another, null when the first is not an ancestor of the second, or the forge's failure. */
+  delta: (from: Sha, to: Sha) => ReadonlyArray<Change> | null | ForgeError
+  deltaCalls: Array<readonly [Sha, Sha]>
   calls: number
 }
 
@@ -82,22 +87,32 @@ export const fakeForge = (
 ) => {
   const state: ForgeState = {
     head: init.head,
+    base: sha("b"),
+    start: sha("b"),
     changes: init.changes,
     labels: init.labels ?? [],
     notes: init.notes ?? new Map(),
     nextNote: 100,
     labelWrites: [],
+    delta: () => null,
+    deltaCalls: [],
     calls: 0
   }
   const call = <A>(f: () => A) => Effect.sync(() => (state.calls++, f()))
   const layer = Layer.succeed(Forge)({
-    snapshot: () => call(() => ({ ...snapshotAt(state.head, state.changes), labels: [...state.labels] })),
+    snapshot: () =>
+      call(() => ({
+        ...snapshotAt(state.head, state.changes),
+        revision: { base: state.base, start: state.start, head: state.head },
+        labels: [...state.labels]
+      })),
     live: () => call(() => ({ head: state.head, labels: [...state.labels] })),
     findReport: () =>
       call(() => {
         for (const id of [...state.notes.keys()].sort((a, b) => a - b)) {
-          const marker = parseMarker(state.notes.get(id)!)
-          if (marker !== null) return { id: id as NoteId, marker }
+          const body = state.notes.get(id)!
+          const marker = parseMarker(body)
+          if (marker !== null) return { id: id as NoteId, marker, prior: parsePrior(body) }
         }
         return null
       }),
@@ -106,6 +121,8 @@ export const fakeForge = (
         ? Effect.fail(new ForgeError({ operation: "createNote", detail: "HTTP 500" }))
         : call(() => (state.notes.set(state.nextNote, body), state.nextNote++ as NoteId)),
     updateNote: (_, note, body) => call(() => void state.notes.set(note, body)),
+    delta: (_, from, to) =>
+      Effect.flatMap(call(() => (state.deltaCalls.push([from, to]), state.delta(from, to))), (d) => d instanceof ForgeError ? Effect.fail(d) : Effect.succeed(d)),
     updateLabels: (_, t) =>
       call(() => {
         state.labelWrites.push(t)
@@ -163,9 +180,12 @@ export const fakeHarness = (
   return { layer, seen, peak }
 }
 
-/** Keep every decision on every finding id listed in the prompt's JSON block. */
+/** Every finding id listed in the prompt's JSON blocks. */
+export const promptIds = (request: HarnessRequest): ReadonlyArray<string> =>
+  [...request.prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].flatMap((m) => (JSON.parse(m[1]!) as Array<{ id: string }>).map((f) => f.id))
+
+/** Keep every decision on every finding id listed in the prompt's JSON blocks. */
 export const keepAll = (extra: Record<string, unknown> = {}): Script => (request) => {
-  const block = /```json\n([\s\S]*?)\n```/.exec(request.prompt)
-  const ids = block === null ? [] : (JSON.parse(block[1]!) as Array<{ id: string }>).map((f) => f.id)
+  const ids = promptIds(request)
   return { summary: "Synthesized.", decisions: ids.map((id) => ({ id, keep: true, reason: "real" })), limitations: [], ...extra }
 }
