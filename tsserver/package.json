@@ -1,0 +1,8 @@
+{
+  "name": "heron-tsserver",
+  "private": true,
+  "version": "5.9.3",
+  "description": "The tsserver Heron's language server starts: TypeScript from the typescript-5 dependency, loading only Heron's own plugins. typescript-language-server reads this version, so it must equal typescript-5's.",
+  "license": "Apache-2.0",
+  "type": "commonjs"
+}

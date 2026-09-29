@@ -47,7 +47,7 @@ const write = (dir: string, files: Readonly<Record<string, string>>) => {
 }
 
 /** A working repository with base, target (main) and source (feature) commits; returns the three ids. */
-export const makeWork = (work: string) => {
+export const makeWork = (work: string, extraSource: Readonly<Record<string, string>> = {}) => {
   mkdirSync(work, { recursive: true })
   write(work, baseFiles)
   git(work, "init", "-q", "-b", "main")
@@ -55,7 +55,7 @@ export const makeWork = (work: string) => {
   git(work, "commit", "-q", "-m", "base")
   const base = git(work, "rev-parse", "HEAD") as Sha
   git(work, "checkout", "-q", "-b", "feature")
-  write(work, sourceChanges)
+  write(work, { ...sourceChanges, ...extraSource })
   git(work, "add", ".")
   git(work, "commit", "-q", "-m", "add sub")
   const source = git(work, "rev-parse", "HEAD") as Sha
@@ -71,10 +71,13 @@ export const makeWork = (work: string) => {
   return { base, source, target }
 }
 
-/** A bare repository with the three commits and one working tree each; `cleanup` removes it. */
-export const makeRepo = () => {
+/**
+ * A bare repository with the three commits and one working tree each; `cleanup` removes it. `extraSource` adds files
+ * to the source commit, given the directory that holds the repository.
+ */
+export const makeRepo = (extraSource: (root: string) => Readonly<Record<string, string>> = () => ({})) => {
   const root = mkdtempSync(join(tmpdir(), "heron-test-"))
-  const commits = makeWork(join(root, "work"))
+  const commits = makeWork(join(root, "work"), extraSource(root))
   git(root, "clone", "-q", "--bare", join(root, "work"), "repo.git")
   const gitDir = join(root, "repo.git")
   const trees = { source: join(root, "source"), target: join(root, "target"), base: join(root, "base") }

@@ -17,7 +17,8 @@
     "heron": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "tsserver"
   ],
   "engines": {
     "node": ">=24"
@@ -33,14 +34,18 @@
   },
   "dependencies": {
     "@ast-grep/cli": "0.45.3",
+    "@effect/language-service": "0.87.2",
     "@effect/platform-node": "4.0.0-rc.115",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@vscode/ripgrep": "1.18.0",
+    "@vue/typescript-plugin": "3.3.11",
     "ai": "7.0.106",
     "effect": "4.0.0-rc.115",
+    "effect-3": "npm:effect@3.22.2",
     "typescript-5": "npm:typescript@5.9.3",
     "typescript-language-server": "6.0.0",
+    "vue": "3.5.43",
     "zod": "4.6.5"
   },
   "devDependencies": {

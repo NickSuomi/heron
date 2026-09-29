@@ -71,7 +71,7 @@ const limitInput = (n: number) =>
 const lineInput = z.number().int().min(1).describe("1-based line number")
 const positionInput = {
   ref: refInput,
-  path: z.string().min(1).describe("Repository-relative path of a .ts, .tsx, .js or .jsx file"),
+  path: z.string().min(1).describe("Repository-relative path of a .ts, .tsx, .js, .jsx or .vue file"),
   line: lineInput,
   column: z.number().int().min(1).optional().describe("1-based column of the identifier"),
   symbol: z.string().min(1).optional().describe("The identifier on that line; used instead of column")
@@ -521,7 +521,7 @@ const define = <S extends z.ZodRawShape, A>(
 
 const PAGED = "Results are paged: the answer gives `total` and `next`; call again with offset set to `next` for the rest."
 const LSP_NOTE =
-  "Runs Heron's own TypeScript 5.9 language server on the chosen tree. The reviewed repository's dependencies are not installed, so types that come from packages in node_modules resolve to `any` or are missing; types defined in the repository are exact."
+  "Runs Heron's own TypeScript 5.9 language server on the chosen tree, with the Vue plugin for .vue files (script and template) and the Effect language service. The reviewed repository's dependencies are not installed, so types that come from packages in node_modules resolve to `any` or are missing, except vue and effect: when package.json declares Vue 3 or Effect 3 or 4, Heron supplies its own declarations of that major version. Types defined in the repository are exact."
 
 export const sourceTools: ReadonlyArray<SourceTool> = [
   define("grep", `Search file contents at one commit with git grep. Returns path:line:text lines. ${PAGED}`, grepInput, grep),
@@ -558,7 +558,7 @@ export const sourceTools: ReadonlyArray<SourceTool> = [
   define("hover", `The type and documentation of the identifier at a position. ${LSP_NOTE}`, positionInput, hover),
   define("document_symbols", `Every symbol declared in one file, with its kind, line and nesting depth. ${LSP_NOTE}`, documentSymbolsInput, documentSymbols),
   define("workspace_symbols", `Find symbols by name across the project. ${PAGED} ${LSP_NOTE}`, workspaceSymbolsInput, workspaceSymbols),
-  define("diagnostics", `TypeScript errors and warnings in one file. ${LSP_NOTE}`, documentSymbolsInput, diagnostics)
+  define("diagnostics", `TypeScript errors and warnings in one file, with Vue template errors and Effect language service findings. ${LSP_NOTE}`, documentSymbolsInput, diagnostics)
 ]
 
 export const sourceToolNames = sourceTools.map((t) => t.name)

@@ -64,11 +64,16 @@ All three backends get the same Heron tools. The CLI backends reach them through
 | `rg` | Search of one working tree with regex or literal, case modes, word and multiline matching, include and exclude globs, file types, and context | ripgrep |
 | `ast_grep` | Structural search by syntax pattern, with an optional language | ast-grep |
 | `git_log`, `git_show`, `git_blame`, `git_diff` | History, one commit, line authorship, and the diff between any two of `base`, `source` and `target` | git |
-| `definition`, `references`, `hover`, `document_symbols`, `workspace_symbols`, `diagnostics` | TypeScript and JavaScript lookups on one working tree | typescript-language-server |
+| `definition`, `references`, `hover`, `document_symbols`, `workspace_symbols`, `diagnostics` | TypeScript, JavaScript and Vue lookups on one working tree, with Effect language service diagnostics and hovers | typescript-language-server |
 
 Results are never cut short without notice. `read_file` returns the whole file by default. A tool that can return many results pages them: each answer gives `total` and `next`, the offset of the next page.
 
-The language server runs Heron's own TypeScript. Heron never installs the reviewed repository's dependencies, so a type that comes from a package in `node_modules` shows as `any` or is missing. Types declared in the repository are exact. Heron starts one server per tree on first use and kills it, and every tsserver it started, when the session ends.
+The language server runs Heron's own TypeScript through Heron's tsserver entry, [`tsserver/lib/tsserver.js`](../tsserver/lib/tsserver.js), which loads two tsserver plugins:
+
+- The Vue TypeScript plugin makes the same six tools work in `.vue` files, in `<script setup lang="ts">` and in template expressions: a template variable resolves to its declaration in the script, and its references include the template. `document_symbols` lists the script's declarations with their `.vue` lines. `diagnostics` includes template type errors.
+- The Effect language service adds its diagnostics, for example an Effect that is created and never yielded, and its hovers, for example the success, failure and requirement types at a `yield*`.
+
+Heron never installs the reviewed repository's dependencies, so a type that comes from a package in `node_modules` shows as `any` or is missing. Without `vue` and `effect` types the two plugins have nothing to check, so Heron supplies those two packages: an import of `vue` or `effect` that the tree cannot resolve reads Heron's own declarations, when the nearest `package.json` declares Vue 3 (Heron's `vue` 3.5.43), Effect 3 (`effect` 3.22.2) or Effect 4 (Heron's own `effect` 4.0.0-rc.115). A location in them shows as `(Heron's package types)` and the package path. A version range with no major number, such as `workspace:*` or `catalog:`, gets no supplied types. Types declared in the repository are exact. Heron starts one server per tree on first use and kills it, and every tsserver it started, when the session ends.
 
 These tools are pinned dependencies of Heron:
 
@@ -78,8 +83,12 @@ These tools are pinned dependencies of Heron:
 | `@ast-grep/cli` | 0.45.3 | MIT | `ast-grep`, called as the native binary; its install script stays off |
 | `typescript-language-server` | 6.0.0 | Apache-2.0 | the language server |
 | `typescript-5` (npm alias of `typescript`) | 5.9.3 | Apache-2.0 | the tsserver it runs; TypeScript 7 ships no `tsserver.js` |
+| `@vue/typescript-plugin` | 3.3.11 | MIT | the tsserver plugin for `.vue` files, from Vue language tools |
+| `@effect/language-service` | 0.87.2 | MIT | the Effect tsserver plugin |
+| `vue` | 3.5.43 | MIT | declarations for projects that declare Vue 3; tsserver only reads them |
+| `effect-3` (npm alias of `effect`) | 3.22.2 | MIT | declarations for projects that declare Effect 3; tsserver only reads them |
 
-All four were published more than seven days before they were pinned, as `minimumReleaseAge` in `pnpm-workspace.yaml` requires. typescript-language-server 6.0.1 was five days old, so Heron pins 6.0.0.
+All of them were published more than seven days before they were pinned, as `minimumReleaseAge` in `pnpm-workspace.yaml` requires. typescript-language-server 6.0.1 was five days old, so Heron pins 6.0.0. @effect/language-service 0.87.3 was one day old, so Heron pins 0.87.2.
 
 ### `claude-cli`
 

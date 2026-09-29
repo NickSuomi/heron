@@ -1,23 +1,34 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import { readdirSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { basename, relative, sep } from "node:path"
+import { basename, dirname, relative, sep } from "node:path"
 import { pathToFileURL, fileURLToPath } from "node:url"
 import type { TreeRef } from "../../ports.ts"
 import { fail, toolEnv } from "./process.ts"
 
 const require = createRequire(import.meta.url)
-/** typescript-language-server 6.0.0 and TypeScript 5.9.3, both pinned Heron dependencies; nothing from the reviewed repo. */
+/**
+ * typescript-language-server 6.0.0, TypeScript 5.9.3, the Effect language service and the Vue TypeScript plugin, all
+ * pinned Heron dependencies; nothing from the reviewed repo. The server runs Heron's own tsserver entry,
+ * `tsserver/lib/tsserver.js`, three levels above both `src/harness/tools` and `dist/harness/tools`.
+ */
 const SERVER = require.resolve("typescript-language-server/lib/cli.mjs")
-const TSSERVER = require.resolve("typescript-5/lib/tsserver.js")
-const TS_LIB = TSSERVER.slice(0, -"tsserver.js".length)
+const TSSERVER = fileURLToPath(new URL("../../../tsserver/lib/tsserver.js", import.meta.url))
+const TS_LIB = require.resolve("typescript-5/lib/tsserver.js").slice(0, -"tsserver.js".length)
+/** Heron's tsserver loads these by its own fixed paths, so `location` names no directory it searches. */
+const PLUGINS = [
+  { name: "@effect/language-service", location: dirname(TSSERVER), languages: [] },
+  { name: "@vue/typescript-plugin", location: dirname(TSSERVER), languages: ["vue"] }
+]
+/** Where Heron's own packages live, including the vue and effect declarations its tsserver supplies. */
+const OWN_MODULES = fileURLToPath(new URL("../../../node_modules/", import.meta.url))
 
 type Json = { readonly [key: string]: unknown }
 const isRecord = (u: unknown): u is Json => typeof u === "object" && u !== null && !Array.isArray(u)
 
 const LANGUAGES: Readonly<Record<string, string>> = {
   ".ts": "typescript", ".mts": "typescript", ".cts": "typescript", ".tsx": "typescriptreact",
-  ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascriptreact"
+  ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascriptreact", ".vue": "vue"
 }
 export const languageOf = (path: string): string | null => {
   const dot = path.lastIndexOf(".")
@@ -59,8 +70,10 @@ const descendants = (root: number): Array<number> => {
 
 /**
  * One typescript-language-server over stdio, rooted at one read-only tree. It reads the tree and Heron's own TypeScript,
- * never the reviewed repository's `node_modules`: `tsserver.path` wins over a workspace TypeScript, automatic type
- * acquisition (which runs npm) is off, and tsserver loads no plugin from the project directory.
+ * never code from the reviewed repository: `tsserver.path` wins over a workspace TypeScript, automatic type acquisition
+ * (which runs npm) is off, and Heron's tsserver loads only its two pinned plugins, never one the tsconfig names or one
+ * from a `node_modules` directory, and drops `vueCompilerOptions.plugins`. Imports of vue and effect that the tree cannot
+ * resolve read Heron's own declarations of those packages.
  */
 export class LspClient {
   private readonly child: ChildProcessWithoutNullStreams
@@ -110,7 +123,7 @@ export class LspClient {
         // definition would stop at the import instead of the declaration.
         tsserver: { path: TSSERVER, useSyntaxServer: "never" },
         disableAutomaticTypingAcquisition: true,
-        plugins: [],
+        plugins: PLUGINS,
         preferences: {}
       }
     }).then(() => this.notify("initialized", {}))
@@ -193,7 +206,7 @@ export class LspClient {
     const uri = this.uriOf(path)
     if (this.opened.has(uri)) return uri
     const languageId = languageOf(path)
-    if (languageId === null) throw fail(`not a TypeScript or JavaScript file: ${path}`)
+    if (languageId === null) throw fail(`not a TypeScript, JavaScript or Vue file: ${path}`)
     let text: string
     try {
       text = readFileSync(`${this.root}/${path}`, "utf8")
@@ -237,7 +250,7 @@ export class LspClient {
   }
 }
 
-/** Where a location points, as the model should read it: a repository path, a TypeScript library file, or neither. */
+/** Where a location points, as the model should read it: a repository path, a TypeScript library file, a package declaration Heron supplied, or none. */
 export const displayPath = (root: string, uri: string): string => {
   let file: string
   try {
@@ -248,6 +261,7 @@ export const displayPath = (root: string, uri: string): string => {
   const inside = relative(root, file)
   if (!inside.startsWith("..") && !inside.startsWith(sep)) return inside.split(sep).join("/")
   if (file.startsWith(TS_LIB)) return `(TypeScript library) ${file.slice(TS_LIB.length)}`
+  if (file.startsWith(OWN_MODULES)) return `(Heron's package types) ${file.slice(file.lastIndexOf("/node_modules/") + "/node_modules/".length)}`
   return `(outside the tree) ${basename(file)}`
 }
 
