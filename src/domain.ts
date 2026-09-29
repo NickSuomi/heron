@@ -173,10 +173,14 @@ export type ReviewOutput = {
   readonly limitations: ReadonlyArray<string>
 }
 
+/** A ruling can lower a finding to advisory but never raise one to blocker: a blocker needs a finding that claims it. */
+export const RulingKind = Schema.Literals(["keep", "keep as advisory", "drop"])
+export type RulingKind = typeof RulingKind.Type
+
 const Decision = Schema.Struct({
   id: Schema.String,
-  keep: Schema.Boolean,
-  reason: described("One sentence on why the finding is or is not a real defect at the reviewed head.")
+  ruling: RulingKind.annotate({ description: "`keep` a real defect at its severity, `keep as advisory` a real defect that does not block, `drop` one that is not real." }),
+  reason: described("One sentence on why the finding is or is not a real defect at the reviewed head, and for `keep as advisory` why it does not block.")
 })
 
 /** A supervisor may add findings the gates missed; the judge only rules on what the branches produced. */
@@ -195,7 +199,7 @@ export const synthesisOutput = (gates: NonEmptyReadonlyArray<Gate>, role: "super
     })
 export interface SynthesisOutput {
   readonly summary: string
-  readonly decisions: ReadonlyArray<{ readonly id: string; readonly keep: boolean; readonly reason: string }>
+  readonly decisions: ReadonlyArray<{ readonly id: string; readonly ruling: RulingKind; readonly reason: string }>
   readonly added?: ReadonlyArray<ModelFinding>
   readonly limitations: ReadonlyArray<string>
 }
@@ -234,8 +238,9 @@ export interface SessionRecord {
 /** A supervisor's or judge's ruling on one finding it was given. */
 export interface Ruling {
   readonly by: SessionId
+  /** The finding as it was given, with the severity its session claimed. */
   readonly finding: Finding
-  readonly keep: boolean
+  readonly ruling: RulingKind
   readonly reason: string
 }
 

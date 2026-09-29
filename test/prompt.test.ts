@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest"
-import { packetText } from "../src/prompt.ts"
-import { change, sha, snapshotAt } from "./fakes.ts"
+import { planFor } from "../src/policy.ts"
+import { instructionsFor, packetText } from "../src/prompt.ts"
+import { change, configOf, sha, snapshotAt } from "./fakes.ts"
+
+describe("instructionsFor", () => {
+  const config = configOf()
+  const plan = planFor(config.lanes.find((l) => l.shape === "dual")!)
+  if (plan.shape !== "dual") throw new Error("the critical lane is dual")
+  const text = (role: "supervisor" | "judge") =>
+    instructionsFor(role === "judge" ? plan.judge : plan.branches[0].supervisor, ["Rule-only breaches are advisory."])
+
+  it("tells a ruling session what a blocker is and how to downgrade, with the project's policy first", () => {
+    for (const role of ["supervisor", "judge"] as const) {
+      const t = text(role)
+      expect([t.includes("A blocker is a defect the author must fix before merging"), t.includes("`keep as advisory`")]).toEqual([true, true])
+      expect(t.indexOf("Rule-only breaches are advisory.")).toBeLessThan(t.indexOf("`keep as advisory`"))
+    }
+    expect([text("supervisor").includes("under `added` as a blocker"), text("judge").includes("`added`")]).toEqual([true, false])
+  })
+})
 
 describe("packetText", () => {
   it("names the three commits and carries the linked issues and each failed job's log", () => {

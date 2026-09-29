@@ -29,7 +29,7 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
       kind: "complete",
       summary: `One. Two. ${text}\n\n${text}`,
       findings: [finding("blocker"), finding("advisory")],
-      rulings: [{ by: "supervisor" as SessionId, finding: finding("blocker"), keep: false, reason: text }],
+      rulings: [{ by: "supervisor" as SessionId, finding: finding("blocker"), ruling: "drop", reason: text }],
       limitations: [text]
     }
   const review: Review = {
@@ -305,7 +305,7 @@ describe("report shape", () => {
     expect([...row.matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1])).toEqual([
       "<code>supervisor</code>",
       `<code>${kept!.finding.id}</code> <code>aria-label</code> hides the hint`,
-      kept!.keep ? "kept" : "dropped",
+      kept!.ruling === "keep" ? "kept" : "dropped",
       "The <code>a | b</code> union reaches <code>render</code>.\u2060"
     ])
   })

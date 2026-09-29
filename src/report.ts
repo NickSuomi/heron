@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { type Finding, type Marker, PriorReview, type Review, Sha, type Verdict } from "./domain.ts"
+import { type Finding, type Marker, PriorReview, type Review, type RulingKind, Sha, type Verdict } from "./domain.ts"
 import { EARLIER, gateStatuses, slotsOf } from "./policy.ts"
 
 const slugs: Readonly<Record<Verdict, string>> = {
@@ -182,6 +182,8 @@ const findingItem = (review: Review, f: Finding): string => {
   return `- ${code(f.gate)} ${inline(f.title)}${location(review, f)}${body === "" ? "" : `  \n${body.replace(/^/gm, "  ")}`}`
 }
 
+const rulingText: Readonly<Record<RulingKind, string>> = { "keep": "kept", "keep as advisory": "kept as advisory", "drop": "dropped" }
+
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 const total = (xs: ReadonlyArray<number | null>): number | null =>
@@ -235,7 +237,7 @@ export const renderReport = (review: Review): string => {
         "| By | Finding | Ruling | Reason |",
         "| --- | --- | --- | --- |",
         ...outcome.rulings.map((r) =>
-          `| ${code(r.by)} | ${code(r.finding.id)} ${tableCell(r.finding.title)} | ${r.keep ? "kept" : "dropped"} | ${tableCell(r.reason)} |`
+          `| ${code(r.by)} | ${code(r.finding.id)} ${tableCell(r.finding.title)} | ${rulingText[r.ruling]} | ${tableCell(r.reason)} |`
         )
       )
     }

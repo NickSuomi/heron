@@ -97,12 +97,12 @@ const render = async (repoRoot: string) => {
   if (supervisor === undefined) throw new Error("mr42-data.ts has no supervisor session")
   const supervisorId = brand<SessionId>(supervisor.id)
   const inputs = gates.flatMap((s) => policy.assignIds(brand<SessionId>(s.id), s.findings.map(modelFinding)))
-  const decisions = supervisor.decisions.map((d) => ({ ...d, id: brand<FindingId>(d.id) }))
+  const decisions = supervisor.decisions.map((d) => ({ id: brand<FindingId>(d.id), ruling: d.keep ? "keep" as const : "drop" as const, reason: d.reason }))
   const findings = succeed(
     policy.applySynthesis(inputs, { summary: mr42.summary, decisions, added: supervisor.findings.map(modelFinding), limitations: [] }, supervisorId),
     "supervisor decisions",
   )
-  const rulings = decisions.map((d) => ({ by: supervisorId, finding: inputs.find((f) => f.id === d.id)!, keep: d.keep, reason: d.reason }))
+  const rulings = decisions.map((d) => ({ by: supervisorId, finding: inputs.find((f) => f.id === d.id)!, ruling: d.ruling, reason: d.reason }))
   const outcome: Outcome = { kind: "complete", summary: mr42.summary, findings, rulings, limitations: mr42.sessions.flatMap((s) => s.limitations) }
   const verdict = policy.verdictOf(outcome)
   check(verdict === mr42.verdict, `verdict ${verdict}`)

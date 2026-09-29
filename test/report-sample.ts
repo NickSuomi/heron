@@ -58,8 +58,8 @@ export const sampleOutcome: Extract<Outcome, { kind: "complete" }> = {
   ].join("\n"),
   findings: [blocker, ...advisories],
   rulings: [
-    { by: "supervisor" as SessionId, finding: blocker, keep: true, reason: "The button has no disabled binding at the reviewed head." },
-    { by: "supervisor" as SessionId, finding: dropped, keep: false, reason: "exportRows receives the filtered rows from the store." }
+    { by: "supervisor" as SessionId, finding: blocker, ruling: "keep", reason: "The button has no disabled binding at the reviewed head." },
+    { by: "supervisor" as SessionId, finding: dropped, ruling: "drop", reason: "exportRows receives the filtered rows from the store." }
   ],
   limitations: [
     "I could not run the app, so the double-click race is inferred from the code.",

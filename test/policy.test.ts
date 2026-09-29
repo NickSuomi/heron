@@ -85,7 +85,7 @@ describe("applySynthesis", () => {
     const out = applySynthesis(inputs, {
       summary: "",
       limitations: [],
-      decisions: [{ id: "gate.design#1", keep: false, reason: "" }, { id: "gate.design#2", keep: true, reason: "" }],
+      decisions: [{ id: "gate.design#1", ruling: "drop", reason: "" }, { id: "gate.design#2", ruling: "keep", reason: "" }],
       added: [{ gate: "design", severity: "blocker", location: null, title: "missed", body: "" }]
     }, "supervisor" as SessionId)
     expect(Result.map(out, (fs) => fs.map((x) => `${x.id}:${x.severity}`))).toEqual(
@@ -93,14 +93,23 @@ describe("applySynthesis", () => {
     )
   })
 
+  it("keeps a finding ruled keep as advisory with advisory severity, whatever the gate said", () => {
+    const out = applySynthesis(inputs, {
+      summary: "",
+      limitations: [],
+      decisions: [{ id: "gate.design#1", ruling: "keep as advisory", reason: "" }, { id: "gate.design#2", ruling: "keep as advisory", reason: "" }]
+    }, judge)
+    expect(Result.map(out, (fs) => fs.map((x) => `${x.id}:${x.severity}`))).toEqual(Result.succeed(["gate.design#1:advisory", "gate.design#2:advisory"]))
+  })
+
   it("fails when decisions are not a bijection over the input ids", () => {
     const out = applySynthesis(inputs, {
       summary: "",
       limitations: [],
       decisions: [
-        { id: "gate.design#1", keep: true, reason: "" },
-        { id: "gate.design#1", keep: false, reason: "" },
-        { id: "gate.spec#9", keep: true, reason: "" }
+        { id: "gate.design#1", ruling: "keep", reason: "" },
+        { id: "gate.design#1", ruling: "drop", reason: "" },
+        { id: "gate.spec#9", ruling: "keep", reason: "" }
       ]
     }, judge)
     expect(Result.isFailure(out) && { ...out.failure }).toEqual({

@@ -85,6 +85,12 @@ describe("model output schemas", () => {
     expect(Object.keys((emitted.supervisor["properties"] ?? {}) as object)).toEqual(["summary", "decisions", "added", "limitations"])
   })
 
+  it("let a ruling session keep, downgrade or drop a finding, but never raise one to blocker", () => {
+    const supervisor = outputJsonSchema(synthesisOutput(gates, "supervisor"))
+    expect(JSON.stringify(supervisor)).toContain(`"enum":["keep","keep as advisory","drop"]`)
+    expect(JSON.stringify(supervisor)).not.toContain("keep as blocker")
+  })
+
   it("detects a violation when a key is optional", () => {
     expect(strictViolations({ type: "object", properties: { a: { type: "string" } }, required: [], additionalProperties: false })).toEqual([
       "$: not every key required"

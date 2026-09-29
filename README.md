@@ -33,13 +33,13 @@ The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUP
 2. It reads the merge request and its full diff from the GitLab API at one head commit, with the issues the merge request closes or links and the last 200 lines of each failed job in the head pipeline. If GitLab truncated or collapsed any part of the diff, Heron stops without reviewing.
 3. Path rules choose a lane. The lane sets the gates (review concerns such as correctness or security) and the sessions that run them. Heron reads its own earlier report note and decides whether this run can be a [re-review](#re-reviews) of the newer commits only.
 4. Heron fetches the head, the target branch tip and their merge base, with history, into a temporary repository and writes a read-only working tree for each. Each session runs on the backend its profile names, reads the repository through the tools listed in [Backends](docs/backends.md#source-tools), and returns findings as JSON.
-5. Heron derives the verdict from the findings. If the branch moved during the review, the verdict is SUPERSEDED.
+5. The supervisor, or the judge in a dual lane, rules on each finding: `keep`, `keep as advisory`, or `drop`, with a reason. A gate's blocker that does not block by the policy becomes an advisory, so one gate's severity call does not decide the verdict. No ruling raises a finding to blocker; a supervisor that finds a blocker adds it as its own finding. Heron derives the verdict from the kept findings and their final severity. If the branch moved during the review, the verdict is SUPERSEDED.
 6. Heron creates or updates its report note and sets the verdict label. The note starts with a hidden marker that records the head commit, the config digest, and the verdict. A finished review also ends the note with a hidden line that holds the findings it kept, the merge base, the target branch tip, and the lane.
 
 The report is meant to be read in about 20 seconds. It shows the verdict, one line with the blocker and advisory counts, the head and the lane, a summary of at most two sentences, and each blocker with a link to `path:line` at the reviewed head. Three collapsed sections hold the rest:
 
 - The advisories.
-- REVIEW CHECKS: the gate status table, the supervisor's or judge's ruling on each finding with its reason, the rest of a longer summary, what the sessions could not check in the repository, one fixed line saying Heron does not run tests, the app, a browser or a device, and why the lane was chosen.
+- REVIEW CHECKS: the gate status table, the supervisor's or judge's ruling on each finding (kept, kept as advisory, or dropped) with its reason, the rest of a longer summary, what the sessions could not check in the repository, one fixed line saying Heron does not run tests, the app, a browser or a device, and why the lane was chosen.
 - AGENT PROVENANCE: the model, backend, effort, tokens, time and result of each session, and the total tool calls and vendor-reported cost.
 
 ### Re-reviews
@@ -55,7 +55,7 @@ When the head has moved since Heron's last report, Heron reviews only the commit
 
 Otherwise Heron reviews the whole change, as it does at an unchanged head.
 
-In a re-review, the packet holds the changes since the earlier head and lists every path the merge request changes. Each session can still read the whole repository at all three commits. The findings the earlier review kept, with ids `earlier#1`, `earlier#2` and so on, go to the session that rules last: the supervisor in a gated lane, the judge in a dual lane, or the reviewer in a single lane. That session keeps or drops each one with a reason, shown in the rulings table. Code derives the verdict from the kept findings, as in a full review. The report adds one line, for example ``Re-review of `1a2b3c4d..5e6f7a8b`: 2 of 3 earlier findings carried.`` A dry run reads the earlier note and takes the same path without writing anything.
+In a re-review, the packet holds the changes since the earlier head and lists every path the merge request changes. Each session can still read the whole repository at all three commits. The findings the earlier review kept, with ids `earlier#1`, `earlier#2` and so on, go to the session that rules last: the supervisor in a gated lane, the judge in a dual lane, or the reviewer in a single lane. That session rules `keep`, `keep as advisory` or `drop` on each one with a reason, shown in the rulings table. Code derives the verdict from the kept findings and their final severity, as in a full review, and the next note records each carried finding at that final severity. The report adds one line, for example ``Re-review of `1a2b3c4d..5e6f7a8b`: 2 of 3 earlier findings carried.`` A dry run reads the earlier note and takes the same path without writing anything.
 
 ## Quick start
 

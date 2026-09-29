@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import type { UserId } from "../src/domain.ts"
 import { ForgeError, HarnessError, type HarnessRequest } from "../src/ports.ts"
-import { parseMarker } from "../src/report.ts"
+import { parseMarker, parsePrior } from "../src/report.ts"
 import { reviewOnce } from "../src/review.ts"
 import { change, configOf, fakeForge, fakeHarness, finding, keepAll, promptIds, reviewOut, type Script, sha } from "./fakes.ts"
 
@@ -103,7 +103,7 @@ describe("reviewOnce", () => {
         "b2.gate.design": () => reviewOut(),
         "b2.gate.correctness": () => reviewOut([finding("correctness", "advisory")]),
         "b2.supervisor": keepAll({ added: [] }),
-        "judge": () => ({ summary: "", decisions: [{ id: "b1.gate.design#1", keep: true, reason: "" }], limitations: [] })
+        "judge": () => ({ summary: "", decisions: [{ id: "b1.gate.design#1", ruling: "keep", reason: "" }], limitations: [] })
       })
       expect(result.review.outcome).toEqual({
         kind: "incomplete",
@@ -199,8 +199,8 @@ describe("reviewOnce", () => {
         "supervisor": () => ({
           summary: "Fine.",
           decisions: [
-            { id: "gate.design#1", keep: false, reason: "The layer is right." },
-            { id: "gate.correctness#1", keep: true, reason: "Real." }
+            { id: "gate.design#1", ruling: "drop", reason: "The layer is right." },
+            { id: "gate.correctness#1", ruling: "keep", reason: "Real." }
           ],
           added: [],
           limitations: []
@@ -212,6 +212,30 @@ describe("reviewOnce", () => {
         "PASS",
         "| `supervisor` | `gate.design#1` Wrong layer | dropped | The layer is right\\.\u2060 |",
         "| `supervisor` | `gate.correctness#1` advisory in correctness | kept | Real\\.\u2060 |"
+      ])
+    }))
+
+  it.effect("moves a blocker the supervisor keeps as advisory into the advisories, and the verdict follows", () =>
+    Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+      const result = yield* run(forge, {
+        ...gated,
+        "gate.design": () => reviewOut([finding("design", "blocker", "Missing region comments")]),
+        "supervisor": (r) => ({
+          summary: "Fine.",
+          decisions: promptIds(r).map((id) => ({ id, ruling: id === "gate.design#1" ? "keep as advisory" : "keep", reason: "A rule-only breach." })),
+          added: [],
+          limitations: []
+        })
+      })
+      expect(result.review.verdict).toBe("PASS")
+      expect(result.body).not.toContain("### Blockers")
+      expect(result.body).toContain("<summary>2 advisories</summary>")
+      expect(result.body).toContain("| `supervisor` | `gate.design#1` Missing region comments | kept as advisory | A rule\\-\u2060only breach\\.\u2060 |")
+      expect(result.body).toContain("| design | pass |")
+      expect(parsePrior(forge.state.notes.get(100)!)?.findings.map((f) => `${f.title}:${f.severity}`)).toEqual([
+        "Missing region comments:advisory",
+        "advisory in correctness:advisory"
       ])
     }))
 
@@ -292,7 +316,7 @@ describe("re-review", () => {
         "gate.correctness": () => reviewOut(),
         "supervisor": (r) => ({
           summary: "Fixed.",
-          decisions: promptIds(r).map((id) => ({ id, keep: id !== "earlier#1", reason: id === "earlier#1" ? "The new commit removed it." : "real" })),
+          decisions: promptIds(r).map((id) => ({ id, ruling: id === "earlier#1" ? "drop" : "keep", reason: id === "earlier#1" ? "The new commit removed it." : "real" })),
           added: [],
           limitations: []
         })
@@ -310,7 +334,7 @@ describe("re-review", () => {
       const result = yield* run(forge, {
         reviewer: () => ({
           summary: "Link fixed.",
-          decisions: [{ id: "earlier#1", keep: false, reason: "The link now resolves." }],
+          decisions: [{ id: "earlier#1", ruling: "drop", reason: "The link now resolves." }],
           added: [finding("correctness", "advisory", "Typo in the new heading")],
           limitations: []
         })
@@ -321,6 +345,34 @@ describe("re-review", () => {
         "reviewer#1 Typo in the new heading"
       ])
       expect(result.body).toContain("| `reviewer` | `earlier#1` Broken link | dropped | The link now resolves\\.⁠ |")
+    }))
+
+  it.effect("lets the single reviewer keep an earlier blocker as advisory", () =>
+    Effect.gen(function*() {
+      const forge = yield* reviewedThenPushed({ reviewer: () => reviewOut([finding("correctness", "blocker", "Heading skips a level")]) }, [change("README.md")])
+      forge.state.delta = () => [change("docs/guide.md")]
+      const result = yield* run(forge, {
+        reviewer: () => ({ summary: "Minor.", decisions: [{ id: "earlier#1", ruling: "keep as advisory", reason: "Style only." }], added: [], limitations: [] })
+      })
+      expect([result.review.verdict, result.body.includes("| `reviewer` | `earlier#1` Heading skips a level | kept as advisory |")]).toEqual(["PASS", true])
+      expect(result.body).toContain("Re-review of `aaaaaaaa..cccccccc`: 1 of 1 earlier findings carried.")
+    }))
+
+  it.effect("lets the judge keep a branch blocker as advisory", () =>
+    Effect.gen(function*() {
+      const result = yield* run(fakeForge({ head: sha("a"), changes: [change("src/auth/login.ts")] }), {
+        "b1.gate.design": () => reviewOut([finding("design", "blocker", "Token name is unclear")]),
+        "b1.gate.correctness": () => reviewOut(),
+        "b1.supervisor": keepAll({ added: [] }),
+        "b2.gate.design": () => reviewOut(),
+        "b2.gate.correctness": () => reviewOut(),
+        "b2.supervisor": keepAll({ added: [] }),
+        "judge": () => ({ summary: "", decisions: [{ id: "b1.gate.design#1", ruling: "keep as advisory", reason: "Naming only." }], limitations: [] })
+      }, { publish: false })
+      expect([result.review.verdict, result.review.outcome.kind === "complete" && result.review.outcome.findings.map((f) => `${f.id}:${f.severity}`)]).toEqual([
+        "PASS",
+        ["b1.gate.design#1:advisory"]
+      ])
     }))
 
   it.effect("gives the earlier findings to the judge in a dual lane, not to the branches", () =>

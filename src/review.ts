@@ -113,7 +113,7 @@ const execute = Effect.fn("execute")(function*(
     }).pipe(permits.get(slot.profile.harness)!.withPermits(1))
 
   const rulingsOf = (inputs: ReadonlyArray<Finding>, out: Parameters<typeof applySynthesis>[1], slot: Slot): ReadonlyArray<Ruling> =>
-    out.decisions.map((d) => ({ by: slot.id, finding: inputs.find((f) => f.id === d.id)!, keep: d.keep, reason: d.reason }))
+    out.decisions.map((d) => ({ by: slot.id, finding: inputs.find((f) => f.id === d.id)!, ruling: d.ruling, reason: d.reason }))
 
   const synthesize = (inputs: ReadonlyArray<Finding>, out: Parameters<typeof applySynthesis>[1], slot: Slot) =>
     Effect.fromResult(applySynthesis(inputs, out, slot.id)).pipe(

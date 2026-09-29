@@ -31,7 +31,15 @@ const outputRules = [
   "- Put code, paths and identifiers in backticks. Heron shows `- ` lists and backticks; it shows headings, bold, links, tables and HTML as plain text."
 ].join("\n")
 
-const rulingRule = "- Each decision's `reason` is one sentence on why the finding is or is not a real defect. Put your reasoning there, not in the summary."
+/** The ruling session sets the final severity, so the verdict does not rest on one gate's call; it may lower a severity, never raise one. */
+const rulingRules = (role: "supervisor" | "judge") =>
+  [
+    "- Each decision's `ruling` is `keep`, `keep as advisory` or `drop`. A blocker is a defect the author must fix before merging; anything else is advisory. Where the policy above says what blocks, it decides.",
+    `- Rule \`keep as advisory\` on a real defect that was called a blocker but does not block. No ruling raises a finding to blocker.${
+      role === "supervisor" ? " If you find a blocker the gates missed or called advisory, report it under `added` as a blocker." : ""
+    }`,
+    "- Each decision's `reason` is one sentence on why the finding is or is not a real defect. Put your reasoning there, not in the summary."
+  ].join("\n")
 
 export const instructionsFor = (slot: Slot, policy: ReadonlyArray<string>): string =>
   [
@@ -39,7 +47,7 @@ export const instructionsFor = (slot: Slot, policy: ReadonlyArray<string>): stri
     readingRules,
     ...slot.gates.map((g) => `## Gate: ${g.name}\n\n${g.instructions.trim()}`),
     ...policy,
-    slot.role === "supervisor" || slot.role === "judge" ? `${outputRules}\n${rulingRule}` : outputRules
+    slot.role === "supervisor" || slot.role === "judge" ? `${outputRules}\n${rulingRules(slot.role)}` : outputRules
   ].join("\n\n")
 
 /** A fence longer than any backtick run in `text`, so the text cannot close it. */
@@ -106,7 +114,7 @@ export const findingsText = (title: string, findings: ReadonlyArray<Finding>): s
 export const earlierText = (r: Rereview, adds: boolean): string =>
   [
     "## Earlier findings",
-    `Heron's review at \`${r.from}\` kept these findings. Rule on each one at the reviewed head: keep it only if the defect is still there, and drop it when the new commits fixed it.${
+    `Heron's review at \`${r.from}\` kept these findings. Rule on each one at the reviewed head: \`keep\` it if the defect is still there, \`keep as advisory\` if it is still there but does not block, and \`drop\` it when the new commits fixed it or it was never real. No ruling raises a finding to blocker.${
       adds ? " Report the findings of your own review of the new commits under `added`." : ""
     }`,
     findingsJson(r.earlier)

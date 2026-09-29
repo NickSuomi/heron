@@ -85,8 +85,8 @@ A lane says which gates run and which sessions run them. The order of `lanes` is
 | `shape` | Keys | Sessions |
 | --- | --- | --- |
 | `single` | `gates`, `reviewer` | One session reviews all gates. |
-| `gated` | `gates`, `gate`, `supervisor` | One session per gate with the `gate` profile, then one supervisor session that keeps or drops each finding and may add findings. |
-| `dual` | `gates`, `branches` (two `{ gate, supervisor }` pairs), `judge` | Two independent `gated` branches, then one judge session that keeps or drops each finding. The judge reads the repository like every other session. |
+| `gated` | `gates`, `gate`, `supervisor` | One session per gate with the `gate` profile, then one supervisor session that rules `keep`, `keep as advisory` or `drop` on each finding and may add findings, blockers included. |
+| `dual` | `gates`, `branches` (two `{ gate, supervisor }` pairs), `judge` | Two independent `gated` branches, then one judge session that rules `keep`, `keep as advisory` or `drop` on each finding and adds none. The judge reads the repository like every other session. |
 
 `defaultLane` is used when no rule fires. Each rule has:
 
@@ -101,7 +101,7 @@ If several rules fire, the strictest lane wins.
 
 ### `policy`
 
-`policy.instructions` is a list of Markdown files. Heron appends their text to the instructions of every session. After them, Heron adds its own output rules: a summary of at most two sentences, finding titles of at most 12 words, and finding bodies of at most two sentences that name the fix.
+`policy.instructions` is a list of Markdown files. Heron appends their text to the instructions of every session. After them, Heron adds its own output rules: a summary of at most two sentences, finding titles of at most 12 words, and finding bodies of at most two sentences that name the fix. A supervisor or judge is also told that a blocker is a defect the author must fix before merging, that the policy decides what blocks where it says so, and that it may lower a finding to advisory but never raise one. To make, for example, a breach of a repository rule alone advisory, say so in a policy file.
 
 ### `limits`
 

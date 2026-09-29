@@ -140,8 +140,12 @@ export const applySynthesis = (
   if (missing.length + duplicated.size + unknown.length > 0) {
     return Result.fail(new SynthesisIncomplete({ session: origin, missing, duplicated: [...duplicated], unknown }))
   }
-  const kept = new Set(out.decisions.filter((d) => d.keep).map((d) => d.id))
-  return Result.succeed([...inputs.filter((f) => kept.has(f.id)), ...assignIds(origin, out.added ?? [])])
+  const rulings = new Map(out.decisions.map((d) => [d.id, d.ruling]))
+  const kept = inputs.flatMap((f) => {
+    const ruling = rulings.get(f.id)
+    return ruling === "drop" ? [] : ruling === "keep as advisory" ? [{ ...f, severity: "advisory" as const }] : [f]
+  })
+  return Result.succeed([...kept, ...assignIds(origin, out.added ?? [])])
 }
 
 export const verdictOf = (outcome: Outcome): Exclude<Verdict, "SUPERSEDED"> =>
