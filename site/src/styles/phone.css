@@ -1,0 +1,254 @@
+/* Windows Mobile 6 style phone layout */
+.wm {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: 28px 1fr 34px;
+  font-size: 14px;
+  background: #fff;
+  color: #000;
+}
+
+.wm-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 0 2px;
+  background: linear-gradient(to bottom, #6c93d8, #2c56ad 45%, #16378a 55%, #25479c);
+  border-bottom: 1px solid #0b1f55;
+  color: #fff;
+  font-weight: 700;
+}
+
+.wm-start {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 4px;
+  border-radius: 2px;
+  font-size: 15px;
+  font-weight: 700;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.wm-start img {
+  width: 20px;
+  height: 20px;
+}
+
+.wm-start.is-open,
+.wm-start:active {
+  background: rgba(0, 0, 40, 0.35);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.wm-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.wm-signal {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 12px;
+}
+
+.wm-signal i {
+  width: 3px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5);
+}
+
+.wm-signal i:nth-child(1) {
+  height: 4px;
+}
+.wm-signal i:nth-child(2) {
+  height: 6px;
+}
+.wm-signal i:nth-child(3) {
+  height: 9px;
+}
+.wm-signal i:nth-child(4) {
+  height: 12px;
+}
+
+.wm-body {
+  position: relative;
+  overflow: hidden;
+}
+
+.wm-today {
+  height: 100%;
+  overflow: auto;
+  padding: 0 0 12px;
+  background:
+    radial-gradient(ellipse 140% 40% at 20% 0%, rgba(120, 170, 240, 0.55), rgba(255, 255, 255, 0) 70%),
+    linear-gradient(170deg, rgba(255, 255, 255, 0) 30%, rgba(170, 205, 250, 0.55) 31%, rgba(255, 255, 255, 0) 46%),
+    linear-gradient(to bottom, #dce8fa, #ffffff 40%, #eaf1fc);
+}
+
+.wm-today-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 14px 6px;
+  font-size: 22px;
+  color: #102f75;
+}
+
+.wm-today-brand img {
+  width: 34px;
+  height: 34px;
+}
+
+.wm-today-date {
+  margin: 0 0 8px;
+  padding: 4px 14px;
+  color: #fff;
+  font-weight: 700;
+  background: linear-gradient(to right, #2c56ad, rgba(44, 86, 173, 0.25));
+}
+
+.wm-today-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 6px 14px;
+  text-align: left;
+  border-bottom: 1px solid rgba(40, 80, 150, 0.12);
+}
+
+.wm-today-item:disabled {
+  color: inherit;
+  opacity: 1;
+}
+
+.wm-today-item img {
+  width: 32px;
+  height: 32px;
+  flex: none;
+}
+
+.wm-today-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.wm-today-text span:first-child {
+  font-weight: 700;
+  color: #0b2560;
+}
+
+.wm-today-text span + span {
+  color: #3c4e6c;
+  font-size: 13px;
+}
+
+.wm-today-item:not(:disabled):active,
+.wm-today-item:not(:disabled):focus-visible {
+  outline: none;
+  background: linear-gradient(to bottom, #3e6fd0, #2350b0);
+}
+
+.wm-today-item:not(:disabled):active span,
+.wm-today-item:not(:disabled):focus-visible span {
+  color: #fff;
+}
+
+.wm-plain-docs {
+  display: block;
+  margin: 14px 14px 0;
+  color: #1a47b8;
+  font-weight: 700;
+}
+
+.wm-app {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.wm-app .notepad-text {
+  font-size: 14px;
+}
+
+.wm-start-menu {
+  position: absolute;
+  left: 0;
+  top: 28px;
+  z-index: 10;
+  width: min(78vw, 280px);
+  max-height: calc(100vh - 62px);
+  overflow: auto;
+  padding: 2px 0;
+  background: #fff;
+  border: 1px solid #0b1f55;
+  border-top: 0;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.25);
+}
+
+.wm-start-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 10px;
+  text-align: left;
+  font-size: 15px;
+}
+
+.wm-start-item img {
+  width: 28px;
+  height: 28px;
+}
+
+.wm-start-item:hover,
+.wm-start-item:focus-visible {
+  outline: none;
+  background: linear-gradient(to bottom, #3e6fd0, #2350b0);
+  color: #fff;
+}
+
+.wm-start-separator {
+  height: 1px;
+  margin: 2px 8px;
+  background: #b7c4dc;
+}
+
+.wm-softkeys {
+  display: grid;
+  grid-template-columns: 1fr 44px 1fr;
+  align-items: stretch;
+  background: linear-gradient(to bottom, #6c93d8, #2c56ad 45%, #16378a 55%, #25479c);
+  border-top: 1px solid #0b1f55;
+  color: #fff;
+}
+
+.wm-softkey {
+  font-size: 15px;
+  font-weight: 700;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.wm-softkey:active {
+  background: rgba(0, 0, 40, 0.35);
+}
+
+.wm-keyboard {
+  align-self: center;
+  justify-self: center;
+  width: 28px;
+  height: 18px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background:
+    linear-gradient(to right, transparent 3px, rgba(255, 255, 255, 0.85) 3px 5px, transparent 5px 9px, rgba(255, 255, 255, 0.85) 9px 11px, transparent 11px 15px, rgba(255, 255, 255, 0.85) 15px 17px, transparent 17px 21px, rgba(255, 255, 255, 0.85) 21px 23px, transparent 23px) 0 3px / 100% 3px no-repeat,
+    linear-gradient(to right, transparent 5px, rgba(255, 255, 255, 0.85) 5px 21px, transparent 21px) 0 10px / 100% 3px no-repeat;
+}

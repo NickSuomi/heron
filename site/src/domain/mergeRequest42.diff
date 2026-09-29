@@ -1,0 +1,46 @@
+# Illustrative example: fictional project acme/storefront, merge request !42.
+# Not a real merge request. Unit 2 reviews it in the mock apps.
+
+diff --git a/src/projects/ProjectList.vue b/src/projects/ProjectList.vue
+--- a/src/projects/ProjectList.vue
++++ b/src/projects/ProjectList.vue
+@@ -20,7 +20,14 @@
+ <ul class="projects">
+-  <li v-for="p in projects" :key="p.id">
++  <li v-for="p in rows" :key="p.id">
++    <input type="checkbox"
++      v-model="selected" :value="p.id" />
+     <ProjectRow :project="p" />
+   </li>
+ </ul>
++<button class="danger" @click="archive">
++  Archive {{ selected.length }}
++</button>
+@@ -9,3 +9,6 @@
+ import { ref } from "vue"
++import { archiveSelected } from "./archive"
+ 
++const selected = ref<any[]>([])
++const archive = () =>
++  archiveSelected(selected.value)
+diff --git a/src/projects/archive.ts b/src/projects/archive.ts
+--- a/src/projects/archive.ts
++++ b/src/projects/archive.ts
+@@ -0,0 +1,16 @@
++import { api } from "../api"
++import type { ProjectId } from "./types"
++
++const MAX = 20
++
++export const archiveSelected = async (
++  ids: ReadonlyArray<ProjectId>
++) => {
++  if (ids.length > MAX) {
++    throw new RangeError("max 20")
++  }
+@@ -0,0 +1,16 @@
++  for (const id of ids) {
++    // archived projects stay restorable
++    await api.delete(`/projects/${id}`)
++  }
++}

@@ -1,0 +1,178 @@
+/* Notepad */
+.notepad {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.menubar {
+  flex: none;
+  display: flex;
+  height: 20px;
+  padding: 0 2px;
+  background: linear-gradient(to bottom, #fdfeff, #f0f4f9 60%, #e6ecf5);
+  border-bottom: 1px solid #d5dbe4;
+  color: #000;
+  position: relative;
+  z-index: 2;
+}
+
+.menubar-slot {
+  position: relative;
+}
+
+.menubar-item {
+  height: 19px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+
+.menubar-item:hover,
+.menubar-item.is-open {
+  border-color: #a8d8f7;
+  background: linear-gradient(to bottom, #f1f8fd, #d9eefc);
+}
+
+.menubar-item.is-open {
+  border-color: #8bb8dc;
+  background: linear-gradient(to bottom, #e4f1fb, #cbe4f7);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.menu-popup {
+  position: absolute;
+  left: 0;
+  top: 20px;
+  min-width: 190px;
+  padding: 2px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #979797;
+  background:
+    linear-gradient(to right, #f1f1f1 26px, #e2e3e3 26px, #e2e3e3 27px, #fff 27px, #fff 28px, #f5f5f5 28px);
+  box-shadow: 2px 2px 3px rgba(0, 0, 0, 0.3);
+}
+
+.menu-item {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  height: 22px;
+  align-items: center;
+  padding: 0 18px 0 32px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  text-align: left;
+}
+
+.menu-item:not(:disabled):hover {
+  border-color: #a8d8f7;
+  background: linear-gradient(to bottom, #f1f8fd, #d9eefc);
+}
+
+.menu-item:disabled {
+  color: #8d8d8d;
+}
+
+.menu-item.is-checked::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 3px;
+  width: 16px;
+  height: 14px;
+  border: 1px solid #9ec4e4;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, #f1f8fd, #d9eefc);
+}
+
+.menu-item.is-checked::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 5px;
+  width: 4px;
+  height: 8px;
+  border: solid #1c3f6a;
+  border-width: 0 2px 2px 0;
+  transform: rotate(40deg);
+}
+
+.menu-shortcut {
+  color: inherit;
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 3px 2px 3px 30px;
+  background: #e0e0e0;
+  box-shadow: 0 1px 0 #fff;
+}
+
+.notepad-text {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline: none;
+  padding: 1px 3px;
+  font: 13px/1.3 var(--mono-font);
+  color: #000;
+  background: #fff;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.notepad-text.is-nowrap {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* Stub windows for the apps unit 2 builds */
+.stub {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 24px;
+  background: linear-gradient(to bottom, #ffffff, #eef3f8);
+  color: #1e395b;
+  text-align: center;
+}
+
+.stub-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 400;
+  color: #1e5aa8;
+}
+
+.stub-path {
+  margin: 0;
+  color: #5a6b80;
+  font-size: 12px;
+}
+
+.stub-body {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #3a4a5c;
+}
+
+.stub-cmd {
+  background: #000;
+  color: #c0c0c0;
+  font-family: var(--mono-font);
+}
+
+.stub-cmd .stub-title,
+.stub-cmd .stub-body,
+.stub-cmd .stub-path {
+  color: #c0c0c0;
+  font-family: var(--mono-font);
+}

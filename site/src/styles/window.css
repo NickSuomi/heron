@@ -1,0 +1,398 @@
+/*
+ * Aero frame: an 8 px glass border and a 30 px caption, rounded on top, with the client area inset.
+ * The glass is a tint over backdrop-filter; with HTML-in-canvas, Canvas UI Glass draws beneath the tint.
+ */
+.window {
+  --frame: 8px;
+  --caption: 30px;
+  --tint: rgba(104, 150, 178, 0.42);
+  position: absolute;
+  display: block;
+  border-radius: 8px 8px 6px 6px;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  --glass-fill:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.12) 28px, rgba(255, 255, 255, 0.04) 60%, rgba(255, 255, 255, 0.1)),
+    var(--tint);
+  background: var(--glass-fill);
+  backdrop-filter: blur(9px) saturate(1.45) brightness(1.02);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 8px 30px rgba(0, 0, 0, 0.55),
+    0 0 1px rgba(0, 0, 0, 0.6);
+  isolation: isolate;
+}
+
+.window.is-inactive {
+  --tint: rgba(150, 178, 196, 0.28);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+    0 4px 18px rgba(0, 0, 0, 0.42);
+}
+
+.window.is-minimised {
+  display: none;
+}
+
+.window.is-maximised {
+  border-radius: 0;
+  border-width: 0;
+  --frame: 0px;
+  --caption: 24px;
+  --tint: rgba(28, 44, 56, 0.86);
+  box-shadow: none;
+}
+
+.window:has(.glass-native) {
+  backdrop-filter: none;
+}
+
+.window > .glass-native {
+  z-index: -1;
+}
+
+/* The diagonal light streaks Aero glass is known for. */
+.frame-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(118deg, rgba(255, 255, 255, 0) 6%, rgba(255, 255, 255, 0.28) 10%, rgba(255, 255, 255, 0.08) 15%, rgba(255, 255, 255, 0) 19%),
+    linear-gradient(118deg, rgba(255, 255, 255, 0) 28%, rgba(255, 255, 255, 0.2) 31%, rgba(255, 255, 255, 0) 36%),
+    linear-gradient(118deg, rgba(255, 255, 255, 0) 52%, rgba(255, 255, 255, 0.18) 57%, rgba(255, 255, 255, 0.04) 65%, rgba(255, 255, 255, 0) 67%),
+    linear-gradient(118deg, rgba(255, 255, 255, 0) 79%, rgba(255, 255, 255, 0.16) 83%, rgba(255, 255, 255, 0) 87%);
+  mix-blend-mode: screen;
+}
+
+.window.is-inactive .frame-sheen {
+  opacity: 0.6;
+}
+
+.titlebar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--caption);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 120px 0 9px;
+}
+
+.window.is-maximised .titlebar {
+  padding-left: 4px;
+}
+
+.title-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.title-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #000;
+  font-size: 12px;
+  padding: 0 5px;
+  /* The soft white halo Aero paints behind caption text. */
+  text-shadow:
+    0 0 5px rgba(255, 255, 255, 1),
+    0 0 9px rgba(255, 255, 255, 0.9),
+    0 0 14px rgba(255, 255, 255, 0.7);
+}
+
+.window.is-maximised .title-text {
+  color: #fff;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+  background: none;
+}
+
+.window.is-inactive .title-text {
+  color: #3c3c3c;
+}
+
+/* Caption buttons hang from the top edge: minimise, maximise, and the wide red close. */
+.caption-buttons {
+  position: absolute;
+  top: -1px;
+  right: 5px;
+  display: flex;
+  z-index: 2;
+  border-radius: 0 0 5px 5px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.window.is-maximised .caption-buttons {
+  top: 0;
+  right: 2px;
+}
+
+.caption {
+  position: relative;
+  height: 19px;
+  width: 26px;
+  border: 1px solid rgba(0, 0, 0, 0.62);
+  border-left-width: 0;
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.2) 45%, rgba(0, 0, 0, 0.08) 50%, rgba(255, 255, 255, 0.14)),
+    rgba(120, 150, 170, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+.caption-min {
+  border-left-width: 1px;
+  border-bottom-left-radius: 5px;
+}
+
+.caption-close {
+  width: 43px;
+  border-bottom-right-radius: 5px;
+  background:
+    linear-gradient(to bottom, rgba(255, 220, 210, 0.65), rgba(236, 120, 96, 0.55) 45%, rgba(190, 40, 20, 0.85) 50%, rgba(224, 88, 50, 0.9)),
+    #c9452b;
+}
+
+.window.is-inactive .caption {
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.14) 45%, rgba(255, 255, 255, 0.05) 50%, rgba(255, 255, 255, 0.12)),
+    rgba(150, 170, 185, 0.25);
+  border-color: rgba(0, 0, 0, 0.42);
+}
+
+.caption:hover {
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.6), rgba(170, 230, 255, 0.35) 45%, rgba(40, 150, 220, 0.4) 50%, rgba(110, 220, 255, 0.65)),
+    rgba(60, 150, 210, 0.45);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+    0 0 8px rgba(120, 220, 255, 0.8);
+}
+
+.caption-close:hover,
+.window.is-inactive .caption-close:hover {
+  background:
+    linear-gradient(to bottom, rgba(255, 230, 220, 0.85), rgba(255, 130, 100, 0.7) 45%, rgba(230, 40, 10, 0.95) 50%, rgba(255, 120, 60, 1)),
+    #e0482a;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 0 10px rgba(255, 110, 60, 0.9);
+}
+
+.caption:active {
+  filter: brightness(0.82);
+}
+
+.glyph {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.6));
+}
+
+.caption-min .glyph {
+  width: 9px;
+  height: 3px;
+  top: 8px;
+  background: #fff;
+}
+
+.caption-max .glyph {
+  width: 10px;
+  height: 8px;
+  border: 1px solid #fff;
+  border-top-width: 3px;
+}
+
+.caption-max.is-restore .glyph {
+  width: 8px;
+  height: 7px;
+  transform: translate(-1px, 1px);
+  box-shadow: 2px -2px 0 -1px transparent;
+}
+
+.caption-max.is-restore .glyph::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -6px;
+  width: 8px;
+  height: 7px;
+  border: 1px solid #fff;
+  border-top-width: 2px;
+  border-left-width: 0;
+  border-bottom-width: 0;
+}
+
+.caption-close .glyph {
+  width: 12px;
+  height: 10px;
+}
+
+.caption-close .glyph::before,
+.caption-close .glyph::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 13px;
+  height: 2.6px;
+  margin: -1.3px 0 0 -6.5px;
+  background: #fff;
+  border-radius: 1px;
+  transform: rotate(38deg);
+}
+
+.caption-close .glyph::after {
+  transform: rotate(-38deg);
+}
+
+.client {
+  position: absolute;
+  left: var(--frame);
+  right: var(--frame);
+  top: var(--caption);
+  bottom: var(--frame);
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45);
+  user-select: text;
+}
+
+.window.is-maximised .client {
+  border-width: 1px 0 0;
+  box-shadow: none;
+}
+
+.resize {
+  position: absolute;
+  z-index: 3;
+}
+
+.resize-n,
+.resize-s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.resize-n {
+  top: -3px;
+}
+
+.resize-s {
+  bottom: -3px;
+}
+
+.resize-e,
+.resize-w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.resize-e {
+  right: -3px;
+}
+
+.resize-w {
+  left: -3px;
+}
+
+.resize-ne,
+.resize-nw,
+.resize-se,
+.resize-sw {
+  width: 14px;
+  height: 14px;
+}
+
+.resize-ne {
+  top: -3px;
+  right: -3px;
+  cursor: nesw-resize;
+}
+
+.resize-sw {
+  bottom: -3px;
+  left: -3px;
+  cursor: nesw-resize;
+}
+
+.resize-nw {
+  top: -3px;
+  left: -3px;
+  cursor: nwse-resize;
+}
+
+.resize-se {
+  bottom: -3px;
+  right: -3px;
+  cursor: nwse-resize;
+}
+
+.resize-n,
+.resize-ne,
+.resize-nw {
+  z-index: 1;
+}
+
+/* Vista-style scroll bars inside windows */
+.client ::-webkit-scrollbar {
+  width: 17px;
+  height: 17px;
+}
+
+.client ::-webkit-scrollbar-track {
+  background: linear-gradient(to right, #e6e6e6, #f4f4f4 40%, #f4f4f4 60%, #e6e6e6);
+  border-left: 1px solid #e0e0e0;
+}
+
+.client ::-webkit-scrollbar-thumb {
+  border: 1px solid #9a9a9a;
+  border-radius: 3px;
+  background:
+    linear-gradient(to right, #f7f7f7, #ececec 48%, #dedede 52%, #d4d4d4);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.85);
+}
+
+.client ::-webkit-scrollbar-thumb:hover {
+  border-color: #3c7fb1;
+  background: linear-gradient(to right, #e3f4fc, #c4e8f8 48%, #a8dbf4 52%, #a0d5f0);
+}
+
+.client ::-webkit-scrollbar-button:single-button {
+  display: block;
+  height: 17px;
+  width: 17px;
+  background: #f0f0f0 center / 7px 4px no-repeat;
+}
+
+.client ::-webkit-scrollbar-button:single-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 4'%3E%3Cpath d='M0 4L3.5 0 7 4z' fill='%234d6185'/%3E%3C/svg%3E");
+}
+
+.client ::-webkit-scrollbar-button:single-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 4'%3E%3Cpath d='M0 0L3.5 4 7 0z' fill='%234d6185'/%3E%3C/svg%3E");
+}
+
+.client ::-webkit-scrollbar-button:single-button:horizontal:decrement {
+  background-size: 4px 7px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 7'%3E%3Cpath d='M4 0L0 3.5 4 7z' fill='%234d6185'/%3E%3C/svg%3E");
+}
+
+.client ::-webkit-scrollbar-button:single-button:horizontal:increment {
+  background-size: 4px 7px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 7'%3E%3Cpath d='M0 0L4 3.5 0 7z' fill='%234d6185'/%3E%3C/svg%3E");
+}
+
+.client ::-webkit-scrollbar-corner {
+  background: #f0f0f0;
+}

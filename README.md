@@ -126,7 +126,7 @@ node scripts/check-readme-contract.mjs README.md
 
 ## Acknowledgements
 
-The public site in [`site/`](site/) scrolls on Canvas UI's [Bend](https://canvasui.dev/docs/components/bend) fold ([source](https://github.com/DavidHDev/canvas-ui)). Canvas UI is licensed under MIT with a Commons Clause: you may use the components, including commercially, but you may not sell, sublicense, or redistribute them on their own, bundled, or ported. The vendored copy under `site/src/canvas-ui/` keeps the upstream license text. See [`site/README.md`](site/README.md).
+The public site in [`site/`](site/) draws its window glass with Canvas UI's [Glass](https://canvasui.dev) component ([source](https://github.com/DavidHDev/canvas-ui)). Canvas UI is licensed under MIT with a Commons Clause: you may use the components, including commercially, but you may not sell, sublicense, or redistribute them on their own, bundled, or ported. The vendored copy under `site/src/vendor/canvas-ui/` keeps the upstream license text. See [`site/README.md`](site/README.md).
 
 ## License
 

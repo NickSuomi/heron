@@ -7,6 +7,16 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@effect/platform-browser':
+        specifier: 4.0.0-rc.116
+        version: 4.0.0-rc.116(effect@4.0.0-rc.116)
+      effect:
+        specifier: 4.0.0-rc.116
+        version: 4.0.0-rc.116
+      foldkit:
+        specifier: 0.163.0
+        version: 0.163.0(@effect/platform-browser@4.0.0-rc.116(effect@4.0.0-rc.116))(effect@4.0.0-rc.116)
     devDependencies:
       '@fontsource-variable/inter':
         specifier: 5.3.0
@@ -22,6 +32,11 @@ importers:
         version: 8.3.0
 
 packages:
+
+  '@effect/platform-browser@4.0.0-rc.116':
+    resolution: {integrity: sha512-ak23bBZcaMiItFwjdWqbp9KVFMR7b5R/w4iT+Dj/xwd0AiHx0GAe7uRkQ6cdhkSdW9aBnuN9paZTglG2Y8cTOA==}
+    peerDependencies:
+      effect: ^4.0.0-rc.116
 
   '@fontsource-variable/inter@5.3.0':
     resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
@@ -255,6 +270,13 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
+  effect@4.0.0-rc.116:
+    resolution: {integrity: sha512-nawqJHSjHV8XIBRZNZ+D7cLZpN3kkSjzy6aiT9ofKENsl7xAMFKEoDa0itN5JFl3GUQ1PIN1T1HNlva5+xyO/A==}
+
+  entities@8.1.0:
+    resolution: {integrity: sha512-kxL7msIffSuh9aaFAMD7rxAIuTRMAHMeBtgHW2yUdWw732ZNh4MehkF2gdjvtdmikkaIP9bFDDJOPlsvm7avrA==}
+    engines: {node: '>=20.19.0'}
+
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
@@ -263,6 +285,13 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  foldkit@0.163.0:
+    resolution: {integrity: sha512-9IWvBd68MRpfgrMOVuwuasU81GWH4ccNaOkT7nJEzl+azhDOzHNysm7Z0RdtowBFlJX+6qJfSLDVzbiWOVd9Ww==}
+    engines: {node: '>=20.19.0'}
+    peerDependencies:
+      '@effect/platform-browser': 4.0.0-rc.116
+      effect: 4.0.0-rc.116
 
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
@@ -348,6 +377,9 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  parse5@8.0.1:
+    resolution: {integrity: sha512-z1e/HMG90obSGeidlli3hj7cbocou0/wa5HacvI3ASx34PecNjNQeaHNo5WIZpWofN9kgkqV1q5YvXe3F0FoPw==}
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -421,6 +453,10 @@ packages:
         optional: true
 
 snapshots:
+
+  '@effect/platform-browser@4.0.0-rc.116(effect@4.0.0-rc.116)':
+    dependencies:
+      effect: 4.0.0-rc.116
 
   '@fontsource-variable/inter@5.3.0': {}
 
@@ -537,9 +573,19 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
+  effect@4.0.0-rc.116: {}
+
+  entities@8.1.0: {}
+
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
       picomatch: 4.0.7
+
+  foldkit@0.163.0(@effect/platform-browser@4.0.0-rc.116(effect@4.0.0-rc.116))(effect@4.0.0-rc.116):
+    dependencies:
+      '@effect/platform-browser': 4.0.0-rc.116(effect@4.0.0-rc.116)
+      effect: 4.0.0-rc.116
+      parse5: 8.0.1
 
   fsevents@2.3.3:
     optional: true
@@ -594,6 +640,10 @@ snapshots:
       lightningcss-win32-x64-msvc: 1.33.0
 
   nanoid@3.3.19: {}
+
+  parse5@8.0.1:
+    dependencies:
+      entities: 8.1.0
 
   picocolors@1.1.1: {}
 

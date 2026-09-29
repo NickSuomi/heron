@@ -1,4 +1,3 @@
 minimumReleaseAge: 10080
-# esbuild verifies its platform binary during install. Nothing else needs a build script.
-allowBuilds:
-  esbuild: true
+# No dependency needs an install script: Vite 8 bundles with Rolldown, which ships prebuilt binaries.
+allowBuilds: {}

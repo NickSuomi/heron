@@ -1,0 +1,239 @@
+.os {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.os.is-moving,
+.os.is-moving * {
+  cursor: default !important;
+}
+
+.os.is-resizing * {
+  user-select: none;
+}
+
+.wallpaper {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #03201a url("../assets/wallpaper.svg") center / cover no-repeat;
+}
+
+.desk {
+  position: absolute;
+  inset: 0 0 var(--taskbar-height) 0;
+  overflow: hidden;
+}
+
+.desk > .wallpaper {
+  height: 100vh;
+}
+
+.desktop-surface {
+  position: absolute;
+  inset: 0;
+}
+
+.desktop-icons {
+  position: absolute;
+  inset: 4px 0 4px 2px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(auto-fill, 92px);
+  grid-auto-columns: 78px;
+  gap: 2px 4px;
+  align-content: start;
+  pointer-events: none;
+}
+
+.desktop-icon {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 76px;
+  height: 90px;
+  padding: 4px 2px 2px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #fff;
+  text-align: center;
+  outline: none;
+}
+
+.desktop-icon img {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+
+.desktop-icon-label {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 72px;
+  line-height: 14px;
+  overflow-wrap: anywhere;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 4px rgba(0, 0, 0, 0.8),
+    0 0 1px #000;
+}
+
+.desktop-icon:hover {
+  background: linear-gradient(to bottom, rgba(220, 238, 255, 0.18), rgba(190, 222, 255, 0.1));
+  border-color: rgba(190, 225, 255, 0.35);
+}
+
+.desktop-icon.is-selected {
+  background: linear-gradient(to bottom, rgba(170, 214, 255, 0.4), rgba(120, 180, 250, 0.28));
+  border-color: rgba(170, 215, 255, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.desktop-icon.is-selected .desktop-icon-label {
+  -webkit-line-clamp: 4;
+}
+
+.desktop-icon:focus-visible {
+  border-color: rgba(255, 255, 255, 0.8);
+  border-style: dotted;
+}
+
+.skip-link {
+  position: absolute;
+  z-index: 8100;
+  bottom: 4px;
+  right: 118px;
+  height: 23px;
+  padding: 3px 11px 0;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.08) 50%, rgba(0, 0, 0, 0.1) 51%, rgba(0, 0, 0, 0.26)),
+    rgba(20, 60, 70, 0.45);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  text-decoration: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.skip-link:hover,
+.skip-link:focus-visible {
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.18) 50%, rgba(0, 0, 0, 0.02) 51%, rgba(80, 200, 255, 0.3)),
+    rgba(20, 90, 120, 0.55);
+  outline: none;
+}
+
+/* Window switcher (Alt+`) */
+.switcher {
+  position: absolute;
+  z-index: 9500;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  min-width: 300px;
+  padding: 12px 18px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.7);
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.12) 42%, rgba(255, 255, 255, 0) 56%),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.04) 40%, rgba(0, 0, 0, 0.2)),
+    rgba(16, 34, 48, 0.62);
+  backdrop-filter: blur(10px) saturate(1.3);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+    0 10px 40px rgba(0, 0, 0, 0.6);
+  color: #fff;
+  text-align: center;
+}
+
+.switcher-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  text-shadow: 0 1px 3px #000;
+}
+
+.switcher-items {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.switcher-item {
+  width: 76px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.switcher-item img {
+  width: 48px;
+  height: 48px;
+}
+
+.switcher-item.is-selected {
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.12));
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow:
+    0 0 10px rgba(140, 220, 255, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.switcher-hint {
+  margin: 10px 0 0;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* Canvas UI Glass layers (native path) */
+.glass-native {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.glass-native::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--glass-fill);
+}
+
+.glass-source,
+.glass-output {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.glass-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.glass-wallpaper {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
