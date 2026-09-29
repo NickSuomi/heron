@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { defineMessageUnion } from "foldkit/message"
 
+import * as Browser from "./apps/browser"
 import * as Cmd from "./apps/cmd"
 import * as Notepad from "./apps/notepad"
 import * as Studio from "./apps/studio"
@@ -55,5 +56,6 @@ export const Message = defineMessageUnion({
   GotNotepadMessage: { windowId: WindowId, message: Notepad.Message },
   GotCmdMessage: { windowId: WindowId, message: Cmd.Message },
   GotStudioMessage: { windowId: WindowId, message: Studio.Message },
+  GotBrowserMessage: { windowId: WindowId, message: Browser.Message },
 })
 export type Message = typeof Message.Type

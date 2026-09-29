@@ -2,12 +2,14 @@ import { Array, Match, Option, pipe } from "effect"
 import { Command, type Update } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 
+import * as Browser from "./apps/browser"
 import * as Cmd from "./apps/cmd"
 import * as Notepad from "./apps/notepad"
 import * as Studio from "./apps/studio"
 import { appIdOf, type AppDefinition, definition, type Launch, launchFor } from "./apps/registry"
 import { PlayChime, WaitForLoader, WaitForWelcome } from "./command"
 import { cascadeRect, keepGrabbable, resize, translate } from "./domain/geometry"
+import * as Forge from "./domain/forge"
 import * as Review from "./domain/review"
 import { children, desktopPath, type FilePath, lookup } from "./domain/vfs"
 import * as Desk from "./domain/window"
@@ -30,6 +32,7 @@ export const init = (flags: Flags): UpdateReturn => ({
     isAudioUnlocked: false,
     glass: flags.glass,
     review: Review.Review.Idle(),
+    forge: Forge.emptyForge,
   },
   commands: [WaitForLoader()],
 })
@@ -41,7 +44,7 @@ const launch = (model: Model, { app, maybeNode }: Launch): Model => {
     onNone: () =>
       Desk.open(
         model.desk,
-        app.launch(maybeNode),
+        app.launch(maybeNode, { isSignedInToForge: Option.isSome(model.forge.maybeUser) }),
         cascadeRect(app.size, deskSize(model), model.desk.nextId - 1),
         isPhone(model) ? "Maximised" : "Normal",
       ),
@@ -184,6 +187,26 @@ const updateStudio = (model: Model, windowId: Desk.WindowId, message: Studio.Mes
     }),
   )
 
+const updateBrowser = (model: Model, windowId: Desk.WindowId, message: Browser.Message): UpdateReturn =>
+  pipe(
+    Desk.find(model.desk, windowId),
+    Option.flatMap((win) => (win.app._tag === "Browser" ? Option.some(win.app) : Option.none())),
+    Option.match({
+      onNone: () => ({ model }),
+      onSome: (browser) => {
+        const next = Browser.update(browser, message, { isSignedIn: Option.isSome(model.forge.maybeUser) })
+        const updated = { ...model, desk: Desk.setApp(model.desk, windowId, next.model) }
+        const commands = Command.mapMessages(next.commands, (child) => Message.GotBrowserMessage({ windowId, message: child }))
+        return next.outMessage === undefined
+          ? { model: updated, commands }
+          : Browser.OutMessage.match<UpdateReturn>(next.outMessage, {
+              SignedIn: ({ username }) => ({ model: { ...updated, forge: Forge.signIn(updated.forge, username) }, commands }),
+              SignedOut: () => ({ model: { ...updated, forge: Forge.signOut(updated.forge) }, commands }),
+            })
+      },
+    }),
+  )
+
 /** Moves the shared review on. When a run ends, Command Prompts keep the lines they streamed and editors show the Error List. */
 const tickReview = (model: Model, now: number): Model => {
   const review = Review.advance(model.review, now)
@@ -191,7 +214,7 @@ const tickReview = (model: Model, now: number): Model => {
     review._tag === "Done" && model.review._tag === "Running"
       ? model.desk.windows.reduce((desk, win) => win.app._tag === "Cmd" ? Desk.setApp(desk, win.id, Cmd.settle(win.app, review)) : win.app._tag === "Studio" ? Desk.setApp(desk, win.id, Studio.settle(win.app)) : desk, model.desk)
       : model.desk
-  return { ...model, review, desk }
+  return { ...model, review, desk, forge: Forge.observe(model.forge, model.review, review, now) }
 }
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -213,7 +236,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedStartPath: ({ path }) => ({ model: openPath(model, path) }),
     ClickedStartApp: ({ app }) => ({ model: startApp(model, definition(app)) }),
     ClickedPower: () => ({
-      model: { ...model, session: Session.Booting({ stage: "Loader" }), desk: Desk.emptyDesk, isStartMenuOpen: false, review: Review.Review.Idle() },
+      model: { ...model, session: Session.Booting({ stage: "Loader" }), desk: Desk.emptyDesk, isStartMenuOpen: false, review: Review.Review.Idle(), forge: Forge.emptyForge },
       commands: [WaitForLoader()],
     }),
     ClickedLock: () => ({
@@ -282,4 +305,5 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     GotNotepadMessage: ({ windowId, message }) => updateNotepad(model, windowId, message),
     GotCmdMessage: ({ windowId, message }) => updateCmd(model, windowId, message),
     GotStudioMessage: ({ windowId, message }) => updateStudio(model, windowId, message),
+    GotBrowserMessage: ({ windowId, message }) => updateBrowser(model, windowId, message),
   })

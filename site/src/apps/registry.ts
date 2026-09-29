@@ -4,10 +4,14 @@ import type { Size } from "../domain/geometry"
 import { type AppId, type FileType, lookup, type VfsFile, type VfsNode } from "../domain/vfs"
 import type { IconName } from "../shell/icons"
 import type { AppState } from "./appState"
+import * as Browser from "./browser"
 import * as Cmd from "./cmd"
 import * as Notepad from "./notepad"
 import * as Studio from "./studio"
 import * as Stub from "./stub"
+
+/** What an app may read from the session when it starts: whether the visitor signed in to the mock GitLab. */
+export type LaunchSession = Readonly<{ isSignedInToForge: boolean }>
 
 /**
  * What the shell needs to know about an app before it runs. An app declares the file types it opens
@@ -21,7 +25,7 @@ export type AppDefinition = Readonly<{
   opens: ReadonlyArray<FileType>
   size: Size
   isSingleInstance: boolean
-  launch: (maybeNode: Option.Option<VfsNode>) => AppState
+  launch: (maybeNode: Option.Option<VfsNode>, session: LaunchSession) => AppState
 }>
 
 const stub =
@@ -38,7 +42,7 @@ export const apps: ReadonlyArray<AppDefinition> = [
   { id: "diagram", name: "Diagram Viewer", icon: "diagram", opens: ["Diagram"], size: { width: 860, height: 580 }, isSingleInstance: false, launch: stub("diagram") },
   { id: "cmd", name: "Command Prompt", icon: "cmd", opens: [], size: { width: 680, height: 400 }, isSingleInstance: false, launch: () => Cmd.init() },
   { id: "explorer", name: "Explorer", icon: "folder", opens: ["Folder"], size: { width: 760, height: 520 }, isSingleInstance: false, launch: stub("explorer") },
-  { id: "browser", name: "Internet Explorer", icon: "browser", opens: [], size: { width: 960, height: 640 }, isSingleInstance: false, launch: stub("browser") },
+  { id: "browser", name: "Internet Explorer", icon: "browser", opens: [], size: { width: 960, height: 640 }, isSingleInstance: false, launch: (_node, session) => Browser.init(session.isSignedInToForge) },
   { id: "welcome", name: "Welcome Center", icon: "welcome", opens: [], size: { width: 640, height: 460 }, isSingleInstance: true, launch: stub("welcome") },
   { id: "uac", name: "User Account Control", icon: "shield", opens: ["Program"], size: { width: 460, height: 300 }, isSingleInstance: true, launch: stub("uac") },
   { id: "help", name: "Help and Support", icon: "help", opens: [], size: { width: 820, height: 580 }, isSingleInstance: true, launch: stub("help") },
@@ -53,7 +57,7 @@ export const definition = (id: AppId): AppDefinition =>
 
 export const appIdOf = (state: AppState): AppId =>
   Match.value(state).pipe(
-    Match.tagsExhaustive({ Notepad: () => "notepad" as const, Cmd: () => "cmd" as const, Studio: () => "editor" as const, Stub: (model) => model.app }),
+    Match.tagsExhaustive({ Notepad: () => "notepad" as const, Cmd: () => "cmd" as const, Studio: () => "editor" as const, Browser: () => "browser" as const, Stub: (model) => model.app }),
   )
 
 export const titleOf = (state: AppState): string =>
@@ -62,6 +66,7 @@ export const titleOf = (state: AppState): string =>
       Notepad: Notepad.title,
       Cmd: Cmd.title,
       Studio: Studio.title,
+      Browser: Browser.title,
       Stub: (model) =>
         Option.match(model.maybePath, {
           onNone: () => definition(model.app).name,

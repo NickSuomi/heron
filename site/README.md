@@ -41,13 +41,14 @@ Vitest runs `src/**/*.test.ts` with the Vite config, so the tests see the same `
 - `desk` (`src/domain/window.ts`): the open windows in z-order, bottom first, and the focused window. A window holds its app state, its bounds, `Normal` or `Maximised`, and whether it is minimised.
 - `gesture`: a title-bar move or an edge resize in progress.
 - `review` (`src/domain/review.ts`): the one shared review of the fictional merge request acme/storefront !42, `Idle`, `Running` or `Done`. See [The review engine](#the-review-engine).
+- `forge` (`src/domain/forge.ts`): the mock GitLab's session state: who signed in to gitlab.heron.local, when heron-bot created and last edited its note, and the label changes its activity lists. See [The mock GitLab](#the-mock-gitlab).
 - The Start menu, the window switcher, the selected desktop icon, the clock, sound, and the glass mode.
 
 `src/update.ts` handles every Message in `src/message.ts`. The views live in `src/shell/`. The phone layout (`src/shell/phone.ts`) renders the same Model: the top visible window fills the screen, and the Today screen shows when none is open.
 
 ## Apps and file types
 
-`src/apps/registry.ts` lists every app as an `AppDefinition`: id, name, icon, default size, whether it runs once, the file types it opens, and `launch`, which builds its state from the file or folder it was opened on. Opening a file picks the first app whose `opens` list names the file's type (`src/domain/vfs.ts` derives the type from the extension). Shortcuts on the desktop name their app directly.
+`src/apps/registry.ts` lists every app as an `AppDefinition`: id, name, icon, default size, whether it runs once, the file types it opens, and `launch`, which builds its state from the file or folder it was opened on and a `LaunchSession` (whether the visitor signed in to the mock GitLab). Opening a file picks the first app whose `opens` list names the file's type (`src/domain/vfs.ts` derives the type from the extension). Shortcuts on the desktop name their app directly.
 
 Notepad (`src/apps/notepad.ts`) is the pattern for the other apps. It has its own Model, Messages, `update` and view, the shell embeds it with `h.submodel`, and it asks the shell to close its window through an OutMessage. To build an app:
 
@@ -61,6 +62,7 @@ The apps that are still stubs show their name and "Coming in unit 2".
 An app that needs shared state, such as the review, takes it as `viewInputs` in its view and as a context argument in its `update`, the way Command Prompt and Heron Studio do. An app's CSS sits next to it (`src/apps/<app>.css`) and is imported by the app module.
 
 - **Command Prompt** (`src/apps/cmd.ts`): `help`, `cls`, `dir`, `cd`, `type`, `exit` over the Heron OS file system, with the home folder `C:\Users\Visitor` standing for its root, and a history for the up and down arrows. `heron --help`, `heron config check` and the other `heron` commands it knows print the real CLI's output. `heron review --mr 42 --dry-run` streams the shared review and prints the report; without `--dry-run` it posts.
+- **Internet Explorer** (`src/apps/browser.ts`, glyphs in `src/apps/browserIcons.ts`): a browser in the manner of version 7 on an Aero desktop, with glass Back and Forward buttons, the address bar, Refresh and Stop, a search box, tabs with Quick Tabs and a tab list, the Favorites Center, the command bar (Home, Feeds, Print, Page, Tools, Help) and a status bar with the zone. Each tab keeps its own history. It reaches `gitlab.heron.local` and `search.heron.local`; any other address shows its "cannot display the webpage" page. The Favorites entry "Heron on GitHub" and every link to github.com open in a new tab of the visitor's own browser. It opens on the sign-in page, or on !42 once the visitor has signed in during the session. On the phone it is a pocket browser: an address line with Go, the page in one column, and Back, Favorites, Refresh and Home above the soft keys.
 - **Heron Studio** (`src/apps/studio.ts`, tokenizer in `src/apps/highlight.ts`): opens `.ts`, `.vue`, `.json` and `.diff` files, with the merge request's files and Heron's source in Solution Explorer. Typing works; Save shows "Heron never edits code". Once the review is Done, findings show as red (blocker) and blue (advisory) squiggles with tooltips and in the Error List, whose rows jump to the line. On the phone it is a full-screen viewer with the findings under the code.
 
 ## The merge request !42
@@ -77,6 +79,12 @@ import { mr42, findingsIn, type MergeRequest42, type Finding, type Session, type
 - `mr42.verdict`, `mr42.configDigest`, `mr42.noteId`, and `mr42.note`: the report note, exactly as `heron review --mr 42 --dry-run` prints it.
 
 The hand-written part is `src/data/mr42-data.ts`: the file contents, each session's raw findings and the supervisor's keep-or-drop decisions. At build time `build/heron-build.ts` imports the root package's `src/config.ts`, `src/policy.ts` and `src/report.ts` in Node (with the root's own effect 4.0.0-rc.115; nothing from it is bundled), loads `heron.config.example.json` with the forge pointed at `gitlab.heron.local` and `acme/storefront`, and runs Heron's `classify`, `planFor`, `applySynthesis`, `verdictOf` and `renderReport` over the data. The build fails if the lane, the session plan or the verdict disagrees with the data, or if `heron config check` prints another digest. It also runs the real CLI for the `heron` commands Command Prompt knows and keeps their output. `virtual:heron-build` exports `reportNote`, `findingIds`, `configDigest`, `labelNames`, `profiles` and `cliOutput`.
+
+## The mock GitLab
+
+`src/apps/gitlab.ts` draws gitlab.heron.local in the look of a 2009 web application with today's GitLab layout: a project sidebar, merge request tabs and a label sidebar. Every mark and glyph is drawn for Heron OS; `src/apps/gitlabRoutes.ts` maps addresses to pages. The pages are the sign-in page (any username and password work, nothing leaves the page, and it says so), the dashboard, the project acme/storefront, its merge requests, !42 with Overview, Commits and Changes, and each changed file at the reviewed head. The project and its merge requests are fictional and a banner says so. Project pages need a signed-in visitor, as an internal GitLab project does.
+
+!42's Overview shows the description, the activity and the labels. The labels are the review's live `labelsOf`. Heron's note appears once a posted run emits `PostedNote`, by heron-bot, with GitLab's relative time; a later posted run edits it, and the note says "Edited just now by heron-bot". Each `ChangedLabels` event adds a line to the activity. A dry run changes nothing there; while one runs, and after it, a banner says so. `src/apps/gitlabMarkdown.ts` renders the note the way GitLab renders markdown: headings, lists, links to `file:line` (they open the file at that line), tables and the collapsible REVIEW CHECKS and AGENT PROVENANCE details. The marker comment stays hidden.
 
 ## The review engine
 

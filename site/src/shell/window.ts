@@ -1,6 +1,7 @@
 import { Match, Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 
+import * as Browser from "../apps/browser"
 import * as Cmd from "../apps/cmd"
 import * as Notepad from "../apps/notepad"
 import { appIdOf, definition, iconOf, titleOf } from "../apps/registry"
@@ -40,6 +41,14 @@ export const appView = (model: Model, win: Desk.Window, h: HtmlBuilder<Message>)
           view: Studio.view,
           viewInputs: { review: model.review, windowId: win.id, isPhone: isPhone(model) },
           toParentMessage: (message) => Message.GotStudioMessage({ windowId: win.id, message }),
+        }),
+      Browser: (browser) =>
+        h.submodel({
+          slotId: `browser-${win.id}`,
+          model: browser,
+          view: Browser.view,
+          viewInputs: { review: model.review, forge: model.forge, now: model.now, isPhone: isPhone(model) },
+          toParentMessage: (message) => Message.GotBrowserMessage({ windowId: win.id, message }),
         }),
       Stub: (stub) => Stub.view(h, definition(stub.app).name, stub),
     }),

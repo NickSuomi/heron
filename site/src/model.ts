@@ -2,6 +2,7 @@ import { Schema } from "effect"
 import { defineTaggedUnion } from "foldkit/schema"
 
 import { Edge, Point, Rect, Size } from "./domain/geometry"
+import { Forge } from "./domain/forge"
 import { Review } from "./domain/review"
 import { FilePath } from "./domain/vfs"
 import { Desk, WindowId } from "./domain/window"
@@ -45,6 +46,8 @@ export const Model = Schema.Struct({
   isAudioUnlocked: Schema.Boolean,
   glass: GlassMode,
   review: Review,
+  /** The mock GitLab: who is signed in this session, and when heron-bot posted and edited its note. */
+  forge: Forge,
 })
 export type Model = typeof Model.Type
 
