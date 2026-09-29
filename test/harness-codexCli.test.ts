@@ -11,11 +11,11 @@ afterAll(repo.cleanup)
 const mcp = { command: "/opt/node", args: ["/opt/heron/dist/cli.js", "mcp-source"] }
 const SHELL_VARS = ["PWD", "OLDPWD", "SHLVL", "_"]
 
-const run = (fixture: string, options: { code?: number; source?: boolean; mcpList?: string } = {}) => {
+const run = (fixture: string, options: { code?: number; mcpList?: string } = {}) => {
   const fake = fakeCli(repo.root, fixture, options.code ?? 0, options.mcpList ?? null)
   const adapter = codexCli({ command: fake.bin, env: jobEnv, mcp })
   return {
-    effect: adapter(requestFor("beta", options.source === false ? null : repo.source)),
+    effect: adapter(requestFor("beta", repo.source)),
     captured: () => JSON.parse(readFileSync(fake.capture, "utf8")) as Captured
   }
 }
@@ -54,21 +54,19 @@ describe("codex-cli harness", () => {
         approval_policy: "\"never\"",
         "tools.view_image": "false",
         project_doc_max_bytes: "0",
+        tool_output_token_limit: "1000000",
         "mcp_servers.heron.command": "\"/opt/node\"",
-        "mcp_servers.heron.args": JSON.stringify(["/opt/heron/dist/cli.js", "mcp-source", "--git-dir", repo.source.gitDir, "--commit", repo.source.commit]),
+        "mcp_servers.heron.args": JSON.stringify(["/opt/heron/dist/cli.js", "mcp-source", "--checkout", JSON.stringify(repo.source)]),
         "mcp_servers.heron.required": "true",
-        "mcp_servers.heron.enabled_tools": "[\"grep\",\"list_files\",\"read_file\"]"
+        "mcp_servers.heron.tool_timeout_sec": "86400",
+        "mcp_servers.heron.enabled_tools": JSON.stringify([
+          "grep", "list_files", "read_file", "rg", "ast_grep", "git_log", "git_show", "git_blame", "git_diff",
+          "definition", "references", "hover", "document_symbols", "workspace_symbols", "diagnostics"
+        ])
       })
       expect(stdin).toBe("You review code.\n\nWhat number does a.ts export?")
       expect(Object.keys(env).filter((k) => !SHELL_VARS.includes(k)).sort()).toEqual(["CODEX_HOME", "HOME", "HTTPS_PROXY", "PATH"])
       expect(JSON.stringify(env)).not.toContain("must-not-leak")
-    }))
-
-  it.effect("gives the judge no MCP server", () =>
-    Effect.gen(function*() {
-      const { captured, effect } = run("codex-success.synthetic.jsonl", { source: false })
-      yield* effect
-      expect(Object.keys(overrides(captured().argv)).filter((k) => k.startsWith("mcp_servers"))).toEqual([])
     }))
 
   it.effect("reports a recorded 401 from codex-cli 0.101.0 as auth", () =>
@@ -83,17 +81,12 @@ describe("codex-cli harness", () => {
       expect([error.kind, error.detail]).toEqual(["tool-violation", "model ran a command_execution item"])
     }))
 
-  it.effect("disables every MCP server the operator's Codex config defines, for the judge too", () =>
+  it.effect("disables every MCP server the operator's Codex config defines", () =>
     Effect.gen(function*() {
       const reviewer = run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list.json" })
       yield* reviewer.effect
-      const judge = run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list.json", source: false })
-      yield* judge.effect
       const servers = (argv: ReadonlyArray<string>) => Object.entries(overrides(argv)).filter(([k]) => k.endsWith(".enabled"))
-      expect([servers(reviewer.captured().argv), servers(judge.captured().argv)]).toEqual([
-        [["mcp_servers.docs.enabled", "false"], ["mcp_servers.shell.enabled", "false"]],
-        [["mcp_servers.docs.enabled", "false"], ["mcp_servers.shell.enabled", "false"]]
-      ])
+      expect(servers(reviewer.captured().argv)).toEqual([["mcp_servers.docs.enabled", "false"], ["mcp_servers.shell.enabled", "false"]])
     }))
 
   it.effect("refuses to run when an operator MCP server cannot be disabled by name", () =>
@@ -108,11 +101,9 @@ describe("codex-cli harness", () => {
   it.effect("refuses to run when the operator's Codex config already defines a server named heron", () =>
     Effect.gen(function*() {
       const reviewer = yield* Effect.flip(run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list-heron.synthetic.json" }).effect)
-      const judge = yield* Effect.flip(run("codex-success.synthetic.jsonl", { mcpList: "codex-mcp-list-heron.synthetic.json", source: false }).effect)
-      const expected = [
+      expect([reviewer.kind, reviewer.detail]).toEqual([
         "vendor",
         "the Codex config defines an MCP server named \"heron\", which Heron reserves for its source tools; rename it in the Codex config"
-      ]
-      expect([[reviewer.kind, reviewer.detail], [judge.kind, judge.detail]]).toEqual([expected, expected])
+      ])
     }))
 })

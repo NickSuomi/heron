@@ -4,33 +4,46 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { Effect } from "effect"
 import type { Sha } from "../domain.ts"
-import type { SourceCheckout } from "../ports.ts"
-import { runSourceTool, sourceTools } from "./sourceTools.ts"
+import { type SourceCheckout, TREE_REFS } from "../ports.ts"
+import { runSourceTool, sourceTools, toolContext, type ToolContext } from "./sourceTools.ts"
 
 export const MCP_SERVER_NAME = "heron"
 
 const SHA = /^[0-9a-f]{40}$/
 
+/** `--checkout <json>`: the git directory, the three commits and their trees, exactly as the forge produced them. */
 export const parseMcpSourceArgs = (argv: ReadonlyArray<string>): SourceCheckout => {
-  const value = (flag: string) => {
-    const i = argv.indexOf(flag)
-    const v = i < 0 ? undefined : argv[i + 1]
-    if (v === undefined || v.startsWith("--")) throw new Error(`mcp-source: missing ${flag}`)
-    return v
+  const i = argv.indexOf("--checkout")
+  const raw = i < 0 ? undefined : argv[i + 1]
+  if (raw === undefined) throw new Error("mcp-source: missing --checkout")
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error("mcp-source: --checkout is not JSON")
   }
-  const commit = value("--commit")
-  if (!SHA.test(commit)) throw new Error("mcp-source: --commit must be a 40-character hex SHA")
-  return { gitDir: value("--git-dir"), commit: commit as Sha }
+  const c = parsed as { gitDir?: unknown; commits?: Record<string, unknown>; trees?: Record<string, unknown> }
+  if (typeof c.gitDir !== "string") throw new Error("mcp-source: --checkout has no gitDir")
+  for (const ref of TREE_REFS) {
+    const commit = c.commits?.[ref]
+    if (typeof commit !== "string" || !SHA.test(commit)) throw new Error(`mcp-source: commit ${ref} must be a 40-character hex SHA`)
+    if (typeof c.trees?.[ref] !== "string") throw new Error(`mcp-source: --checkout has no ${ref} tree`)
+  }
+  return {
+    gitDir: c.gitDir,
+    commits: Object.fromEntries(TREE_REFS.map((r) => [r, c.commits![r] as Sha])) as SourceCheckout["commits"],
+    trees: Object.fromEntries(TREE_REFS.map((r) => [r, c.trees![r] as string])) as SourceCheckout["trees"]
+  }
 }
 
-export const mcpSourceServer = (source: SourceCheckout): McpServer => {
+export const mcpSourceServer = (ctx: ToolContext): McpServer => {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: "1.0.0" })
   for (const tool of sourceTools) {
     server.registerTool(
       tool.name,
       { description: tool.description, inputSchema: tool.input, annotations: { readOnlyHint: true, openWorldHint: false } },
       async (args: unknown) => {
-        const out = await Effect.runPromise(runSourceTool(tool, source, args))
+        const out = await Effect.runPromise(runSourceTool(tool, ctx, args))
         return { content: [{ type: "text" as const, text: out.text }], ...(out.ok ? {} : { isError: true }) }
       }
     )
@@ -39,20 +52,24 @@ export const mcpSourceServer = (source: SourceCheckout): McpServer => {
 }
 
 /**
- * `heron mcp-source --git-dir <dir> --commit <sha>`: a stdio MCP server exposing the read-only source tools.
- * `argv` is the arguments after `mcp-source`. Resolves when the client closes stdin.
+ * `heron mcp-source --checkout <json>`: a stdio MCP server exposing the read-only source tools.
+ * `argv` is the arguments after `mcp-source`. Resolves when the client closes stdin, after killing its language servers.
  */
-export const runMcpSource = async (argv: ReadonlyArray<string>): Promise<void> => {
-  const server = mcpSourceServer(parseMcpSourceArgs(argv))
-  const transport = new StdioServerTransport()
-  const closed = new Promise<void>((resolve) => {
-    transport.onclose = resolve
-    process.stdin.once("end", resolve)
-  })
-  await server.connect(transport)
-  await closed
-  await server.close()
-}
+export const runMcpSource = (argv: ReadonlyArray<string>): Promise<void> =>
+  Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+    const ctx = yield* toolContext(parseMcpSourceArgs(argv))
+    yield* Effect.promise(async () => {
+      const server = mcpSourceServer(ctx)
+      const transport = new StdioServerTransport()
+      const closed = new Promise<void>((resolve) => {
+        transport.onclose = resolve
+        process.stdin.once("end", resolve)
+      })
+      await server.connect(transport)
+      await closed
+      await server.close()
+    })
+  })))
 
 export interface Launcher {
   readonly command: string
@@ -69,5 +86,5 @@ export const defaultMcpLauncher = (): Launcher => ({ command: process.execPath, 
 
 export const mcpSourceCommand = (launcher: Launcher, source: SourceCheckout): Launcher => ({
   command: launcher.command,
-  args: [...launcher.args, "--git-dir", source.gitDir, "--commit", source.commit]
+  args: [...launcher.args, "--checkout", JSON.stringify(source)]
 })

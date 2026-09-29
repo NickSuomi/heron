@@ -114,7 +114,7 @@ describe("reviewOnce", () => {
       expect(forge.state.labels).toEqual(["review::blocked"])
     }))
 
-  it.effect("gives the judge no repository access and the other sessions the checkout", () =>
+  it.effect("gives every session, the judge included, the three-commit checkout and no turn or time limit", () =>
     Effect.gen(function*() {
       const forge = fakeForge({ head: sha("a"), changes: [change("src/auth/login.ts")] })
       const { layer, seen } = fakeHarness({
@@ -128,14 +128,16 @@ describe("reviewOnce", () => {
       })
       const result = yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: true }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
       expect(result.review.verdict).toBe("PASS")
-      expect(seen.map((r) => `${r.slot.id}:${r.source?.commit === sha("a") ? "source" : "none"}`).sort()).toEqual([
-        "b1.gate.correctness:source",
-        "b1.gate.design:source",
-        "b1.supervisor:source",
-        "b2.gate.correctness:source",
-        "b2.gate.design:source",
-        "b2.supervisor:source",
-        "judge:none"
+      const access = (r: (typeof seen)[number]) =>
+        `${r.slot.id}:${r.source.commits.source === sha("a") && r.source.commits.target === sha("b") ? "checkout" : "none"}:${r.maxTurns}:${r.timeout}`
+      expect(seen.map(access).sort()).toEqual([
+        "b1.gate.correctness:checkout:null:null",
+        "b1.gate.design:checkout:null:null",
+        "b1.supervisor:checkout:null:null",
+        "b2.gate.correctness:checkout:null:null",
+        "b2.gate.design:checkout:null:null",
+        "b2.supervisor:checkout:null:null",
+        "judge:checkout:null:null"
       ])
     }))
 

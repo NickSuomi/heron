@@ -15,7 +15,7 @@ Status: alpha. Version 0.0.0, not published to npm. Install from source.
 
 ## What is Heron?
 
-Heron reviews one merge request at its current head. Language models that you choose read the diff and the source at that commit and return findings. Heron turns the findings into a verdict, writes one report note on the merge request, and sets a label for the verdict. When the merge request changes and you run Heron again, it updates the same note.
+Heron reviews one merge request at its current head. Language models that you choose read the diff, the whole repository at the merge request head and at the target branch, the linked issues, and the failed CI jobs, then return findings. Heron turns the findings into a verdict, writes one report note on the merge request, and sets a label for the verdict. When the merge request changes and you run Heron again, it updates the same note.
 
 The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUPERSEDED. The words are fixed so that scripts can match them.
 
@@ -24,22 +24,22 @@ The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUP
 - There is no hosted service. Heron runs in your CI job with your GitLab token, and the only outside service it calls is the model vendor you configure.
 - Code decides the verdict, not the model. Any blocker finding means CHANGES REQUESTED. A session that fails, times out, or returns malformed output means BLOCKED, never PASS.
 - Review depth follows the change. Path rules in the config pick a lane, for example one reviewer for a docs change, gates with a supervisor for most changes, or two independent branches and a judge for sensitive paths.
-- Models only read. They see the reviewed commit through three read-only tools and cannot run commands or change files.
+- Models only read, but they can read everything. Every session searches the whole repository at the source branch, the target branch and their merge base with ripgrep, structural search, TypeScript language-server lookups and git history. No session has a turn, time or result cap unless you set one. No session can run commands or change files.
 - Heron does not start inline discussion threads, approve, or merge. It writes one note and sets labels.
 
 ## How it works
 
 1. Heron loads the config. If the config lists allowed users, Heron checks that the user who triggered the review is one of them.
-2. It reads the merge request and its full diff from the GitLab API at one head commit. If GitLab truncated or collapsed any part of the diff, Heron stops without reviewing.
+2. It reads the merge request and its full diff from the GitLab API at one head commit, with the issues the merge request closes or links and the last 200 lines of each failed job in the head pipeline. If GitLab truncated or collapsed any part of the diff, Heron stops without reviewing.
 3. Path rules choose a lane. The lane sets the gates (review concerns such as correctness or security) and the sessions that run them.
-4. Heron fetches the head commit into a temporary bare repository. Each session runs on the backend its profile names, reads source through `grep`, `list_files`, and `read_file`, and returns findings as JSON.
+4. Heron fetches the head, the target branch tip and their merge base, with history, into a temporary repository and writes a read-only working tree for each. Each session runs on the backend its profile names, reads the repository through the tools listed in [Backends](docs/backends.md#source-tools), and returns findings as JSON.
 5. Heron derives the verdict from the findings. If the branch moved during the review, the verdict is SUPERSEDED.
 6. Heron creates or updates its report note and sets the verdict label. The note starts with a hidden marker that records the head commit, the config digest, and the verdict.
 
 The report is meant to be read in about 20 seconds. It shows the verdict, one line with the blocker and advisory counts, the head and the lane, a summary of at most two sentences, and each blocker with a link to `path:line` at the reviewed head. Three collapsed sections hold the rest:
 
 - The advisories.
-- REVIEW CHECKS: the gate status table, the supervisor's or judge's ruling on each finding with its reason, the rest of a longer summary, what the sessions could not check, and why the lane was chosen.
+- REVIEW CHECKS: the gate status table, the supervisor's or judge's ruling on each finding with its reason, the rest of a longer summary, what the sessions could not check in the repository, one fixed line saying Heron does not run tests, the app, a browser or a device, and why the lane was chosen.
 - AGENT PROVENANCE: the model, backend, effort, tokens, time and result of each session, and the total tool calls and vendor-reported cost.
 
 ## Quick start

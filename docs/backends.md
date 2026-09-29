@@ -40,9 +40,44 @@ The harness also passes `CODEX_API_KEY` to Codex when it is set.
 
 ## What each backend runs
 
-All three backends give the model the same three tools: `grep`, `list_files`, and `read_file`. The tools read a bare git repository that holds exactly the reviewed commit. The judge in a `dual` lane gets no tools. See [Security](security.md) for the limits on these tools.
+Every session reads the whole repository at three commits:
 
-Every session runs with the profile's `model` and `effort`, a turn limit of `limits.maxTurns`, and a wall-clock limit of `limits.sessionTimeoutSeconds`. The model must answer with JSON that matches a schema Heron supplies. If a session fails, times out, calls a tool it is not allowed to call, or returns JSON that does not match, the review ends with the verdict BLOCKED.
+- `source`: the merge request head.
+- `target`: the target branch tip that GitLab computed the diff against.
+- `base`: the merge base of the two.
+
+Heron fetches the three commits with their full history into a temporary bare repository and writes one read-only working tree per commit. The judge in a `dual` lane reads them too.
+
+Every session runs with the profile's `model` and `effort`. It has no turn limit and no time limit unless you set `limits.maxTurns` or `limits.sessionTimeoutSeconds`. The model must answer with JSON that matches a schema Heron supplies. If a session fails, hits a limit you set, calls a tool it is not allowed to call, or returns JSON that does not match, the review ends with the verdict BLOCKED.
+
+### Source tools
+
+All three backends get the same Heron tools. The CLI backends reach them through `heron mcp-source`, a stdio MCP server (Model Context Protocol, the standard the vendor CLIs use to talk to tool servers). The `ai-sdk` backend calls the same code in-process. Every tool takes `ref` (`source`, `target` or `base`; the default is `source`).
+
+| Tool | What it does | Runs |
+| --- | --- | --- |
+| `grep` | Text or regular-expression search of one commit | `git grep` |
+| `list_files` | Files of one commit, by directory prefix and glob | `git ls-tree` |
+| `read_file` | A whole file, or a line range | `git cat-file` |
+| `rg` | Search of one working tree with regex or literal, case modes, word and multiline matching, include and exclude globs, file types, and context | ripgrep |
+| `ast_grep` | Structural search by syntax pattern, with an optional language | ast-grep |
+| `git_log`, `git_show`, `git_blame`, `git_diff` | History, one commit, line authorship, and the diff between any two of `base`, `source` and `target` | git |
+| `definition`, `references`, `hover`, `document_symbols`, `workspace_symbols`, `diagnostics` | TypeScript and JavaScript lookups on one working tree | typescript-language-server |
+
+Results are never cut short without notice. `read_file` returns the whole file by default. A tool that can return many results pages them: each answer gives `total` and `next`, the offset of the next page.
+
+The language server runs Heron's own TypeScript. Heron never installs the reviewed repository's dependencies, so a type that comes from a package in `node_modules` shows as `any` or is missing. Types declared in the repository are exact. Heron starts one server per tree on first use and kills it, and every tsserver it started, when the session ends.
+
+These tools are pinned dependencies of Heron:
+
+| Package | Version | Licence | Provides |
+| --- | --- | --- | --- |
+| `@vscode/ripgrep` | 1.18.0 (ripgrep 15.0.0) | MIT; ripgrep is MIT or Unlicense | `rg`, from a per-platform optional package with no install script |
+| `@ast-grep/cli` | 0.45.3 | MIT | `ast-grep`, called as the native binary; its install script stays off |
+| `typescript-language-server` | 6.0.0 | Apache-2.0 | the language server |
+| `typescript-5` (npm alias of `typescript`) | 5.9.3 | Apache-2.0 | the tsserver it runs; TypeScript 7 ships no `tsserver.js` |
+
+All four were published more than seven days before they were pinned, as `minimumReleaseAge` in `pnpm-workspace.yaml` requires. typescript-language-server 6.0.1 was five days old, so Heron pins 6.0.0.
 
 ### `claude-cli`
 
@@ -51,12 +86,24 @@ Heron starts the `claude` binary (or the harness `command`) in an empty temporar
 ```text
 claude -p --output-format stream-json --verbose --json-schema <schema>
   --model <model> --effort <effort> --system-prompt-file <file>
-  --tools "" --strict-mcp-config --mcp-config <file> --allowedTools mcp__heron
+  --tools Read,Grep,Glob --restricted
+  --add-dir <source tree> <target tree> <base tree>
+  --strict-mcp-config --mcp-config <file>
+  --allowedTools mcp__heron "Read(//<source tree>/**)" "Read(//<target tree>/**)" "Read(//<base tree>/**)"
+  --disallowedTools Bash Edit Write NotebookEdit WebFetch WebSearch Task Agent
+    "Read(//proc/**)" "Read(//sys/**)" "Read(//<session home>/**)"
   --permission-mode dontAsk --permission-prompts none --setting-sources ""
-  --no-session-persistence --max-turns <n>
+  --no-session-persistence [--max-turns <n>]
 ```
 
-`--tools ""` turns off the built-in tools. The only tools left are the three Heron tools, served by `heron mcp-source` over MCP (Model Context Protocol, the standard Claude Code uses to talk to tool servers). `--setting-sources ""` stops Claude Code from loading user or project settings. If the model calls any other tool, Heron fails the session. The flags were checked against Claude Code 2.1.281.
+The model has Claude Code's own read-only file tools, `Read`, `Grep` and `Glob`, next to the Heron tools. `Glob` is the file-listing tool: Claude Code 2.1.281 has no separate `LS` tool. The system prompt names the absolute path of each tree.
+
+- The three trees are working directories (`--add-dir`), and the `Read(//...)` allow rules name them again. `//` starts an absolute path in Claude Code's [permission rules](https://code.claude.com/docs/en/permissions), and `Read` rules also apply to `Grep` and `Glob`.
+- `dontAsk` denies every call that no rule allows. `--restricted` confines the file tools to the working directories and ignores user, project and local settings. The working directory is empty, so no `CLAUDE.md`, `.claude/` or `.mcp.json` from the reviewed repository is loaded as configuration.
+- `--strict-mcp-config` loads only Heron's server.
+- Heron raises Claude Code's own caps on one MCP call, `MAX_MCP_OUTPUT_TOKENS` and `MCP_TOOL_TIMEOUT`, so they never cut a Heron tool short.
+
+If the model calls any other tool, or Claude Code denies a call, Heron fails the session. The flags were checked against Claude Code 2.1.281.
 
 The report shows the model name and cost that Claude Code reports.
 
@@ -70,14 +117,14 @@ codex exec --json --output-schema <file> -m <model>
   --ephemeral -C <dir>
   -c features.shell_tool=false -c features.unified_exec=false
   -c web_search="disabled" -c approval_policy="never" -c tools.view_image=false
-  -c project_doc_max_bytes=0
+  -c project_doc_max_bytes=0 -c tool_output_token_limit=1000000
   -c mcp_servers.heron.command=... -c mcp_servers.heron.args=[...]
-  -c mcp_servers.heron.required=true
-  -c mcp_servers.heron.enabled_tools=["grep","list_files","read_file"]
+  -c mcp_servers.heron.required=true -c mcp_servers.heron.tool_timeout_sec=86400
+  -c mcp_servers.heron.enabled_tools=[<every Heron tool>]
   -c mcp_servers.<name>.enabled=false ...  -
 ```
 
-The `mcp_servers.heron.*` settings are left out for the judge session, which gets no tools.
+Codex keeps no shell and no native file tools: a shell could read Codex's own `auth.json`. The model reads only through the Heron tools. `tool_output_token_limit` and `tool_timeout_sec` raise Codex's own caps on a tool result and on the wait for one. The 0.101.0 binary contains both keys; Heron did not measure their effect.
 
 A `-c` setting merges into the operator's Codex `config.toml` instead of replacing it, and Codex has no flag to skip that file. So before each session Heron runs `codex mcp list --json` with the same environment and adds `-c mcp_servers.<name>.enabled=false` for every MCP server the list names. Heron refuses to start the session, and the review is BLOCKED, when:
 
@@ -91,13 +138,13 @@ Codex does not report the model name or a cost, so the report shows the configur
 
 ### `ai-sdk`
 
-Heron calls `generateText` from the AI SDK (`ai` 7) with the OpenRouter provider (`@openrouter/ai-sdk-provider` 3). The three tools run inside the Heron process. The step count is capped at `limits.maxTurns`. `effort` becomes OpenRouter's `reasoning.effort` and must be one of `xhigh`, `high`, `medium`, `low`, `minimal`, or `none`. Set the harness `baseUrl` to use another OpenRouter-compatible endpoint.
+Heron calls `generateText` from the AI SDK (`ai` 7) with the OpenRouter provider (`@openrouter/ai-sdk-provider` 3). The Heron tools run inside the Heron process. The loop runs until the model answers without calling a tool, or for `limits.maxTurns` steps when you set it. `effort` becomes OpenRouter's `reasoning.effort` and must be one of `xhigh`, `high`, `medium`, `low`, `minimal`, or `none`. Set the harness `baseUrl` to use another OpenRouter-compatible endpoint.
 
 The report shows the model id and the cost that OpenRouter returns.
 
 ## Try one backend
 
-`scripts/probe.ts` runs one short real session per named backend against a throwaway local repository and prints the result, usage, and time taken. It needs the backend's credential and, for the CLI backends, the vendor CLI on `PATH`.
+`scripts/probe.ts` runs one short real session per named backend against a throwaway local repository with source, target and base commits, and prints the result, usage, and time taken. With `PROBE_TRANSCRIPT=<file>`, the `claude-cli` probe also prints each tool the model called. It needs the backend's credential and, for the CLI backends, the vendor CLI on `PATH`.
 
 ```sh
 node scripts/probe.ts ai-sdk

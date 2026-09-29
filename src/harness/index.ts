@@ -38,8 +38,8 @@ const adapter = (config: HarnessConfig, options: HarnessOptions): Run => {
 }
 
 /**
- * Dispatches each request to the adapter of its profile's harness key. This is the one owner of the session timeout:
- * adapters do not time themselves out, and interruption makes each one stop its vendor work.
+ * Dispatches each request to the adapter of its profile's harness key. This is the one owner of the optional session
+ * timeout: adapters do not time themselves out, and interruption makes each one stop its vendor work.
  */
 export const makeHarness = (harnesses: Config["harnesses"], options: HarnessOptions): HarnessShape => {
   const adapters = new Map(Object.entries(harnesses).map(([key, config]) => [key, adapter(config, options)]))
@@ -48,10 +48,12 @@ export const makeHarness = (harnesses: Config["harnesses"], options: HarnessOpti
       const run = adapters.get(request.slot.profile.harness)
       return run === undefined
         ? Effect.fail(new HarnessError({ kind: "vendor", detail: `no harness configured under "${request.slot.profile.harness}"` }))
+        : request.timeout === null
+        ? run(request)
         : run(request).pipe(
           Effect.timeoutOrElse({
             duration: request.timeout,
-            orElse: () => Effect.fail(new HarnessError({ kind: "timeout", detail: `no result within ${Duration.format(request.timeout)}` }))
+            orElse: () => Effect.fail(new HarnessError({ kind: "timeout", detail: `no result within ${Duration.format(request.timeout!)}` }))
           })
         )
     }

@@ -24,10 +24,18 @@ export interface ReportNote {
   readonly marker: Marker
 }
 
-/** A local git directory holding exactly `commit`; harnesses read source from here, never from the forge. */
+/** The three commits a review can read: the merge request head, the target branch tip, and their merge base. */
+export const TREE_REFS = ["source", "target", "base"] as const
+export type TreeRef = typeof TREE_REFS[number]
+
+/**
+ * A local bare repository holding the three commits with their history, and one read-only working tree per commit.
+ * Harnesses read source from here, never from the forge.
+ */
 export interface SourceCheckout {
   readonly gitDir: string
-  readonly commit: Sha
+  readonly commits: Readonly<Record<TreeRef, Sha>>
+  readonly trees: Readonly<Record<TreeRef, string>>
 }
 
 export interface ForgeShape {
@@ -38,7 +46,7 @@ export interface ForgeShape {
   readonly createNote: (ref: MrRef, body: string) => Effect.Effect<NoteId, ForgeError>
   readonly updateNote: (ref: MrRef, note: NoteId, body: string) => Effect.Effect<void, ForgeError>
   readonly updateLabels: (ref: MrRef, transition: LabelTransition) => Effect.Effect<void, ForgeError>
-  readonly checkout: (ref: MrRef, head: Sha) => Effect.Effect<SourceCheckout, ForgeError, Scope.Scope>
+  readonly checkout: (ref: MrRef, revision: MrSnapshot["revision"]) => Effect.Effect<SourceCheckout, ForgeError, Scope.Scope>
 }
 
 export class Forge extends Context.Service<Forge, ForgeShape>()("heron/Forge") {}
@@ -48,11 +56,12 @@ export interface HarnessRequest {
   readonly slot: Slot
   readonly instructions: string
   readonly prompt: string
-  /** Null for the judge, which rules on findings without repository access. */
-  readonly source: SourceCheckout | null
+  readonly source: SourceCheckout
   readonly outputSchema: JsonSchema
-  readonly maxTurns: number
-  readonly timeout: Duration.Duration
+  /** Null means no turn limit; an operator opt-in only. */
+  readonly maxTurns: number | null
+  /** Null means no wall-clock limit; an operator opt-in only. */
+  readonly timeout: Duration.Duration | null
 }
 
 export interface HarnessResult {

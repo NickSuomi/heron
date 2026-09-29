@@ -171,6 +171,9 @@ const tokens = (n: number | null) => n === null ? "n/a" : n.toLocaleString("en-U
 const details = (title: string, body: ReadonlyArray<string>): string =>
   `<details>\n<summary>${title}</summary>\n\n${body.join("\n")}\n\n</details>`
 
+/** Said once in every report, so no session lists it as a limitation. */
+export const SCOPE_LINE = "Heron reviews by reading the source and target branches. It does not run tests, the app, a browser or a device."
+
 export const renderReport = (review: Review): string => {
   const { outcome, sessions, snapshot, verdict } = review
   const head = snapshot.revision.head
@@ -217,6 +220,8 @@ export const renderReport = (review: Review): string => {
   }
   const matched = review.classification.matched
   checks.push(
+    "",
+    SCOPE_LINE,
     "",
     matched.length === 0
       ? `No classification rule matched; the default lane ${code(lane.name)} applied.`

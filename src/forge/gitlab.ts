@@ -1,11 +1,13 @@
+import { rm } from "node:fs/promises"
+import { join } from "node:path"
 import { Config as EnvConfig, Duration, Effect, FileSystem, Layer, Redacted, Schema } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import type { Config } from "../config.ts"
 import { type Change, type MrRef, type MrSnapshot, NoteId, Sha } from "../domain.ts"
-import { Forge, ForgeError, type ForgeShape, IncompleteSnapshot } from "../ports.ts"
+import { Forge, ForgeError, type ForgeShape, IncompleteSnapshot, type SourceCheckout, TREE_REFS } from "../ports.ts"
 import { parseMarker } from "../report.ts"
-import { fetchCommit } from "./git.ts"
+import { fetchCommits, materialize, thaw } from "./git.ts"
 
 const User = Schema.Struct({ id: Schema.Int })
 const Project = Schema.Struct({ http_url_to_repo: Schema.String })
@@ -21,8 +23,23 @@ const MergeRequest = Schema.Struct({
   sha: Sha,
   labels: Schema.Array(Schema.String),
   /** A decimal string, "N+" when GitLab capped the diff, null while the diff is being prepared. */
-  changes_count: Schema.NullOr(Schema.String)
+  changes_count: Schema.NullOr(Schema.String),
+  head_pipeline: Schema.optionalKey(Schema.NullOr(Schema.Struct({
+    id: Schema.Int,
+    project_id: Schema.Int,
+    status: Schema.String,
+    web_url: Schema.String
+  })))
 })
+const Issue = Schema.Struct({
+  id: Schema.Int,
+  title: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  state: Schema.String,
+  web_url: Schema.String,
+  references: Schema.Struct({ full: Schema.String })
+})
+const Job = Schema.Struct({ id: Schema.Int, name: Schema.String, stage: Schema.String, web_url: Schema.String })
 const Version = Schema.Struct({
   state: Schema.String,
   head_commit_sha: Sha,
@@ -46,6 +63,23 @@ type Query = Readonly<Record<string, string>>
 
 const MAX_PAGES = 100
 const MAX_RETRY_AFTER_SECONDS = 60
+/** How much of each failed job's log the packet carries. */
+export const LOG_TAIL_LINES = 200
+
+/** Token shapes that must never reach a model even when a job printed them: GitLab, Anthropic, OpenAI, OpenRouter keys. */
+const SECRET_SHAPES = /\b(?:gl[a-z]{2,4}-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sk-or-v1-[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{32,})/g
+
+/** The last lines of a job log as a reader sees them: no ANSI codes, no section markers, no overwritten progress lines. */
+export const logTail = (raw: string, secrets: ReadonlyArray<string>): string => {
+  const lines = raw
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/section_(?:start|end):\d+:[^\r\n]*?\r/g, "")
+    .split("\n")
+    .map((l) => l.split("\r").filter((part) => part !== "").at(-1) ?? "")
+  while (lines.length > 0 && lines.at(-1)!.trim() === "") lines.pop()
+  const tail = lines.slice(-LOG_TAIL_LINES).join("\n")
+  return secrets.filter((x) => x.length >= 8).reduce((t, x) => t.split(x).join("[redacted]"), tail).replace(SECRET_SHAPES, "[redacted]")
+}
 
 const change = (d: typeof Diff.Type): Change => ({
   path: d.new_path,
@@ -86,13 +120,13 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
   const client = yield* HttpClient.HttpClient
   const fs = yield* FileSystem.FileSystem
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-  const root = config.forge.url.replace(/\/+$/, "")
+  const forgeRoot = config.forge.url.replace(/\/+$/, "")
   const secret = Redacted.value(token)
   const fail = (operation: string, detail: string) =>
     new ForgeError({ operation, detail: detail.split(secret).join("[redacted]").slice(0, 300) })
 
   const send = (operation: string, method: Method, path: string, query: Query, body: unknown) => {
-    const base = HttpClientRequest.make(method)(`${root}/api/v4${path}`).pipe(
+    const base = HttpClientRequest.make(method)(`${forgeRoot}/api/v4${path}`).pipe(
       HttpClientRequest.setUrlParams(query),
       HttpClientRequest.bearerToken(secret),
       HttpClientRequest.acceptJson
@@ -133,6 +167,10 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
         Effect.mapError(() => fail(operation, `${method} ${path}: unexpected response shape`))
       )
     }) as Effect.Effect<S["Type"], ForgeError, S["DecodingServices"]>
+
+  const text = (operation: string, path: string) =>
+    Effect.flatMap(send(operation, "GET", path, {}, undefined), (response) =>
+      response.text.pipe(Effect.mapError(() => fail(operation, `GET ${path}: unreadable response`))))
 
   const pages = <S extends Schema.Top>(operation: string, path: string, schema: S, query: Query = {}) =>
     Effect.gen(function*() {
@@ -178,6 +216,35 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
         if (reason !== null || latest === undefined) return yield* new IncompleteSnapshot({ reason: reason ?? "" })
         const suffix = `/-/merge_requests/${ref.iid}`
         if (!mr.web_url.endsWith(suffix)) return yield* fail("snapshot", `unexpected merge request URL ${mr.web_url}`)
+        const closing = yield* pages("snapshot", `${mrPath(ref)}/closes_issues`, Issue)
+        const related = yield* pages("snapshot", `${mrPath(ref)}/related_issues`, Issue)
+        const issues = [
+          ...closing.map((i) => ({ i, relation: "closes" as const })),
+          ...related.filter((r) => !closing.some((c) => c.id === r.id)).map((i) => ({ i, relation: "related" as const }))
+        ].map(({ i, relation }) => ({
+          reference: i.references.full,
+          relation,
+          title: i.title,
+          description: i.description ?? "",
+          state: i.state,
+          webUrl: i.web_url
+        }))
+        const head = mr.head_pipeline ?? null
+        const pipeline = head === null ? null : {
+          id: head.id,
+          status: head.status,
+          webUrl: head.web_url,
+          failedJobs: yield* Effect.forEach(
+            yield* pages("snapshot", `/projects/${head.project_id}/pipelines/${head.id}/jobs`, Job, { "scope[]": "failed" }),
+            (job) =>
+              Effect.map(text("snapshot", `/projects/${head.project_id}/jobs/${job.id}/trace`), (log) => ({
+                name: job.name,
+                stage: job.stage,
+                webUrl: job.web_url,
+                logTail: logTail(log, [secret])
+              }))
+          )
+        }
         const snapshot: MrSnapshot = {
           ref,
           title: mr.title,
@@ -189,7 +256,9 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
           projectWebUrl: mr.web_url.slice(0, -suffix.length),
           labels: mr.labels,
           revision: { base: latest.base_commit_sha, start: latest.start_commit_sha, head: latest.head_commit_sha },
-          changes: diffs.map(change)
+          changes: diffs.map(change),
+          issues,
+          pipeline
         }
         return snapshot
       }),
@@ -233,22 +302,30 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
         yield* call("updateLabels", "PUT", mrPath(ref), Schema.Unknown, { body })
       }),
 
-    checkout: (ref, head) =>
+    checkout: (ref, revision) =>
       Effect.gen(function*() {
         const project = yield* call("checkout", "GET", projectPath(ref), Project)
-        const gitDir = yield* fs.makeTempDirectoryScoped({ prefix: "heron-source-" }).pipe(
-          Effect.mapError((e) => fail("checkout", `cannot create a temporary directory: ${e.message}`))
-        )
-        yield* fetchCommit({
+        const workDir = yield* Effect.acquireRelease(
+          fs.makeTempDirectory({ prefix: "heron-source-" }),
+          (dir) => Effect.promise(() => thaw(dir).then(() => rm(dir, { recursive: true, force: true })))
+        ).pipe(Effect.mapError((e) => fail("checkout", `cannot create a temporary directory: ${e.message}`)))
+        const gitDir = join(workDir, "repo.git")
+        const commits = { source: revision.head, target: revision.start, base: revision.base }
+        const provide = Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
+        yield* fetchCommits({
           gitDir,
           url: project.http_url_to_repo,
-          commit: head,
+          commits: [commits.source, commits.target, commits.base],
           authorization: {
-            prefix: `${new URL(root).origin}/`,
+            prefix: `${new URL(forgeRoot).origin}/`,
             header: Redacted.make(`Authorization: Basic ${Buffer.from(`oauth2:${secret}`).toString("base64")}`)
           }
-        }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
-        return { gitDir, commit: head }
+        }).pipe(provide)
+        const trees = { source: join(workDir, "source"), target: join(workDir, "target"), base: join(workDir, "base") }
+        for (const tree of TREE_REFS) {
+          yield* materialize(gitDir, commits[tree], trees[tree], join(workDir, `${tree}.index`)).pipe(provide)
+        }
+        return { gitDir, commits, trees } satisfies SourceCheckout
       })
   }
   return forge

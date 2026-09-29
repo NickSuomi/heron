@@ -92,7 +92,8 @@ export interface Config {
   readonly defaultLane: Lane
   readonly rules: ReadonlyArray<Rule>
   readonly policy: ReadonlyArray<string>
-  readonly limits: { readonly maxTurns: number; readonly sessionTimeoutSeconds: number }
+  /** Both null unless the operator opts in: a review session has no turn or time limit by default. */
+  readonly limits: { readonly maxTurns: number | null; readonly sessionTimeoutSeconds: number | null }
   /** The file after env overrides, as decoded; printed by `config check`. */
   readonly effective: ConfigFile
   readonly digest: string
@@ -121,8 +122,8 @@ export const envVars: ReadonlyArray<EnvVar> = [
   { name: "HERON_LABEL_PASS", target: ["labels", "pass"], kind: "string", description: "Label for a PASS verdict." },
   { name: "HERON_LABEL_CHANGES_REQUESTED", target: ["labels", "changesRequested"], kind: "string", description: "Label for a CHANGES REQUESTED verdict." },
   { name: "HERON_LABEL_BLOCKED", target: ["labels", "blocked"], kind: "string", description: "Label for a BLOCKED verdict." },
-  { name: "HERON_MAX_TURNS", target: ["limits", "maxTurns"], kind: "int", description: "Tool-use turns per session." },
-  { name: "HERON_SESSION_TIMEOUT_SECONDS", target: ["limits", "sessionTimeoutSeconds"], kind: "int", description: "Wall-clock limit per session." },
+  { name: "HERON_MAX_TURNS", target: ["limits", "maxTurns"], kind: "int", description: "Optional turn limit per session. Unset means no limit." },
+  { name: "HERON_SESSION_TIMEOUT_SECONDS", target: ["limits", "sessionTimeoutSeconds"], kind: "int", description: "Optional wall-clock limit per session, in seconds. Unset means no limit." },
   { name: "HERON_PROFILE_*_HARNESS", target: ["profiles", "*", "harness"], kind: "string", description: "Harness key of one profile." },
   { name: "HERON_PROFILE_*_MODEL", target: ["profiles", "*", "model"], kind: "string", description: "Model of one profile." },
   { name: "HERON_PROFILE_*_EFFORT", target: ["profiles", "*", "effort"], kind: "string", description: "Reasoning effort of one profile." },
@@ -289,7 +290,7 @@ export const resolveConfig = (
       defaultLane: yield* lane(file.defaultLane),
       rules,
       policy,
-      limits: { maxTurns: file.limits?.maxTurns ?? 40, sessionTimeoutSeconds: file.limits?.sessionTimeoutSeconds ?? 900 },
+      limits: { maxTurns: file.limits?.maxTurns ?? null, sessionTimeoutSeconds: file.limits?.sessionTimeoutSeconds ?? null },
       effective: file,
       digest: sha256(canonical({ config: file, instructions }))
     }

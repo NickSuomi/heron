@@ -22,8 +22,8 @@ describe("makeHarness", () => {
       const harness = makeHarness(harnesses, { env: jobEnv })
       const claude = yield* harness.run(requestFor("alpha", repo.source))
       const codex = yield* harness.run(requestFor("beta", repo.source))
-      const api = yield* Effect.flip(harness.run(requestFor("gamma", null)))
-      const unknown = yield* Effect.flip(harness.run(requestFor("delta", null)))
+      const api = yield* Effect.flip(harness.run(requestFor("gamma", repo.source)))
+      const unknown = yield* Effect.flip(harness.run(requestFor("delta", repo.source)))
       expect([claude.reportedModel, codex.vendorSessionId, [api.kind, api.detail], [unknown.kind, unknown.detail]]).toEqual([
         "claude-sonnet-5",
         "0199a213-81c0-7800-8aa1-bbab2a035a53",

@@ -59,32 +59,48 @@ describe("ai-sdk harness", () => {
         toolCalls: 1
       })
       const second = JSON.stringify(mock.doGenerateCalls[1]!.prompt)
-      expect(second).toContain(JSON.stringify(JSON.stringify({ lines: ["src/math.ts:2:export const sub = (a: number, b: number) => a - b"], truncated: false })).slice(1, -1))
+      expect(second).toContain(JSON.stringify(JSON.stringify({
+        total: 3,
+        offset: 0,
+        next: null,
+        lines: [
+          "src/broken.ts:1:import { sub } from \"./math.ts\"",
+          "src/broken.ts:3:export const wrong: string = sub(3, 1)",
+          "src/math.ts:2:export const sub = (a: number, b: number) => a - b"
+        ]
+      })).slice(1, -1))
       const first = mock.doGenerateCalls[0]!
       expect([first.tools?.map((t) => t.name), first.providerOptions, first.responseFormat?.type]).toEqual([
-        ["grep", "list_files", "read_file"],
+        [
+          "grep", "list_files", "read_file", "rg", "ast_grep", "git_log", "git_show", "git_blame", "git_diff",
+          "definition", "references", "hover", "document_symbols", "workspace_symbols", "diagnostics"
+        ],
         { openrouter: { reasoning: { effort: "low" } } },
         "json"
       ])
     }))
 
-  it.live("offers the judge no tools", () =>
+  it.live("keeps calling tools past any fixed step count when no turn limit is set", () =>
     Effect.gen(function*() {
-      const mock = new MockLanguageModelV4({
-        doGenerate: {
-          content: [{ type: "text", text: "{\"answer\":1}" }],
-          finishReason: { unified: "stop", raw: "stop" },
-          usage: usage(50, 5, 0),
-          warnings: []
-        }
+      const step = (i: number) => ({
+        content: [{ type: "tool-call" as const, toolCallId: `call-${i}`, toolName: "list_files", input: JSON.stringify({ ref: "target", prefix: "src/" }) }],
+        finishReason: { unified: "tool-calls" as const, raw: "tool_calls" },
+        usage: usage(10, 1, 0),
+        warnings: []
       })
-      const result = yield* aiSdk(binding(mock))(requestFor("api", null))
-      expect([result.output, result.toolCalls, mock.doGenerateCalls[0]!.tools ?? []]).toEqual([{ answer: 1 }, 0, []])
+      const mock = new MockLanguageModelV4({
+        doGenerate: [
+          ...Array.from({ length: 8 }, (_, i) => step(i)),
+          { content: [{ type: "text", text: "{\"answer\":3}" }], finishReason: { unified: "stop", raw: "stop" }, usage: usage(10, 1, 0), warnings: [] }
+        ]
+      })
+      const result = yield* aiSdk(binding(mock))(requestFor("api", repo.source, null, null))
+      expect([result.output, result.toolCalls, mock.doGenerateCalls.length]).toEqual([{ answer: 3 }, 8, 9])
     }))
 
   it.effect("refuses an effort OpenRouter does not define, and a missing key", () =>
     Effect.gen(function*() {
-      const request = requestFor("api", null)
+      const request = requestFor("api", repo.source)
       const bad = { ...request, slot: { ...request.slot, profile: { ...request.slot.profile, effort: "max" } } }
       const error = yield* Effect.flip(aiSdk(binding(model()))(bad))
       expect([error.kind, error.detail]).toEqual(["vendor", "effort \"max\" is not an OpenRouter reasoning effort (xhigh, high, medium, low, minimal, none)"])

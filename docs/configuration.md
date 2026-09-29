@@ -86,7 +86,7 @@ A lane says which gates run and which sessions run them. The order of `lanes` is
 | --- | --- | --- |
 | `single` | `gates`, `reviewer` | One session reviews all gates. |
 | `gated` | `gates`, `gate`, `supervisor` | One session per gate with the `gate` profile, then one supervisor session that keeps or drops each finding and may add findings. |
-| `dual` | `gates`, `branches` (two `{ gate, supervisor }` pairs), `judge` | Two independent `gated` branches, then one judge session that keeps or drops each finding. The judge has no repository access. |
+| `dual` | `gates`, `branches` (two `{ gate, supervisor }` pairs), `judge` | Two independent `gated` branches, then one judge session that keeps or drops each finding. The judge reads the repository like every other session. |
 
 `defaultLane` is used when no rule fires. Each rule has:
 
@@ -105,10 +105,12 @@ If several rules fire, the strictest lane wins.
 
 ### `limits`
 
+A review session has no turn limit and no time limit by default. The model reads as much of the repository as it needs, and a limit that cuts it short makes the result doubtful. Both keys are optional opt-ins for an operator who must bound cost or runner time. A session that hits a limit fails, and the review is BLOCKED.
+
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `maxTurns` | 40 | Tool-use turns per session. |
-| `sessionTimeoutSeconds` | 900 | Wall-clock limit per session. |
+| `maxTurns` | none | Turn limit per session. `codex-cli` has no turn flag and ignores it. |
+| `sessionTimeoutSeconds` | none | Wall-clock limit per session, in seconds. |
 
 ## Config digest
 
@@ -138,8 +140,8 @@ Variables with the config key `none` are read directly and are not part of the c
 | `HERON_LABEL_PASS` | `labels.pass` | string | Label for a PASS verdict. |
 | `HERON_LABEL_CHANGES_REQUESTED` | `labels.changesRequested` | string | Label for a CHANGES REQUESTED verdict. |
 | `HERON_LABEL_BLOCKED` | `labels.blocked` | string | Label for a BLOCKED verdict. |
-| `HERON_MAX_TURNS` | `limits.maxTurns` | int | Tool-use turns per session. |
-| `HERON_SESSION_TIMEOUT_SECONDS` | `limits.sessionTimeoutSeconds` | int | Wall-clock limit per session. |
+| `HERON_MAX_TURNS` | `limits.maxTurns` | int | Optional turn limit per session. Unset means no limit. |
+| `HERON_SESSION_TIMEOUT_SECONDS` | `limits.sessionTimeoutSeconds` | int | Optional wall-clock limit per session, in seconds. Unset means no limit. |
 | `HERON_PROFILE_*_HARNESS` | `profiles.*.harness` | string | Harness key of one profile. |
 | `HERON_PROFILE_*_MODEL` | `profiles.*.model` | string | Model of one profile. |
 | `HERON_PROFILE_*_EFFORT` | `profiles.*.effort` | string | Reasoning effort of one profile. |

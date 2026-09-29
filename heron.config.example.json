@@ -42,6 +42,5 @@
     { "id": "docs-only", "lane": "light", "when": "all", "paths": ["**/*.md", "docs/**"] },
     { "id": "auth", "lane": "critical", "when": "any", "paths": ["src/auth/**", "**/*.sql"] }
   ],
-  "policy": { "instructions": ["examples/instructions/policy.md"] },
-  "limits": { "maxTurns": 40, "sessionTimeoutSeconds": 900 }
+  "policy": { "instructions": ["examples/instructions/policy.md"] }
 }
