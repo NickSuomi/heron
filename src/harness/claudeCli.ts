@@ -118,6 +118,7 @@ export const foldClaudeEvents = (
   let apiModel: string | null = null
   let sessionId: string | null = null
   let toolCalls = 0
+  let limitWarning: string | null = null
   const failures: Array<HarnessError> = []
   let result: Record<string, unknown> | null = null
   const note = (e: HarnessError) => failures.push(e)
@@ -154,6 +155,14 @@ export const foldClaudeEvents = (
     } else if (type === "system" && event["subtype"] === "api_retry") {
       const error = str(event["error"])
       if (error !== null && errorKind(error) !== "vendor") note(new HarnessError({ kind: errorKind(error), detail: `Claude Code reported ${error}` }))
+    } else if (type === "rate_limit_event" && isRecord(event["rate_limit_info"])) {
+      // Claude Code sends this when a limit's status changes; "allowed" carries no percent and needs no mention.
+      const info = event["rate_limit_info"]
+      const status = str(info["status"])
+      const resets = num(info["resets_at"])
+      if (status !== null && status !== "allowed") {
+        limitWarning = `${str(info["rate_limit_type"]) ?? "usage"} limit ${status}${resets === null ? "" : `, resets ${new Date(resets * 1000).toISOString()}`}`
+      }
     } else if (type === "result") {
       result = event
     }
@@ -187,7 +196,8 @@ export const foldClaudeEvents = (
     reportedModel: apiModel ?? initModel,
     vendorSessionId: str(result["session_id"]) ?? sessionId,
     usage: usageOf(result),
-    toolCalls
+    toolCalls,
+    ...(limitWarning === null ? {} : { limitWarning })
   }
 }
 

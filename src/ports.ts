@@ -1,5 +1,5 @@
 import { Context, type Duration, type Effect, Schema, type Scope } from "effect"
-import type { Change, JsonSchema, LabelTransition, Marker, MrRef, MrSnapshot, NoteId, PriorReview, Sha, Slot, Usage } from "./domain.ts"
+import type { Change, JsonSchema, LabelTransition, LimitWindow, Marker, MrRef, MrSnapshot, NoteId, PriorReview, Sha, Slot, Usage } from "./domain.ts"
 
 export class ForgeError extends Schema.TaggedError<ForgeError>()("ForgeError", {
   operation: Schema.String,
@@ -75,6 +75,8 @@ export interface HarnessResult {
   readonly vendorSessionId: string | null
   readonly usage: Usage
   readonly toolCalls: number
+  /** A usage-limit warning the vendor gave during the session, such as a window nearly used up. */
+  readonly limitWarning?: string
 }
 
 export class HarnessError extends Schema.TaggedError<HarnessError>()("HarnessError", {
@@ -89,6 +91,8 @@ export class HarnessError extends Schema.TaggedError<HarnessError>()("HarnessErr
 
 export interface HarnessShape {
   readonly run: (request: HarnessRequest) => Effect.Effect<HarnessResult, HarnessError>
+  /** The subscription's usage windows now, or null when a reading fails. Absent when no harness runs on a subscription. */
+  readonly limits?: Effect.Effect<ReadonlyArray<LimitWindow> | null>
 }
 
 export class Harness extends Context.Service<Harness, HarnessShape>()("heron/Harness") {}

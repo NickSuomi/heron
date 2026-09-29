@@ -17,6 +17,18 @@ const harnesses = {
 } as Readonly<Record<HarnessKey, HarnessConfig>>
 
 describe("makeHarness", () => {
+  it("reads subscription limits only when a Claude harness runs on a subscription token", () => {
+    const pick = (key: string) => ({ [key]: harnesses[key as HarnessKey] }) as Readonly<Record<HarnessKey, HarnessConfig>>
+    const claudeOnly = pick("alpha")
+    const codexOnly = pick("beta")
+    const { CLAUDE_CODE_OAUTH_TOKEN: _, ...apiKeyEnv } = { ...jobEnv, ANTHROPIC_API_KEY: "sk-ant-api-test" }
+    expect([
+      makeHarness(claudeOnly, { env: jobEnv }).limits !== undefined,
+      makeHarness(codexOnly, { env: jobEnv }).limits !== undefined,
+      makeHarness(claudeOnly, { env: apiKeyEnv }).limits !== undefined
+    ]).toEqual([true, false, false])
+  })
+
   it.effect("dispatches by the profile's harness key", () =>
     Effect.gen(function*() {
       const harness = makeHarness(harnesses, { env: jobEnv })

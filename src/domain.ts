@@ -270,6 +270,23 @@ export interface Review {
   /** Set only when the head moved after the snapshot. */
   readonly liveHead: Sha | null
   readonly rereview: Rereview | null
+  /** Null when no harness runs on a Claude subscription. */
+  readonly subscription: SubscriptionUse | null
+}
+
+/** One usage window of a Claude subscription, in the whole percent Claude reports. */
+export interface LimitWindow {
+  readonly window: "five-hour" | "weekly"
+  readonly percent: number
+  readonly resetsAt: string | null
+}
+
+/** The subscription's windows before and after a review, and the usage-limit warnings Claude Code gave during it. */
+export interface SubscriptionUse {
+  /** Null when the reading failed. */
+  readonly before: ReadonlyArray<LimitWindow> | null
+  readonly after: ReadonlyArray<LimitWindow> | null
+  readonly warnings: ReadonlyArray<string>
 }
 
 /** A re-review: since Heron's review at `from`, the source branch only gained commits and the target branch did not move. */

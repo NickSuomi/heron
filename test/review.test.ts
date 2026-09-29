@@ -247,6 +247,29 @@ describe("reviewOnce", () => {
       expect(result.body.split("\n").slice(1, 4)).toEqual(["## Heron review: PASS", "", "0 blockers · 1 advisory · head `aaaaaaaa` · lane `standard`"])
     }))
 
+  it.effect("reads the subscription before and after the sessions and shows the share next to the cost", () =>
+    Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+      const at = (fiveHour: number, weekly: number, resets = "2026-09-30T01:00:00Z") => [
+        { window: "five-hour" as const, percent: fiveHour, resetsAt: resets },
+        { window: "weekly" as const, percent: weekly, resetsAt: "2026-10-03T12:00:00Z" }
+      ]
+      const harness = fakeHarness(gated, { limits: [at(25, 38), at(28, 39)], limitWarning: "five_hour limit allowed_warning" })
+      const result = yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+      expect(result.review.subscription).toEqual({ before: at(25, 38), after: at(28, 39), warnings: ["five_hour limit allowed_warning"] })
+      const lines = result.body.split("\n")
+      expect(lines[lines.findIndex((l) => l.startsWith("Totals:")) + 2]).toBe(
+        "Subscription: +3% of the five-hour window (now 28%), +1% of the weekly window (now 39%). An estimate: Claude reports whole percent, and other sessions on the account count too."
+      )
+    }))
+
+  it.effect("shows no subscription line when no harness runs on a subscription", () =>
+    Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+      const result = yield* run(forge, gated, { publish: false })
+      expect([result.review.subscription, result.body.includes("Subscription")]).toEqual([null, false])
+    }))
+
   it.live("never runs more sessions on one harness than its concurrency allows", () =>
     Effect.gen(function*() {
       const forge = fakeForge({ head: sha("a"), changes: [change("src/auth/login.ts")] })

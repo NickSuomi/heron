@@ -1,6 +1,6 @@
 import { Effect, Layer, Result } from "effect"
 import { type Config, decodeConfigFile, resolveConfig } from "../src/config.ts"
-import type { Change, LabelTransition, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
+import type { Change, LabelTransition, LimitWindow, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
 import { Forge, ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
 import { parseMarker, parsePrior } from "../src/report.ts"
 
@@ -154,8 +154,17 @@ export const finding = (gate: string, severity: "blocker" | "advisory", title = 
 /** Answers by session id; a thrown HarnessError becomes the session's failure. */
 export const fakeHarness = (
   answers: Readonly<Record<string, Script>>,
-  options: { delay?: number; slow?: Readonly<Record<string, number>>; onRun?: (r: HarnessRequest) => void } = {}
+  options: {
+    delay?: number
+    slow?: Readonly<Record<string, number>>
+    onRun?: (r: HarnessRequest) => void
+    /** Successive subscription readings; each `limits` call takes the next. */
+    limits?: ReadonlyArray<ReadonlyArray<LimitWindow> | null>
+    /** A usage-limit warning each session reports. */
+    limitWarning?: string
+  } = {}
 ) => {
+  const readings = [...(options.limits ?? [])]
   const seen: Array<HarnessRequest> = []
   const inFlight = new Map<string, number>()
   const peak = new Map<string, number>()
@@ -174,8 +183,16 @@ export const fakeHarness = (
         if (answer === undefined) return yield* new HarnessError({ kind: "vendor", detail: `no scripted answer for ${request.slot.id}` })
         const output = answer(request)
         if (output instanceof HarnessError) return yield* output
-        return { output, reportedModel: request.slot.profile.model, vendorSessionId: `v-${request.slot.id}`, usage, toolCalls: 2 }
-      })
+        return {
+          output,
+          reportedModel: request.slot.profile.model,
+          vendorSessionId: `v-${request.slot.id}`,
+          usage,
+          toolCalls: 2,
+          ...(options.limitWarning === undefined ? {} : { limitWarning: options.limitWarning })
+        }
+      }),
+    ...(options.limits === undefined ? {} : { limits: Effect.sync(() => readings.shift() ?? null) })
   })
   return { layer, seen, peak }
 }

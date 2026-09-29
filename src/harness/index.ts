@@ -5,6 +5,7 @@ import { aiSdk, OPENROUTER_CREDENTIALS, openRouterBinding } from "./aiSdk.ts"
 import { CLAUDE_CREDENTIALS, claudeCli } from "./claudeCli.ts"
 import { CODEX_CREDENTIALS, codexCli } from "./codexCli.ts"
 import { defaultMcpLauncher, type Launcher } from "./mcpSource.ts"
+import { readSubscription } from "./subscription.ts"
 
 export { runMcpSource } from "./mcpSource.ts"
 
@@ -43,7 +44,11 @@ const adapter = (config: HarnessConfig, options: HarnessOptions): Run => {
  */
 export const makeHarness = (harnesses: Config["harnesses"], options: HarnessOptions): HarnessShape => {
   const adapters = new Map(Object.entries(harnesses).map(([key, config]) => [key, adapter(config, options)]))
+  // Only a Claude subscription token has usage windows to read; an API key is billed per token instead.
+  const token = options.env["CLAUDE_CODE_OAUTH_TOKEN"] ?? ""
+  const onSubscription = token !== "" && Object.values(harnesses).some((h) => h.kind === "claude-cli")
   return {
+    ...(onSubscription ? { limits: readSubscription(token) } : {}),
     run: (request) => {
       const run = adapters.get(request.slot.profile.harness)
       return run === undefined

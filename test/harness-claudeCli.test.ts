@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
-import { claudeCli } from "../src/harness/claudeCli.ts"
+import { claudeCli, foldClaudeEvents } from "../src/harness/claudeCli.ts"
 import { type Captured, fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
 import { answerSchema, jobEnv, requestFor } from "./fixtures/harness/request.ts"
 
@@ -20,6 +20,29 @@ const run = (fixture: string, options: { code?: number; maxTurns?: number | null
 }
 
 const flag = (argv: ReadonlyArray<string>, name: string) => argv[argv.indexOf(name) + 1]
+
+describe("foldClaudeEvents on usage-limit events", () => {
+  const events = (...limits: ReadonlyArray<Record<string, unknown>>) => [
+    { type: "system", subtype: "init", model: "claude-sonnet-5", session_id: "s1", mcp_servers: [{ name: "heron", status: "connected" }] },
+    ...limits.map((rate_limit_info) => ({ type: "rate_limit_event", rate_limit_info })),
+    { type: "result", subtype: "success", is_error: false, session_id: "s1", structured_output: { findings: [] }, usage: {} }
+  ]
+
+  it("keeps the last warning Claude Code gave, and says nothing about a limit that is only allowed", () => {
+    const warned = foldClaudeEvents(
+      events(
+        { status: "allowed", rate_limit_type: null, utilization: null, resets_at: null },
+        { status: "allowed_warning", rate_limit_type: "five_hour", utilization: 0.91, resets_at: 1790719200 }
+      ),
+      (t) => t
+    )
+    const quiet = foldClaudeEvents(events({ status: "allowed", rate_limit_type: null, utilization: null, resets_at: null }), (t) => t)
+    expect(["limitWarning" in warned ? warned.limitWarning : "none", "limitWarning" in quiet]).toEqual([
+      "five_hour limit allowed_warning, resets 2026-09-29T22:00:00.000Z",
+      false
+    ])
+  })
+})
 
 describe("claude-cli harness", () => {
   it.effect("maps a recorded Claude Code 2.1.281 session to a result", () =>

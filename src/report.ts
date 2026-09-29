@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { type Finding, type Marker, PriorReview, type Review, type RulingKind, Sha, type Verdict } from "./domain.ts"
+import { type Finding, type Marker, PriorReview, type Review, type RulingKind, Sha, type SubscriptionUse, type Verdict } from "./domain.ts"
 import { EARLIER, gateStatuses, slotsOf } from "./policy.ts"
 
 const slugs: Readonly<Record<Verdict, string>> = {
@@ -191,6 +191,30 @@ const total = (xs: ReadonlyArray<number | null>): number | null =>
 
 const tokens = (n: number | null) => n === null ? "n/a" : n.toLocaleString("en-US")
 
+/**
+ * The review's share of the subscription: the change in each usage window between the readings before and after it.
+ * Claude reports whole percent, and every session on the account counts, so the report calls it an estimate.
+ */
+const subscriptionLines = (s: SubscriptionUse | null): ReadonlyArray<string> => {
+  if (s === null) return []
+  const { after, before } = s
+  const share = before === null || after === null
+    ? ["Subscription share unknown: the usage reading failed."]
+    : [
+      `Subscription: ${
+        after.flatMap((a) => {
+          const b = before.find((w) => w.window === a.window)
+          if (b === undefined) return []
+          const now = Math.round(a.percent)
+          return b.resetsAt !== a.resetsAt
+            ? [`the ${a.window} window reset during the review (now ${now}%)`]
+            : [`+${Math.max(0, now - Math.round(b.percent))}% of the ${a.window} window (now ${now}%)`]
+        }).join(", ") || "no usage window reported"
+      }. An estimate: Claude reports whole percent, and other sessions on the account count too.`
+    ]
+  return [...share, ...s.warnings.map((w) => `Claude Code warned: ${inline(w)}.`)]
+}
+
 const details = (title: string, body: ReadonlyArray<string>): string =>
   `<details>\n<summary>${title}</summary>\n\n${body.join("\n")}\n\n</details>`
 
@@ -276,7 +300,8 @@ export const renderReport = (review: Review): string => {
       "",
       `Totals: ${tokens(total(sessions.map((s) => s.usage.inputTokens)))} / ${tokens(total(sessions.map((s) => s.usage.outputTokens)))} tokens in / out, ${
         tokens(total(sessions.map((s) => s.toolCalls)))
-      } tool calls, ${cost}.`
+      } tool calls, ${cost}.`,
+      ...subscriptionLines(review.subscription).flatMap((l) => ["", l])
     ])
   )
   if (outcome.kind === "complete") {

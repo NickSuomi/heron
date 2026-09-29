@@ -15,6 +15,7 @@ import {
   type SessionId,
   type SessionRecord,
   type Slot,
+  type SubscriptionUse,
   synthesisOutput,
   type Usage,
   type UserId
@@ -73,6 +74,7 @@ const execute = Effect.fn("execute")(function*(
   const permits = new Map<string, Semaphore.Semaphore>()
   for (const [key, h] of Object.entries(config.harnesses)) permits.set(key, yield* Semaphore.make(h.concurrency))
   const sessions: Array<SessionRecord> = []
+  const warnings = new Set<string>()
   const packet = packetText(snapshot, rereview)
   const earlier = rereview?.earlier ?? []
   const withEarlier = (prompt: string, adds: boolean) => rereview === null ? prompt : `${prompt}\n\n${earlierText(rereview, adds)}`
@@ -108,6 +110,11 @@ const execute = Effect.fn("execute")(function*(
       return yield* Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(result.output).pipe(
         Effect.tapError(() => record(result, "invalid-output")),
         Effect.tap(() => record(result, null)),
+        Effect.tap(() =>
+          Effect.sync(() => {
+            if (result.limitWarning !== undefined) warnings.add(result.limitWarning)
+          })
+        ),
         Effect.mapError((e) => new SessionFailed({ session: slot.id, reason: `output did not match its schema: ${e.message}` }))
       )
     }).pipe(permits.get(slot.profile.harness)!.withPermits(1))
@@ -180,7 +187,7 @@ const execute = Effect.fn("execute")(function*(
     Effect.map((r): Outcome => ({ kind: "complete", ...r })),
     Effect.catchTag("SessionFailed", (e) => Effect.succeed<Outcome>({ kind: "incomplete", session: e.session, reason: e.reason }))
   )
-  return { sessions, outcome }
+  return { sessions, outcome, warnings: [...warnings] }
 })
 
 /** The one review pipeline; the CLI and the watcher both call it. */
@@ -203,10 +210,18 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   )
   const base = { snapshot, classification, plan, configDigest: config.digest, rereview }
 
-  const reviewed = Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source, rereview)))
+  const harness = yield* Harness
+  // The subscription's windows around the sessions, so the report can show the review's share next to its cost.
+  const reviewed = Effect.gen(function*() {
+    const before = harness.limits === undefined ? null : yield* harness.limits
+    const done = yield* Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source, rereview)))
+    const after = harness.limits === undefined ? null : yield* harness.limits
+    const subscription: SubscriptionUse | null = harness.limits === undefined ? null : { before, after, warnings: done.warnings }
+    return { sessions: done.sessions, outcome: done.outcome, subscription }
+  })
   if (!request.publish) {
-    const { outcome, sessions } = yield* reviewed
-    const review: Review = { ...base, sessions, outcome, verdict: verdictOf(outcome), liveHead: null }
+    const { outcome, sessions, subscription } = yield* reviewed
+    const review: Review = { ...base, sessions, outcome, subscription, verdict: verdictOf(outcome), liveHead: null }
     return { review, body: renderReport(review), note: { kind: "dry-run" } } satisfies ReviewResult
   }
 
@@ -217,10 +232,10 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const clearRunning = labels.inProgress === null ? Effect.void : forge.updateLabels(ref, { add: [], remove: [labels.inProgress] }).pipe(Effect.ignore)
 
   return yield* Effect.gen(function*() {
-    const { outcome, sessions } = yield* reviewed
+    const { outcome, sessions, subscription } = yield* reviewed
     const live = yield* forge.live(ref)
     const moved = live.head !== head
-    const review: Review = { ...base, sessions, outcome, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
+    const review: Review = { ...base, sessions, outcome, subscription, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
     const body = renderReport(review)
     const existing = yield* forge.findReport(ref)
     const plan = publication(existing, review.verdict, live.head)

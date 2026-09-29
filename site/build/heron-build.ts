@@ -143,6 +143,7 @@ const render = async (repoRoot: string) => {
     configDigest: resolved.digest,
     liveHead: null,
     rereview: null,
+    subscription: null,
   }
   return {
     note: report.renderReport(review),

@@ -49,7 +49,8 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
     verdict: kind === "complete" ? "CHANGES REQUESTED" : "BLOCKED",
     configDigest: "f".repeat(64),
     liveHead: null,
-    rereview: null
+    rereview: null,
+    subscription: null
   }
   return renderReport(review)
 }
@@ -308,6 +309,17 @@ describe("report shape", () => {
       kept!.ruling === "keep" ? "kept" : "dropped",
       "The <code>a | b</code> union reaches <code>render</code>.\u2060"
     ])
+  })
+
+  it("says when a usage window reset during the review, when the reading failed, and shows warnings as plain text", () => {
+    const window = (percent: number, resetsAt: string) => ({ window: "five-hour" as const, percent, resetsAt })
+    const render = (subscription: Review["subscription"]) => renderReport({ ...sampleReview, subscription }).split("\n")
+    const after = (lines: ReadonlyArray<string>) => lines.slice(lines.findIndex((l) => l.startsWith("Totals:")) + 1).filter((l) => l !== "").slice(0, 2)
+    expect(after(render({ before: [window(90, "2026-09-30T01:00:00Z")], after: [window(2, "2026-09-30T06:00:00Z")], warnings: ["@all /close"] }))).toEqual([
+      "Subscription: the five-hour window reset during the review (now 2%). An estimate: Claude reports whole percent, and other sessions on the account count too.",
+      "Claude Code warned: \\@\u2060all \\/\u2060close."
+    ])
+    expect(after(render({ before: null, after: [window(2, "x")], warnings: [] }))[0]).toBe("Subscription share unknown: the usage reading failed.")
   })
 
   it("puts tool calls and vendor cost in one totals line", () => {

@@ -22,6 +22,8 @@ Anthropic's [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overv
 
 Heron does not use the Agent SDK and does not offer claude.ai login. It runs the `claude` binary with the credential you provide. To create a long-lived token for a headless runner, run `claude setup-token` and store the result as `CLAUDE_CODE_OAUTH_TOKEN`. To bill an API account instead, set `ANTHROPIC_API_KEY`. Whether your plan allows automated use on a CI runner, and whether other people may trigger reviews that spend your plan's limits, is set by your agreement with Anthropic, not by Heron.
 
+With `CLAUDE_CODE_OAUTH_TOKEN`, Heron also reads your subscription's five-hour and weekly usage windows just before and just after a review, and the report shows the difference next to the dollar cost. It reads them from `https://api.anthropic.com/api/oauth/usage` with the same token. That is the endpoint Claude Code's own `/usage` uses, and Anthropic does not document it. The figure is an estimate: Claude reports whole percent, and every other session on the account counts toward the same windows. A failed reading shows as "unknown" and never fails the review. When Claude Code warns during a session that a limit is close or reached, the report repeats the warning. With `ANTHROPIC_API_KEY`, Heron reads nothing, because an API account has no usage windows.
+
 ### Codex (`codex-cli`)
 
 OpenAI's guide [Maintain Codex account auth in CI/CD](https://developers.openai.com/codex/auth/ci-cd-auth.md) covers ChatGPT-managed Codex auth on a runner. It says API keys are the recommended option for most CI/CD jobs, and it says:
