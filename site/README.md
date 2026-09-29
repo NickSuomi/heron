@@ -130,7 +130,16 @@ The design book is [docs/brand/README.md](../docs/brand/README.md). Help and Sup
 
 ## Fonts
 
-The interface uses Segoe UI when the visitor has it installed, and Selawik otherwise. Selawik 1.01 is self-hosted from its [release](https://github.com/microsoft/Selawik/releases/tag/1.01) under the SIL Open Font License 1.1; the licence text is `public/fonts/Selawik-OFL.txt`.
+The interface uses Segoe UI when the visitor has it installed, and Heron Sans otherwise. Heron Sans is Selawik 1.01 ([release](https://github.com/microsoft/Selawik/releases/tag/1.01)) cut down to the characters the site uses, three files of about 14 kB each (`public/fonts/heron-sans-{regular,semibold,bold}.woff2`). Under the SIL Open Font License 1.1 a subset is a Modified Version, and condition 3 bars a Modified Version from using the Reserved Font Name "Selawik". So the fonts are renamed: their name tables say "Heron Sans", the CSS family is `Heron UI` (`src/styles/fonts.css`), and the trademark record is dropped. The copyright record keeps its wording, as condition 1 asks. The licence text is `public/fonts/Selawik-OFL.txt`.
+
+Why rename and not ship the unmodified files: the site needs three weights on the first load, and these subsets are small. Shipping the unmodified upstream files would add the full glyph sets to every first load (not measured here: the upstream release was not downloaded). Renaming costs nothing at load time.
+
+- `node build/rename-font.ts public/fonts/*.woff2` (from `site/`) rewrites the name tables with `build/woff2.ts`, a small WOFF2 reader and writer with no dependency. It keeps every other table byte for byte. No font tool such as fontTools is installed here, which is why this exists.
+- `build/fontCoverage.test.ts` reads each shipped font's character map and fails when a character in the site's source or in README.txt has no glyph, or when a name record other than the copyright says "Selawik". Two characters are allowed to be missing, each with its reason in the test: U+200B (draws nothing) and U+2192 (the arrow between branch names, drawn by the next font in the stack).
+
+## First load
+
+The main chunk holds the framework and the apps. The text of the Heron folder (about 260 kB of the repository's Markdown, TypeScript and JSON) is a separate chunk, `virtual:heron-file-contents`, fetched by `loadFileContents` (`src/domain/vfs.ts`) as the boot screen starts. The boot loader waits for it, and a skip before it arrives is ignored, so no window ever opens on an empty file. Tests load it first (`src/testSetup.ts`).
 
 ## Acknowledgements
 

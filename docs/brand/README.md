@@ -96,7 +96,7 @@ Explorer and Help and Support extend the glass into the window, as the era did: 
 | Terminal, code, previews | Lucida Console, then Consolas, then DejaVu Sans Mono | The visitor's own fonts. Nothing shipped |
 | Diagram shapes | Arial, then the interface face | The visitor's own fonts |
 
-Selawik is an open-source face designed to match Segoe UI's metrics, so a line set in either takes the same width. Heron OS names both under one family, "Heron UI", and the browser picks the first that loads. Selawik is self-hosted from its 1.01 release with its licence beside it.
+Heron Sans is a subset of Selawik, an open-source face designed to match Segoe UI's metrics, so a line set in either takes the same width. The subset is renamed because the SIL Open Font License reserves the name Selawik for the unmodified font. Heron OS names both faces under one family, "Heron UI", and the browser picks the first that loads. Heron Sans is self-hosted with the Selawik licence beside it.
 
 | Size | Weight | Use |
 |---|---|---|

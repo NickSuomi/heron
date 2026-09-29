@@ -1,19 +1,19 @@
-/* Segoe UI where the visitor has it, Selawik (SIL OFL 1.1, public/fonts/Selawik-OFL.txt) everywhere else. */
+/* Segoe UI where the visitor has it, Heron Sans (a modified subset of Selawik under SIL OFL 1.1, public/fonts/Selawik-OFL.txt) everywhere else. */
 @font-face {
   font-family: "Heron UI";
-  src: local("Segoe UI"), local("SegoeUI"), url("/fonts/selawik-regular.woff2") format("woff2");
+  src: local("Segoe UI"), local("SegoeUI"), url("/fonts/heron-sans-regular.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: "Heron UI";
-  src: local("Segoe UI Semibold"), local("SegoeUI-Semibold"), url("/fonts/selawik-semibold.woff2") format("woff2");
+  src: local("Segoe UI Semibold"), local("SegoeUI-Semibold"), url("/fonts/heron-sans-semibold.woff2") format("woff2");
   font-weight: 600;
   font-display: swap;
 }
 @font-face {
   font-family: "Heron UI";
-  src: local("Segoe UI Bold"), local("SegoeUI-Bold"), url("/fonts/selawik-bold.woff2") format("woff2");
+  src: local("Segoe UI Bold"), local("SegoeUI-Bold"), url("/fonts/heron-sans-bold.woff2") format("woff2");
   font-weight: 700;
   font-display: swap;
 }

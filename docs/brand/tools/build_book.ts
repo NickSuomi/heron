@@ -133,8 +133,8 @@ const block = (item: Block): string => {
 }
 
 const style = `
-@font-face{font-family:"Heron UI";src:local("Segoe UI"),local("SegoeUI"),url(../fonts/selawik-regular.woff2) format("woff2");font-weight:400;font-display:swap}
-@font-face{font-family:"Heron UI";src:local("Segoe UI Semibold"),local("SegoeUI-Semibold"),url(../fonts/selawik-semibold.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"Heron UI";src:local("Segoe UI"),local("SegoeUI"),url(../fonts/heron-sans-regular.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Heron UI";src:local("Segoe UI Semibold"),local("SegoeUI-Semibold"),url(../fonts/heron-sans-semibold.woff2) format("woff2");font-weight:600;font-display:swap}
 :root{color-scheme:light}
 *{box-sizing:border-box}
 body{margin:0;background:linear-gradient(#dfeaf5,#f4f8fc 320px) no-repeat,#f4f8fc;color:#000;font:14px/1.55 "Heron UI","Segoe UI",sans-serif}

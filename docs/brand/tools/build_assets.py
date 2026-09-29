@@ -6,7 +6,7 @@ Run from the repository root:
     python3 docs/brand/tools/build_assets.py
 
 It writes docs/brand/assets/ and the copy the site serves at /brand/assets/ (site/public/brand/assets/).
-The social preview embeds Selawik from site/public/fonts (SIL Open Font License 1.1) as data URIs and the
+The social preview embeds Heron Sans (a renamed Selawik subset) from site/public/fonts (SIL Open Font License 1.1) as data URIs and the
 Heron OS wallpaper from site/src/assets, so it renders the same on a machine without either. Render the PNGs
 with headless Chromium: the mark at 512 by 512 and the social preview at 1280 by 640.
 """
@@ -130,7 +130,7 @@ def esc(text):
 
 def social():
     fonts = ROOT / "site" / "public" / "fonts"
-    faces = "".join(font_face("Heron UI", w, fonts / f"selawik-{n}.woff2") for n, w in (("regular", 400), ("semibold", 600), ("bold", 700)))
+    faces = "".join(font_face("Heron UI", w, fonts / f"heron-sans-{n}.woff2") for n, w in (("regular", 400), ("semibold", 600), ("bold", 700)))
     x, y, w, h = 712, 124, 528, 376
     lines = "".join(f'<text x="{x + 20}" y="{y + 64 + i * 22}" class="m" xml:space="preserve">{esc(line)}</text>' for i, line in enumerate(PROMPT_LINES))
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Heron OS: learn Heron by opening files on a desktop.">
