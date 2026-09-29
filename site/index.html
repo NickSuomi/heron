@@ -4,194 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="origin-trial" content="AnUk/KIC0C61CaJnMukgRwyRH0Aq5Cfm5SAsgG4B7Usr3xgKzzj2Y8mcflcPQ+7/0JiEqdXAXWvW0p3F1lFCdQYAAABZeyJvcmlnaW4iOiJodHRwczovL25pY2tzdW9taS5naXRodWIuaW86NDQzIiwiZmVhdHVyZSI6IkhUTUxJbkNhbnZhcyIsImV4cGlyeSI6MTc5MjQ1NDQwMH0=">
-<meta name="theme-color" content="#08090c">
-<meta name="color-scheme" content="dark">
-<title>Heron: every line passes the heron</title>
-<meta name="description" content="Heron is a self-hosted code-review bot for GitLab merge requests. It reviews one merge request at its head, writes one report note, sets one label, and never approves, merges, or edits.">
+<meta name="theme-color" content="#0b2a3a">
+<title>Heron OS</title>
+<meta name="description" content="Heron is a self-hosted code-review bot for GitLab merge requests. It reviews one merge request at its head, writes one report note, sets one label, and never approves, merges, or edits. Heron OS is its site: a desktop where you learn Heron by opening files.">
 <link rel="icon" href="./brand/assets/favicon.svg" type="image/svg+xml">
 <link rel="canonical" href="https://nicksuomi.github.io/heron/">
-<meta property="og:title" content="Heron: every line passes the heron">
+<meta property="og:title" content="Heron OS">
 <meta property="og:description" content="Self-hosted code review for GitLab merge requests. One report note, one label, and never an approval, a merge, or an edit.">
 <meta property="og:image" content="https://nicksuomi.github.io/heron/brand/assets/social-preview.png">
 <meta property="og:url" content="https://nicksuomi.github.io/heron/">
 <meta name="twitter:card" content="summary_large_image">
 </head>
 <body>
-<div class="monolith" id="monolith">
-<main class="face" id="face">
-
-  <header class="sky">
-    <a class="wordmark" href="#top" id="top" aria-label="Heron"><img src="./brand/assets/heron-lockup-mono-white.svg" alt="" width="108" height="40"></a>
-    <nav class="topnav" aria-label="Page">
-      <a href="#gates">How it works</a>
-      <a href="#start">Quick start</a>
-      <a href="./brand/">Design book</a>
-      <a href="https://github.com/NickSuomi/heron">GitHub</a>
-    </nav>
-  </header>
-
-  <section class="hero">
-    <p class="kicker s">Self-hosted review for GitLab merge requests</p>
-    <h1 class="s"><span>Every line</span> <span>passes the heron.</span></h1>
-    <p class="lead s">Heron reviews one merge request at its head, writes one report note, sets one label, and never approves, merges, or edits. It runs on your runner, with your model credentials.</p>
-    <p class="cta s"><a class="btn primary" href="#start">Quick start</a><a class="btn" href="https://github.com/NickSuomi/heron">View on GitHub</a></p>
-    <p class="cue s"><span class="cue-mark" aria-hidden="true"></span>Scroll. Merge request !42 climbs the face.</p>
-  </section>
-
-  <section class="terms" aria-label="What Heron can touch">
-    <div class="term s">
-      <h2>Your runner</h2>
-      <p>No hosted service. Heron runs in your CI job with your GitLab token. The only outside service it calls is the model vendor you configure.</p>
-    </div>
-    <div class="term s">
-      <h2>Read-only eyes</h2>
-      <p>Models see the reviewed commit through <code>grep</code>, <code>list_files</code> and <code>read_file</code>. They cannot run commands or change files. The token never reaches a model.</p>
-    </div>
-    <div class="term s">
-      <h2>One note</h2>
-      <p>One report note per merge request, updated in place on the next run, and one verdict label. No inline threads, no approvals, no merges.</p>
-    </div>
-  </section>
-
-  <section class="mr" id="gates">
-    <div class="mr-head s">
-      <span class="mr-iid">!42</span>
-      <h2 class="mr-title">Archive projects from the list</h2>
-    </div>
-    <dl class="mr-meta s">
-      <div><dt>head</dt><dd><code>abc2c194</code></dd></div>
-      <div><dt>files</dt><dd>2 changed, +26 &minus;1</dd></div>
-      <div><dt>rule</dt><dd><code>projects</code> &rarr; lane <code>critical</code></dd></div>
-    </dl>
-    <p class="mr-note s">Path rules choose the lane. Lane <code>critical</code> runs every gate twice, in two blind branches. Heron fetches this one commit into a temporary bare repository and reads nothing else.</p>
-  </section>
-
-  <div id="gate-bands"></div>
-
-  <section class="edge" aria-labelledby="edge-title">
-    <div class="band-label s">
-      <span class="band-no">05</span>
-      <h2 class="band-name" id="edge-title">the last edge</h2>
-    </div>
-    <div class="edge-body">
-      <p class="band-text s">Each branch ends in a supervisor that keeps or drops each finding and may add its own. Then the judge reads both branches' findings, with no repository and no tools, and keeps or drops each one.</p>
-      <div class="branches" aria-label="Two blind branches and a judge">
-        <div class="branch s">
-          <h3>b1</h3>
-          <ol>
-            <li><code>b1.gate.ui</code><span>1 advisory</span></li>
-            <li><code>b1.gate.design</code><span>none</span></li>
-            <li><code>b1.gate.spec</code><span>1 blocker</span></li>
-            <li><code>b1.gate.standards</code><span>1 advisory</span></li>
-            <li class="sup"><code>b1.supervisor</code><span>keeps 3</span></li>
-          </ol>
-        </div>
-        <div class="branch s">
-          <h3>b2</h3>
-          <ol>
-            <li><code>b2.gate.ui</code><span>1 advisory</span></li>
-            <li><code>b2.gate.design</code><span>1 advisory</span></li>
-            <li><code>b2.gate.spec</code><span>1 blocker</span></li>
-            <li><code>b2.gate.standards</code><span>none</span></li>
-            <li class="sup"><code>b2.supervisor</code><span>keeps 3</span></li>
-          </ol>
-        </div>
-        <div class="judge s">
-          <h3><code>judge</code></h3>
-          <p>Keeps the <b>spec</b> blocker and the <b>ui</b> and <b>standards</b> advisories.</p>
-          <p class="dropped">Drops the <b>design</b> advisory that only b2 raised: &ldquo;archive requests run one at a time&rdquo;.</p>
-        </div>
-      </div>
-      <div class="law s">
-        <h3>Then code decides, not a model.</h3>
-        <ul>
-          <li class="on"><b>CHANGES REQUESTED</b><span>any blocker finding</span></li>
-          <li><b>BLOCKED</b><span>a session failed, timed out, or returned malformed output. Never PASS.</span></li>
-          <li><b>SUPERSEDED</b><span>the branch moved during the review</span></li>
-          <li><b>PASS</b><span>none of the above</span></li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <section class="rest" aria-labelledby="verdict">
-    <article class="note" aria-label="Report note on merge request !42">
-      <p class="marker">&lt;!-- heron:v1 mr=42 head=abc2c194a278f0d0e396ce76960efa78c639e03c config=d6c250e2f4049fdbd16207cc904a9dbaa9b0cff431c6709915b5b05fc6b80424 verdict=changes-requested --&gt;</p>
-      <div class="verdict-plate">
-        <h2 class="verdict" id="verdict"><span class="verdict-pre">Heron review:</span> <span class="verdict-word">CHANGES REQUESTED</span></h2>
-      </div>
-      <p>Reviewed head <code>abc2c194</code> in lane <code>critical</code>.</p>
-      <p>Archiving calls the delete endpoint, so an archived project cannot be restored.</p>
-      <h3>Findings</h3>
-      <ul class="findings">
-        <li data-final="F1"><b class="sev blk">Blocker</b> <code>spec</code> Archive deletes the project instead of archiving it <a href="#F1">src/projects/archive.ts:14</a></li>
-        <li data-final="F2"><b class="sev">Advisory</b> <code>ui</code> Archive button is enabled with nothing selected <a href="#F2">src/projects/ProjectList.vue:27</a></li>
-        <li data-final="F3"><b class="sev">Advisory</b> <code>standards</code> <code>selected</code> is typed <code>any[]</code> <a href="#F3">src/projects/ProjectList.vue:12</a></li>
-      </ul>
-      <details>
-        <summary>REVIEW CHECKS</summary>
-        <table>
-          <thead><tr><th>Gate</th><th>Status</th></tr></thead>
-          <tbody>
-            <tr><td>ui</td><td>pass</td></tr>
-            <tr><td>design</td><td>pass</td></tr>
-            <tr class="on"><td>spec</td><td>changes requested</td></tr>
-            <tr><td>standards</td><td>pass</td></tr>
-          </tbody>
-        </table>
-        <p>Rules matched: <code>projects</code> (2 paths).</p>
-        <p>Plan: dual, 11 sessions. Config digest <code>d6c250e2f404</code>.</p>
-      </details>
-      <details>
-        <summary>AGENT PROVENANCE</summary>
-        <div class="scroll-x">
-        <table class="prov">
-          <thead><tr><th>Session</th><th>Role</th><th>Backend</th><th>Effort</th><th>Result</th></tr></thead>
-          <tbody id="prov"></tbody>
-        </table>
-        </div>
-        <p class="small">The full table also lists model, tokens in and out, tool calls, duration and vendor-reported cost for each session. This page shows an example review, so it leaves those columns out rather than invent them.</p>
-      </details>
-      <p class="label-row"><span class="label">review::changes requested</span> <span class="small">verdict label added, the other managed labels removed</span></p>
-    </article>
-
-    <div class="start" id="start">
-      <h2 class="s">Quick start</h2>
-      <p class="s">Alpha, version 0.0.0, not on npm. Needs Node 24 or later, pnpm 11 and git.</p>
-      <pre class="s"><code><span class="c"># install from source</span>
-git clone https://github.com/NickSuomi/heron.git
-cd heron
-pnpm install --frozen-lockfile
-
-<span class="c"># validate the example config, offline</span>
-pnpm heron config check \
-  --config heron.config.example.json
-
-<span class="c"># review a real merge request, post nothing</span>
-pnpm heron review --mr 42 --dry-run</code></pre>
-      <p class="s">A real review needs a GitLab bot token with the <code>api</code> scope and one backend: your Claude Code CLI (<code>claude-cli</code>), your Codex CLI (<code>codex-cli</code>), or an OpenRouter API key (<code>ai-sdk</code>). In CI, add the manual <code>heron-review</code> job.</p>
-      <ul class="links s">
-        <li><a href="https://github.com/NickSuomi/heron">github.com/NickSuomi/heron</a></li>
-        <li><a href="https://github.com/NickSuomi/heron/blob/main/docs/gitlab-ci.md">GitLab CI job</a></li>
-        <li><a href="https://github.com/NickSuomi/heron/blob/main/docs/backends.md">Backends</a></li>
-        <li><a href="https://github.com/NickSuomi/heron/blob/main/docs/security.md">Security model</a></li>
-        <li><a href="./brand/">Design book</a></li>
-      </ul>
-    </div>
-    <footer class="foot">
-      <span>Apache-2.0</span>
-      <span>Merge request text can steer a model. A PASS is one automated opinion, not a security approval.</span>
-      <span>Fold by <a href="https://canvasui.dev/docs/components/bend">Canvas UI Bend</a>, MIT + Commons Clause</span>
-    </footer>
-  </section>
-
-</main>
-</div>
-
-<div class="shade" aria-hidden="true"></div>
-<div class="crease" aria-hidden="true"></div>
-<div class="perch" id="perch" aria-hidden="true"></div>
-
-<script type="module" src="/src/main.ts"></script>
+<div id="root"><a href="https://github.com/NickSuomi/heron#readme">Skip to the plain docs</a></div>
+<noscript><p>Heron OS needs JavaScript. The plain docs are the <a href="https://github.com/NickSuomi/heron#readme">README on GitHub</a>.</p></noscript>
+<script type="module" src="/src/entry.ts"></script>
 </body>
 </html>

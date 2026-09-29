@@ -1,0 +1,582 @@
+/* Shared Vista controls: push buttons, the task dialog, the secure desktop, and the tour balloon. */
+
+.vista-button {
+  min-width: 75px;
+  height: 23px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #707070;
+  border-radius: 3px;
+  color: #000;
+  background: linear-gradient(to bottom, #f2f2f2 0%, #ebebeb 50%, #dddddd 51%, #cfcfcf 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+}
+
+.vista-button:not(:disabled):hover {
+  border-color: #3c7fb1;
+  background: linear-gradient(to bottom, #eaf6fd 0%, #d9f0fc 50%, #bee6fd 51%, #a7d9f5 100%);
+}
+
+.vista-button:not(:disabled):active {
+  border-color: #2c628b;
+  background: linear-gradient(to bottom, #e5f4fc 0%, #c4e5f6 50%, #98d1ef 51%, #68b3db 100%);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.vista-button.is-default {
+  border-color: #3c7fb1;
+  box-shadow: inset 0 0 0 1px #9fe0fa, inset 0 0 3px 1px rgba(80, 180, 240, 0.45);
+  animation: default-button-glow 1.8s ease-in-out infinite alternate;
+}
+
+.vista-button:disabled {
+  color: #838383;
+  border-color: #adb2b5;
+  background: #f4f4f4;
+  box-shadow: none;
+}
+
+.vista-button:focus-visible,
+.wc-tile:focus-visible,
+.ex-item:focus-visible,
+.rb-big:focus-visible,
+.hp-contents-item:focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+
+@keyframes default-button-glow {
+  from {
+    box-shadow: inset 0 0 0 1px #9fe0fa, inset 0 0 2px 1px rgba(80, 180, 240, 0.25);
+  }
+  to {
+    box-shadow: inset 0 0 0 1px #c5efff, inset 0 0 5px 2px rgba(80, 180, 240, 0.6);
+  }
+}
+
+/* ---- Task dialog (Recycle Bin items) ---- */
+
+.window.app-dialog .client {
+  background: #fff;
+}
+
+/* A task dialog has only a close button. */
+.window.app-dialog .caption-min,
+.window.app-dialog .caption-max {
+  display: none;
+}
+
+.window.app-dialog .caption-close {
+  border-left-width: 1px;
+  border-radius: 0 0 5px 5px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, #fff 25%, #fff 75%, #ccc 75%);
+  background-size: 6px 6px;
+  background-position: 0 0, 3px 3px;
+  position: relative;
+  overflow: hidden;
+}
+
+.swatch > i {
+  position: absolute;
+  inset: 0;
+}
+
+.task-dialog {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: #000;
+}
+
+.td-main {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px 10px 10px;
+  overflow: auto;
+}
+
+.td-glyph {
+  flex: none;
+}
+
+.td-text {
+  min-width: 0;
+}
+
+.td-instruction {
+  margin: 4px 0 10px;
+  font-size: 16px;
+  font-weight: 400;
+  color: #003399;
+  line-height: 1.25;
+}
+
+.td-content {
+  margin: 0 0 8px;
+}
+
+.td-content:first-of-type {
+  font-weight: 600;
+}
+
+.td-details {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #dfdfdf;
+  color: #333;
+}
+
+.td-details p {
+  margin: 0 0 6px;
+}
+
+.td-progress {
+  position: relative;
+  height: 14px;
+  margin: 6px 0 4px;
+  border: 1px solid #8e8f8f;
+  border-radius: 3px;
+  overflow: hidden;
+  background: linear-gradient(to bottom, #f3f3f3, #e0e0e0 50%, #d7d7d7 51%, #e8e8e8);
+}
+
+.td-progress > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: linear-gradient(to right, rgba(6, 176, 37, 0), #37d449 30%, #06b025 50%, #37d449 70%, rgba(6, 176, 37, 0));
+  animation: marquee 1.6s linear infinite;
+}
+
+@keyframes marquee {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+.td-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 41px;
+  padding: 0 10px;
+  background: #f0f0f0;
+  border-top: 1px solid #dfdfdf;
+}
+
+.td-expander,
+.uac-expander {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #000;
+}
+
+.td-expander-glyph {
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  border: 1px solid #a0a0a0;
+  background: linear-gradient(to bottom, #fff, #e4e4e4);
+  position: relative;
+}
+
+.td-expander-glyph::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 5px;
+  width: 5px;
+  height: 5px;
+  border: solid #3a3a3a;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.is-open > .td-expander-glyph::after {
+  top: 7px;
+  transform: rotate(-135deg);
+}
+
+.td-expander:hover .td-expander-glyph,
+.uac-expander:hover .td-expander-glyph {
+  border-color: #3c7fb1;
+  background: linear-gradient(to bottom, #eaf6fd, #bee6fd);
+}
+
+.task-dialog.is-phone .td-main {
+  padding: 16px;
+}
+
+.task-dialog.is-phone .td-instruction {
+  font-size: 18px;
+}
+
+/* ---- The secure desktop and User Account Control ---- */
+
+.os-chrome {
+  display: contents;
+}
+
+.os.is-secure > .desk,
+.os.is-secure .taskbar {
+  filter: brightness(0.42) saturate(0.55);
+  transition: filter 240ms ease-out;
+}
+
+.secure-desktop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.28);
+  animation: secure-in 240ms ease-out;
+}
+
+.wm .secure-desktop {
+  background: rgba(0, 0, 0, 0.6);
+  padding: 12px;
+}
+
+@keyframes secure-in {
+  from {
+    background: rgba(0, 0, 0, 0);
+  }
+}
+
+.uac {
+  width: min(470px, 100%);
+  border-radius: 8px 8px 6px 6px;
+  border: 1px solid rgba(0, 0, 0, 0.8);
+  padding: 0 7px 7px;
+  background:
+    linear-gradient(118deg, rgba(255, 255, 255, 0) 8%, rgba(255, 255, 255, 0.22) 12%, rgba(255, 255, 255, 0) 17%),
+    linear-gradient(to bottom, #9fb7cc, #7894ad 34px, #6f8ba5);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.45),
+    0 12px 40px rgba(0, 0, 0, 0.7);
+  font-size: 12px;
+  color: #000;
+}
+
+.uac-caption {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  color: #000;
+  text-shadow: 0 0 8px #fff, 0 0 12px #fff;
+}
+
+.uac-client {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+}
+
+.uac-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.uac-banner.is-asking {
+  background: linear-gradient(to bottom, #fdf0c2, #f6cf5f);
+}
+
+.uac-banner.is-refused {
+  background: linear-gradient(to bottom, #e9f1f8, #bfd4e8);
+}
+
+.uac-banner h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 400;
+  color: #1a1a1a;
+}
+
+.uac-body {
+  padding: 12px 16px 6px;
+}
+
+.uac-lead {
+  margin: 0 0 12px;
+}
+
+.uac-never {
+  margin: 4px 0 10px;
+  font-size: 16px;
+  color: #003399;
+}
+
+.uac-body p {
+  margin: 0 0 8px;
+}
+
+.uac-program {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid #d5dfe8;
+  border-radius: 3px;
+  background: linear-gradient(to bottom, #fbfdff, #eef4fa);
+}
+
+.uac-program-icon {
+  flex: none;
+  padding: 3px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom, #2f5f86, #173a57);
+}
+
+.uac-program dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+}
+
+.uac-program dt {
+  color: #555;
+}
+
+.uac-program dd {
+  margin: 0;
+}
+
+.uac-program-name {
+  grid-column: 1 / -1;
+  font-weight: 600;
+  margin-bottom: 2px !important;
+}
+
+.uac-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.uac-details {
+  padding: 6px 10px;
+  color: #444;
+  border-left: 3px solid #d5dfe8;
+}
+
+.uac-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f0f0f0;
+  border-top: 1px solid #dfdfdf;
+}
+
+.uac-spacer {
+  flex: 1;
+}
+
+.uac-footer {
+  margin: 6px 4px 0;
+  color: #0e1c2a;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
+}
+
+/* ---- The tour balloon ---- */
+
+.tour-balloon {
+  position: fixed;
+  right: 14px;
+  bottom: calc(var(--taskbar-height) + 16px);
+  z-index: 9000;
+  width: 320px;
+  padding: 10px 12px 12px;
+  border: 1px solid #767676;
+  border-radius: 7px;
+  background: linear-gradient(to bottom, #ffffff 0%, #ffffff 40%, #e4ecf7 100%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  color: #000;
+  animation: balloon-in 220ms ease-out;
+}
+
+.tour-balloon::after {
+  content: "";
+  position: absolute;
+  right: 44px;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  background: #e4ecf7;
+  border-right: 1px solid #767676;
+  border-bottom: 1px solid #767676;
+  transform: rotate(45deg);
+}
+
+@keyframes balloon-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.tour-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.tour-kicker {
+  flex: 1;
+}
+
+.tour-close {
+  width: 16px;
+  height: 16px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  position: relative;
+}
+
+.tour-close::before,
+.tour-close::after,
+.ex-infobar-close::before,
+.ex-infobar-close::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 3px;
+  width: 1.5px;
+  height: 9px;
+  background: #555;
+  transform: rotate(45deg);
+}
+
+.tour-close::after,
+.ex-infobar-close::after {
+  transform: rotate(-45deg);
+}
+
+.tour-close:hover {
+  border-color: #b3b3b3;
+  background: linear-gradient(to bottom, #fff, #e5e5e5);
+}
+
+.tour-title {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #003399;
+}
+
+.tour-body {
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+
+.tour-status {
+  margin: -4px 0 10px;
+  padding: 3px 6px;
+  border: 1px solid #c9d8ee;
+  border-radius: 2px;
+  color: #1e395b;
+  background: #f1f6fd;
+}
+
+.tour-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wm .tour-balloon {
+  left: 8px;
+  right: 8px;
+  bottom: 64px;
+  width: auto;
+  font-size: 15px;
+  border-radius: 4px;
+  border-color: #1b3f7a;
+  padding: 0 0 12px;
+  background: linear-gradient(to bottom, #f6f9ff, #dfe9fa);
+}
+
+.wm .tour-balloon::after {
+  display: none;
+}
+
+.wm .tour-head {
+  padding: 8px 10px;
+  color: #fff;
+  background: linear-gradient(to bottom, #5b8fe0, #1f4ea8);
+  border-radius: 3px 3px 0 0;
+}
+
+.wm .tour-close::before,
+.wm .tour-close::after {
+  background: #fff;
+}
+
+.wm .tour-title,
+.wm .tour-body,
+.wm .tour-actions {
+  padding: 0 12px;
+}
+
+.wm .tour-status {
+  margin: -4px 12px 10px;
+}
+
+.wm .tour-title {
+  font-size: 17px;
+}
+
+.wm .vista-button {
+  height: 34px;
+  font-size: 15px;
+}
+
+.wm-button {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid #1b3f7a;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  background: linear-gradient(to bottom, #6f9fe6, #2b5cb8 50%, #1f4ea8 51%, #3565bf);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vista-button.is-default,
+  .td-progress > span,
+  .secure-desktop,
+  .tour-balloon {
+    animation: none;
+  }
+}

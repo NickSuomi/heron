@@ -1,0 +1,202 @@
+.boot {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  outline: none;
+}
+
+.boot-mark {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  animation: boot-fade 500ms 120ms ease-out forwards;
+}
+
+.boot-glyph {
+  width: 92px;
+  height: 92px;
+  filter: drop-shadow(0 0 10px rgba(110, 220, 170, 0.55));
+}
+
+/* The loader: a short run of green light sliding through a dark trough. */
+.boot-progress {
+  position: absolute;
+  left: 50%;
+  top: 68%;
+  width: 156px;
+  height: 15px;
+  margin-left: -78px;
+  border-radius: 3px;
+  border: 1px solid #5a5a5a;
+  background: linear-gradient(to bottom, #111, #050505);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 0 1px #151515;
+  overflow: hidden;
+}
+
+.boot-progress-run {
+  position: absolute;
+  top: 2px;
+  left: -40px;
+  display: flex;
+  gap: 2px;
+  width: 38px;
+  height: 9px;
+  background:
+    linear-gradient(to right, transparent 0 1px, #000 1px 2px) 0 0 / 12px 100%,
+    linear-gradient(to bottom, #d8ffb8, #58d23a 45%, #1d8a14 55%, #7ee85a);
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(120, 255, 90, 0.6);
+  animation: boot-run 1.4s linear infinite;
+}
+
+.boot-legal {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 44px;
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: #c9c9c9;
+  letter-spacing: 0.02em;
+}
+
+.boot-skip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 22px;
+  margin: 0;
+  text-align: center;
+  font-size: 11px;
+  color: #6c6c6c;
+}
+
+@keyframes boot-run {
+  from {
+    left: -40px;
+  }
+  to {
+    left: 158px;
+  }
+}
+
+@keyframes boot-fade {
+  to {
+    opacity: 1;
+  }
+}
+
+/* Welcome screen */
+.boot-welcome {
+  background: #041d25;
+}
+
+.welcome-wallpaper {
+  filter: saturate(0.7) brightness(0.62) hue-rotate(12deg);
+}
+
+.welcome-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+}
+
+.welcome-user {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.user-frame {
+  width: 134px;
+  height: 134px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.7);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.22) 45%, rgba(190, 230, 255, 0.18) 55%, rgba(255, 255, 255, 0.45)),
+    rgba(100, 150, 180, 0.45);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    0 6px 24px rgba(0, 0, 0, 0.6);
+}
+
+.user-frame img {
+  width: 104px;
+  height: 104px;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  border-radius: 3px;
+}
+
+.welcome-name {
+  margin: 16px 0 0;
+  font-size: 22px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+}
+
+.welcome-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0;
+  font-size: 18px;
+  color: #e8f4ff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+}
+
+.welcome-spinner {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(140, 230, 255, 0) 0deg, rgba(140, 230, 255, 0.95) 300deg, rgba(140, 230, 255, 0) 360deg);
+  -webkit-mask: radial-gradient(circle, transparent 5px, #000 6px);
+  mask: radial-gradient(circle, transparent 5px, #000 6px);
+  animation: spin 0.9s linear infinite;
+}
+
+.welcome-brand {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 24px;
+  font-weight: 300;
+  color: #fff;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.55));
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  text-shadow: 0 1px 6px #000;
+}
+
+.welcome-brand img {
+  width: 40px;
+  height: 40px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-progress-run,
+  .welcome-spinner {
+    animation-duration: 4s;
+  }
+}
