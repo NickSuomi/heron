@@ -392,7 +392,6 @@
 }
 
 .dg-shape-gloss {
-  fill: url(#dg-gloss);
   pointer-events: none;
 }
 

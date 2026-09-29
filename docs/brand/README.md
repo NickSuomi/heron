@@ -230,7 +230,7 @@ The heron stands on an edge, neck in an S, head lowered, bill pointed down. It i
 | `assets/heron-mark.svg`, `assets/heron-mark-on-dark.svg` | Duotone marks for documents |
 | `assets/heron-lockup.svg`, `assets/heron-lockup-on-dark.svg` | Mark and wordmark, for the repository README |
 | `assets/favicon.svg` | The browser tab |
-| `assets/social-preview.png` | The link preview, 1280 by 640 |
+| `assets/social-preview.svg`, `assets/social-preview.png` | The link preview, 1280 by 640: Heron OS, with a dry run of !42 in the Command Prompt |
 
 - Do not add an eye, a pupil, or a face.
 - Do not rotate or stretch it. It faces left, or right when it sits beside the wordmark.
@@ -255,12 +255,13 @@ Model-written text is posted as escaped plain text, never as Markdown.
 - `README.md`: this book.
 - `tools/build_book.ts`: writes `site/public/brand/index.html` from this file and regenerates the contrast table.
 - `assets/`: the heron mark, lockups, favicon, and social preview.
-- `tools/build_assets.py`: draws every SVG in `assets/`. It reads the mark's colours from `tools/build_tokens.py`.
-- `tokens.json`, `tokens.css`, `tools/build_tokens.py`: the palette of the retired single-page site. Only the mark's colours are still read from them; the Heron OS interface does not use them.
+- `tools/build_assets.py`: draws every SVG in `assets/` and writes the same files to `site/public/brand/assets/`, which the site serves. It reads its colours from `tools/build_tokens.py`.
+- `tokens.json`, `tokens.css`, `tools/build_tokens.py`: the tables of this book as design tokens: the glass, the surfaces and ink, the ribbon, the verdict labels, the glass recipe, and the type. `build_tokens.py` writes the other two.
 
 ## Rebuilding
 
 1. Edit this file.
 2. Run `node docs/brand/tools/build_book.ts` from the repository root. It rewrites the contrast table here and writes `site/public/brand/index.html`.
 3. Run `pnpm build` in `site/`. Help and Support reads this file when the site is built.
-4. To change the mark, run `pnpm install` in `site/`, then `python3 docs/brand/tools/build_assets.py`, and render the PNGs with headless Chromium: the mark at 512 by 512 and the social preview at 1280 by 640.
+4. To change a colour, edit `tools/build_tokens.py` and run `python3 docs/brand/tools/build_tokens.py`.
+5. To change the mark or the social preview, run `python3 docs/brand/tools/build_assets.py`, and render the PNGs with headless Chromium: the mark at 512 by 512 and the social preview at 1280 by 640. The social preview embeds Selawik and the Aurora wallpaper, so it needs nothing installed.

@@ -247,7 +247,8 @@ export const update = (model: Model, message: Message, context: Context) =>
 
 // View
 
-export type ViewInputs = Readonly<{ review: Review; forge: Forge; now: number; isPhone: boolean }>
+/** `idPrefix` is unique to the window, for the ids the pages give their fields. */
+export type ViewInputs = Readonly<{ review: Review; forge: Forge; now: number; isPhone: boolean; idPrefix: string }>
 
 const actions: Actions<Message> = {
   go: (url) => Message.ClickedLink({ url }),
@@ -363,6 +364,7 @@ const contentView = (h: H, model: Model, url: string, inputs: ViewInputs, isPhon
     openDetails: model.openDetails,
     isUserMenuOpen: model.isUserMenuOpen,
     isMobile: isPhone,
+    idPrefix: inputs.idPrefix,
   }
   return page._tag === "CannotDisplay"
     ? cannotDisplayView(h, model, page.address, isPhone)

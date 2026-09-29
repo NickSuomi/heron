@@ -3,8 +3,10 @@ import { join, relative, resolve } from "node:path"
 import { defineConfig, type Plugin } from "vite"
 
 import { heronBuild } from "./build/heron-build.ts"
+import { readmeText } from "./build/readme-text.ts"
 
-// The Heron folder on the desktop is the real repository, read at build time.
+// The Heron folder on the desktop is the real repository, read at build time. README.txt on the desktop is its
+// README.md as plain text (build/readme-text.ts).
 const repoRoot = resolve(import.meta.dirname, "..")
 const sources = ["README.md", "heron.config.example.json", "docs", "src"]
 const textFile = /\.(md|ts|json|css|txt)$/
@@ -25,7 +27,8 @@ const heronFiles = (): Plugin => {
         this.addWatchFile(path)
         return { path: relative(repoRoot, path).split("\\").join("/"), content: readFileSync(path, "utf8") }
       })
-      return `export const heronFiles = ${JSON.stringify(files)}`
+      const readme = files.find((file) => file.path === "README.md")?.content ?? ""
+      return `export const heronFiles = ${JSON.stringify(files)}\nexport const readmeText = ${JSON.stringify(readmeText(readme))}`
     },
   }
 }

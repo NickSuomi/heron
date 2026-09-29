@@ -499,6 +499,15 @@
   line-height: 1.45;
 }
 
+.tour-status {
+  margin: -4px 0 10px;
+  padding: 3px 6px;
+  border: 1px solid #c9d8ee;
+  border-radius: 2px;
+  color: #1e395b;
+  background: #f1f6fd;
+}
+
 .tour-actions {
   display: flex;
   justify-content: flex-end;
@@ -537,6 +546,10 @@
 .wm .tour-body,
 .wm .tour-actions {
   padding: 0 12px;
+}
+
+.wm .tour-status {
+  margin: -4px 12px 10px;
 }
 
 .wm .tour-title {

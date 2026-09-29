@@ -1,6 +1,6 @@
 import "./cmd.css"
 
-import { Array, Effect, Match, Option, pipe, Schema } from "effect"
+import { Array, Effect, Match, Option, pipe, Queue, Schema, Stream } from "effect"
 import { Command, Mount, Submodel, type Update } from "foldkit"
 import type { Html } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -27,32 +27,56 @@ export const Model = taggedStruct("Cmd", {
   history: Schema.Array(Schema.String),
   maybeHistoryIndex: Schema.Option(Schema.Number),
   maybeRunningCommand: Schema.Option(Schema.String),
+  /** The characters the tour still has to type, then Enter. */
+  maybeTyping: Schema.Option(Schema.String),
 })
 export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   UpdatedInput: { value: Schema.String },
-  PressedEnter: {},
+  SubmittedLine: { line: Schema.String },
   PressedHistory: { isOlder: Schema.Boolean },
   PressedEscape: {},
   CompletedFocusInput: {},
   CompletedSyncInput: {},
+  StartedTyping: { text: Schema.String },
+  TypedKey: {},
 })
 export type Message = typeof Message.Type
 
-/** Focuses the command line when the window opens, as cmd.exe takes the keyboard when it starts. */
-const FocusInput = Mount.define("FocusCmdInput", {
-  messages: [Message.CompletedFocusInput],
+/**
+ * Takes the keyboard when the window opens, as cmd.exe does, and owns Enter and Esc on the command line. They read
+ * and clear the field inside the key event itself: the message queue can hand the next keystrokes to the field
+ * before `update` sees Enter, so clearing it later from `update` would eat them or keep the entered line.
+ */
+const CommandLine = Mount.defineStream("CmdCommandLine", {
+  messages: [Message.CompletedFocusInput, Message.SubmittedLine, Message.PressedEscape],
   execute: ({ element }) =>
-    Effect.sync(() => {
-      if (element instanceof HTMLElement) element.focus({ preventScroll: true })
-      return Message.CompletedFocusInput()
-    }),
+    Stream.callback<Extract<Message, { _tag: "CompletedFocusInput" | "SubmittedLine" | "PressedEscape" }>>((queue) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          if (!(element instanceof HTMLInputElement)) return () => {}
+          const onKeyDown = (event: KeyboardEvent) => {
+            if (event.isComposing || (event.key !== "Enter" && event.key !== "Escape")) return
+            event.preventDefault()
+            const line = element.value
+            element.value = ""
+            Queue.offerUnsafe(queue, event.key === "Enter" ? Message.SubmittedLine({ line }) : Message.PressedEscape())
+          }
+          element.addEventListener("keydown", onKeyDown)
+          element.focus({ preventScroll: true })
+          Queue.offerUnsafe(queue, Message.CompletedFocusInput())
+          return () => element.removeEventListener("keydown", onKeyDown)
+        }),
+        (remove) => Effect.sync(remove),
+      ).pipe(Effect.andThen(Effect.never)),
+    ),
 })
 
 /**
- * Writes the command line's text into the input. The view also sets it, but a virtual DOM compares against the
- * value it last rendered, so a line typed and entered within one frame would otherwise stay in the input.
+ * Writes the command line's text into the input when Heron OS changes it: Enter, Esc, the history keys and the
+ * tour's typing. The input is otherwise uncontrolled, because foldkit writes a controlled `value` back on every
+ * render, and a clock tick that renders between a keystroke and its input message would drop the keystroke.
  */
 const SyncInput = Command.define("SyncCmdInput", {
   args: { inputId: Schema.String, value: Schema.String },
@@ -63,6 +87,12 @@ const SyncInput = Command.define("SyncCmdInput", {
       if (input instanceof HTMLInputElement) input.value = value
       return Message.CompletedSyncInput()
     }),
+})
+
+/** The tour types at about the pace of a person who knows the command. */
+const TypeKey = Command.define("TypeCmdKey", {
+  messages: [Message.TypedKey],
+  execute: Effect.sleep("45 millis").pipe(Effect.as(Message.TypedKey())),
 })
 
 export const OutMessage = defineMessageUnion({
@@ -89,6 +119,7 @@ export const init = (): Model =>
     history: [],
     maybeHistoryIndex: Option.none(),
     maybeRunningCommand: Option.none(),
+    maybeTyping: Option.none(),
   })
 
 export const title = (model: Model): string =>
@@ -279,10 +310,23 @@ const isAttachedTo = (model: Model, review: Review): boolean =>
     Option.exists((entry) => entry._tag === "LiveReview" && entry.run === review.run),
   )
 
+const enter = (model: Model, context: Context): Outcome => {
+  if (isAttachedTo(model, context.review)) return { model }
+  const line = model.input
+  const echoed: Model = {
+    ...model,
+    entries: [...model.entries, Entry.Lines({ lines: [`${prompt(model)}${line}`] })],
+    input: "",
+    maybeHistoryIndex: Option.none(),
+    history: line.trim() === "" || model.history[model.history.length - 1] === line ? model.history : [...model.history, line],
+  }
+  return run(echoed, line, context)
+}
+
 export const update = (model: Model, message: Message, context: Context) =>
   Message.match<Update.ReturnWithOutMessage<Model, Message, OutMessage>>(message, {
-    UpdatedInput: ({ value }) => ({ model: { ...model, input: value.replace(/\r?\n/g, "") } }),
-    PressedEscape: () => ({ model: { ...model, input: "", maybeHistoryIndex: Option.none() }, commands: [SyncInput({ inputId: context.inputId, value: "" })] }),
+    UpdatedInput: ({ value }) => (Option.isSome(model.maybeTyping) ? { model } : { model: { ...model, input: value.replace(/\r?\n/g, "") } }),
+    PressedEscape: () => ({ model: { ...model, input: "", maybeHistoryIndex: Option.none(), maybeTyping: Option.none() }, commands: [SyncInput({ inputId: context.inputId, value: "" })] }),
     CompletedFocusInput: () => ({ model }),
     CompletedSyncInput: () => ({ model }),
     PressedHistory: ({ isOlder }) => {
@@ -295,18 +339,23 @@ export const update = (model: Model, message: Message, context: Context) =>
       const input = model.history[index] ?? ""
       return { model: { ...model, maybeHistoryIndex: Option.some(index), input }, commands: [SyncInput({ inputId: context.inputId, value: input })] }
     },
-    PressedEnter: () => {
-      if (isAttachedTo(model, context.review)) return { model }
-      const line = model.input
-      const echoed: Model = {
-        ...model,
-        entries: [...model.entries, Entry.Lines({ lines: [`${prompt(model)}${line}`] })],
-        input: "",
-        maybeHistoryIndex: Option.none(),
-        history: line.trim() === "" || model.history[model.history.length - 1] === line ? model.history : [...model.history, line],
-      }
-      return { ...run(echoed, line, context), commands: [SyncInput({ inputId: context.inputId, value: "" })] }
-    },
+    SubmittedLine: ({ line }) => (Option.isSome(model.maybeTyping) ? { model } : enter({ ...model, input: line }, context)),
+    StartedTyping: ({ text }) =>
+      isAttachedTo(model, context.review)
+        ? { model }
+        : { model: { ...model, input: "", maybeTyping: Option.some(text) }, commands: [SyncInput({ inputId: context.inputId, value: "" }), TypeKey()] },
+    TypedKey: () =>
+      Option.match(model.maybeTyping, {
+        onNone: () => ({ model }),
+        onSome: (rest) => {
+          if (rest === "") {
+            const entered = enter({ ...model, maybeTyping: Option.none() }, context)
+            return { ...entered, commands: [...(entered.commands ?? []), SyncInput({ inputId: context.inputId, value: "" })] }
+          }
+          const input = model.input + rest.charAt(0)
+          return { model: { ...model, input, maybeTyping: Option.some(rest.slice(1)) }, commands: [SyncInput({ inputId: context.inputId, value: input }), TypeKey()] }
+        },
+      }),
   })
 
 // A review's lines: what Heron OS shows while the sessions run, then what the CLI prints when the run ends.
@@ -337,10 +386,8 @@ const entryText = (entry: Entry, review: Review): ReadonlyArray<string> =>
 
 const keyMessage = (key: string): Option.Option<Message> =>
   Match.value(key).pipe(
-    Match.when("Enter", () => Option.some(Message.PressedEnter())),
     Match.when("ArrowUp", () => Option.some(Message.PressedHistory({ isOlder: true }))),
     Match.when("ArrowDown", () => Option.some(Message.PressedHistory({ isOlder: false }))),
-    Match.when("Escape", () => Option.some(Message.PressedEscape())),
     Match.orElse(() => Option.none()),
   )
 
@@ -373,10 +420,10 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, { re
         h.AriaLabel(`Command line, ${prompt(model)}`),
         h.Autocomplete("off"),
         h.Spellcheck(false),
-        h.Value(model.input),
+        h.Attribute("value", model.input),
         h.OnInput((value) => Message.UpdatedInput({ value })),
         h.OnKeyDownPreventDefault(keyMessage),
-        h.OnMount(FocusInput()),
+        h.OnMount(CommandLine()),
       ]),
     ],
   )

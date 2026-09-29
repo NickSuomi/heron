@@ -51,6 +51,8 @@ export const Model = Schema.Struct({
   gesture: Gesture,
   maybeSelectedIcon: Schema.Option(FilePath),
   isStartMenuOpen: Schema.Boolean,
+  /** The Start menu's left pane lists every program instead of the pinned and recent ones. */
+  isAllProgramsShown: Schema.Boolean,
   switcher: Switcher,
   viewport: Size,
   now: Schema.Number,

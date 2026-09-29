@@ -1,6 +1,6 @@
 import type { Html, HtmlBuilder } from "foldkit/html"
 
-import { definition } from "../apps/registry"
+import { apps, definition } from "../apps/registry"
 import { type AppId, FilePath, readmePath } from "../domain/vfs"
 import { Message } from "../message"
 import type { Model } from "../model"
@@ -27,6 +27,12 @@ const recent: ReadonlyArray<Entry> = [
   app("welcome"),
   app("explorer"),
 ]
+
+/** Every program, by name, as the All Programs list shows them. The Recycle Bin dialogs are not programs. */
+const allPrograms: ReadonlyArray<Entry> = apps
+  .filter((entry) => entry.id !== "dialog")
+  .map((entry) => app(entry.id))
+  .toSorted((a, b) => a.label.localeCompare(b.label))
 
 const places: ReadonlyArray<Entry | "separator"> = [
   at("Visitor", "/Heron", "heron-folder"),
@@ -66,8 +72,13 @@ export const startMenuView = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.div(
             [h.Class("sm-left")],
             [
-              h.div([h.Class("sm-programs")], [...pinned.map((entry) => programView(h, entry, true)), h.div([h.Class("sm-separator")]), ...recent.map((entry) => programView(h, entry, false))]),
-              h.div([h.Class("sm-all-programs"), h.AriaDisabled(true), h.Title("All Programs arrives with the apps in unit 2")], [h.span([h.Class("sm-arrow")]), "All Programs"]),
+              model.isAllProgramsShown
+                ? h.div([h.Class("sm-programs is-all")], allPrograms.map((entry) => programView(h, entry, false)))
+                : h.div([h.Class("sm-programs")], [...pinned.map((entry) => programView(h, entry, true)), h.div([h.Class("sm-separator")]), ...recent.map((entry) => programView(h, entry, false))]),
+              h.button(
+                [h.Class(`sm-all-programs${model.isAllProgramsShown ? " is-back" : ""}`), h.AriaExpanded(model.isAllProgramsShown), h.OnClick(Message.ClickedAllPrograms())],
+                [h.span([h.Class("sm-arrow")]), model.isAllProgramsShown ? "Back" : "All Programs"],
+              ),
               h.div(
                 [h.Class("sm-search")],
                 [h.input([h.Class("sm-search-input"), h.Placeholder("Start Search"), h.AriaLabel("Start Search"), h.Readonly(true)]), h.span([h.Class("sm-search-icon")])],

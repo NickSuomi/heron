@@ -88,7 +88,7 @@ const tiles: ReadonlyArray<Tile> = [
     picture: iconUrl("notepad"),
     summary: "The repository's own README, in Notepad",
     description: [
-      "README.txt on the desktop is the README.md of the Heron repository, bundled when this site was built.",
+      "README.txt on the desktop is the Heron repository's README.md as plain text, made when this site was built.",
       "It covers what Heron is, how it works, the quick start, and its known limitations.",
     ],
     action: "Open README.txt",

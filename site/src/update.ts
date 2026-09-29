@@ -23,7 +23,7 @@ import * as Desk from "./domain/window"
 import { Message } from "./message"
 import { deskSize, type Flags, Gesture, isPhone, type Model, Session, Switcher, Uac } from "./model"
 import { Tour, tourSteps } from "./tour"
-import { tourHooks } from "./tourHooks"
+import { isNoteDue, tourHooks } from "./tourHooks"
 
 type UpdateReturn = Update.Return<Model, Message>
 
@@ -34,6 +34,7 @@ export const init = (flags: Flags): UpdateReturn => ({
     gesture: Gesture.Idle(),
     maybeSelectedIcon: Option.none(),
     isStartMenuOpen: false,
+    isAllProgramsShown: false,
     switcher: Switcher.Closed(),
     viewport: flags.viewport,
     now: flags.now,
@@ -180,7 +181,8 @@ const updateCmd = (model: Model, windowId: Desk.WindowId, message: Cmd.Message):
   )
 
 // ---------------------------------------------------------------------------------------------------
-// Apps built in unit 2c talk to the shell through `Request` (src/apps/request.ts).
+// Apps other than Notepad, Command Prompt, Heron Studio and Internet Explorer talk to the shell through `Request`
+// (src/apps/request.ts).
 
 type AppReturn<A, M> = Update.ReturnWithOutMessage<A, M, Request>
 
@@ -316,7 +318,7 @@ const enterTourStep = (model: Model, index: number): UpdateReturn =>
         const opened = { ...focusOrLaunch(model, definition(step.app), step.maybePath), tour: Tour.On({ step: index }) }
         return Option.match(opened.desk.maybeFocused, {
           onNone: () => ({ model: opened }),
-          onSome: (windowId) => tourHooks[step.id](opened, windowId),
+          onSome: (windowId) => tourHooks[step.id](opened, windowId, baseUpdate),
         })
       },
     }),
@@ -349,7 +351,8 @@ const baseUpdate = (model: Model, message: Message): UpdateReturn =>
     }),
     ClickedIcon: ({ path }) => ({ model: { ...withDesk(model, Desk.blur), maybeSelectedIcon: Option.some(path) } }),
     DoubleClickedIcon: ({ path }) => openPathWithCommands({ ...model, maybeSelectedIcon: Option.some(path) }, path),
-    ClickedStart: () => ({ model: modifyFields(model, { isStartMenuOpen: (open) => !open }) }),
+    ClickedStart: () => ({ model: modifyFields(model, { isStartMenuOpen: (open) => !open, isAllProgramsShown: () => false }) }),
+    ClickedAllPrograms: () => ({ model: modifyFields(model, { isAllProgramsShown: (shown) => !shown }) }),
     ClickedStartPath: ({ path }) => openPathWithCommands(model, path),
     ClickedStartApp: ({ app }) => ({ model: startApp(model, definition(app)) }),
     ClickedPower: () => ({
@@ -400,7 +403,7 @@ const baseUpdate = (model: Model, message: Message): UpdateReturn =>
     PressedSwitchWindow: ({ isBackward }) => ({ model: switchWindow(model, isBackward) }),
     ReleasedAlt: () => ({ model: commitSwitch(model) }),
     PressedStartKey: () => ({
-      model: model.session._tag === "Desktop" ? modifyFields(model, { isStartMenuOpen: (open) => !open }) : model,
+      model: model.session._tag === "Desktop" ? modifyFields(model, { isStartMenuOpen: (open) => !open, isAllProgramsShown: () => false }) : model,
     }),
     PressedEscape: () =>
       Match.value(model).pipe(
@@ -462,10 +465,18 @@ const baseUpdate = (model: Model, message: Message): UpdateReturn =>
     ClickedTourEnd: () => ({ model: { ...model, tour: Tour.Off() } }),
   })
 
-/** A review that has just finished asks to approve the merge request, and Heron cancels itself. */
+const isOnTourStep = (model: Model, id: (typeof tourSteps)[number]["id"]): boolean =>
+  model.tour._tag === "On" && tourSteps[model.tour.step]?.id === id
+
+/**
+ * A review that has just finished asks to approve the merge request, and Heron cancels itself. If the tour is waiting
+ * on the Note step for a dry run to end, the posted run it needs starts now.
+ */
 export const update = (model: Model, message: Message): UpdateReturn => {
   const next = baseUpdate(model, message)
   if (model.review._tag !== "Running" || next.model.review._tag !== "Done") return next
   const asked = askForApproval(next.model)
-  return { model: asked.model, commands: [...(next.commands ?? []), ...(asked.commands ?? [])] }
+  const continued =
+    isOnTourStep(asked.model, "Note") && isNoteDue(asked.model) ? { ...asked.model, review: Review.start(asked.model.review, "Post") } : asked.model
+  return { model: continued, commands: [...(next.commands ?? []), ...(asked.commands ?? [])] }
 }

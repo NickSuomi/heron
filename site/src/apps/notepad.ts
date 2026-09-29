@@ -1,5 +1,5 @@
-import { Array, Option, Schema } from "effect"
-import { Submodel, type Update } from "foldkit"
+import { Array, Effect, Option, Schema } from "effect"
+import { Mount, Submodel, type Update } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
@@ -29,8 +29,23 @@ export const Message = defineMessageUnion({
   ToggledWordWrap: {},
   ClickedExit: {},
   UpdatedText: { value: Schema.String },
+  CompletedLoadText: {},
 })
 export type Message = typeof Message.Type
+
+/**
+ * Puts the file's text into the page once, when it mounts. The page is uncontrolled: foldkit writes a controlled
+ * `value` back on every render, and a clock tick that renders between a keystroke and its input message would drop it.
+ */
+const LoadText = Mount.define("LoadNotepadText", {
+  args: { text: Schema.String },
+  messages: [Message.CompletedLoadText],
+  execute: ({ text, element }) =>
+    Effect.sync(() => {
+      if (element instanceof HTMLTextAreaElement) element.value = text
+      return Message.CompletedLoadText()
+    }),
+})
 
 export const OutMessage = defineMessageUnion({ RequestedClose: {} })
 export type OutMessage = typeof OutMessage.Type
@@ -65,6 +80,7 @@ export const update = (model: Model, message: Message) =>
       outMessage: OutMessage.RequestedClose(),
     }),
     UpdatedText: ({ value }) => ({ model: modifyFields(model, { text: () => value }) }),
+    CompletedLoadText: () => ({ model }),
   })
 
 type MenuItem = Readonly<{ label: string; shortcut?: string; maybeMessage: Option.Option<Message>; isChecked?: boolean }>
@@ -142,7 +158,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
         h.Class(`notepad-text${model.isWordWrap ? "" : " is-nowrap"}`),
         h.AriaLabel(title(model)),
         h.Spellcheck(false),
-        h.Value(model.text),
+        h.OnMount(LoadText({ text: model.text })),
         h.OnInput((value) => Message.UpdatedText({ value })),
         h.OnFocus(Message.ClosedMenu()),
       ]),

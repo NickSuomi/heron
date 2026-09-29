@@ -21,7 +21,8 @@
 .cmd-buffer {
   width: 80ch;
   max-width: 100%;
-  margin: 0;
+  /* The column runs bottom up so the newest line stays in view; the auto margin starts a short buffer at the top. */
+  margin: 0 0 auto;
   font: inherit;
   white-space: pre-wrap;
   word-break: break-all;

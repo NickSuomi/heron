@@ -278,11 +278,11 @@ const searchBox = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.div(
     [h.Class("ex-search")],
     [
-      h.input([
+      h.keyed("input")(`search-${model.location}`, [
         h.Type("search"),
         h.Placeholder("Search"),
         h.AriaLabel(`Search ${nameOf(model.location)}`),
-        h.Value(model.query),
+        h.Attribute("value", model.query),
         h.OnInput((value) => Message.UpdatedQuery({ value })),
       ]),
       h.img([h.Src(glyphUrl("search")), h.Alt(""), h.Width("16"), h.Height("16")]),

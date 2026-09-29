@@ -1,7 +1,7 @@
 import "./studio.css"
 
 import { Array, Effect, Option, pipe, Schema } from "effect"
-import { Command, Submodel, type Update } from "foldkit"
+import { Command, Mount, Submodel, type Update } from "foldkit"
 import type { Attribute, Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
@@ -58,6 +58,7 @@ export const Message = defineMessageUnion({
   ToggledAdvisories: {},
   ClickedFinding: { id: Schema.String },
   CompletedRevealLine: {},
+  CompletedLoadText: {},
   ClickedExit: {},
 })
 export type Message = typeof Message.Type
@@ -143,6 +144,21 @@ const RevealLine = Command.define("RevealLine", {
     ),
 })
 
+/**
+ * Puts a tab's text into its editor once, when the editor mounts. The editor is uncontrolled: foldkit writes a
+ * controlled `value` back on every render, and a clock tick that renders between a keystroke and its input message
+ * would drop the keystroke. Each tab gets its own keyed editor, so switching tabs mounts the other tab's text.
+ */
+const LoadText = Mount.define("LoadStudioText", {
+  args: { text: Schema.String },
+  messages: [Message.CompletedLoadText],
+  execute: ({ text, element }) =>
+    Effect.sync(() => {
+      if (element instanceof HTMLTextAreaElement) element.value = text
+      return Message.CompletedLoadText()
+    }),
+})
+
 const closeMenu = (model: Model): Model => ({ ...model, maybeOpenMenu: Option.none() })
 
 type Return = Update.ReturnWithOutMessage<Model, Message, OutMessage>
@@ -200,6 +216,7 @@ export const update = (model: Model, message: Message, context: Context): Return
         }),
       ),
     CompletedRevealLine: () => ({ model }),
+    CompletedLoadText: () => ({ model }),
     ClickedExit: () => ({ model: closeMenu(model), outMessage: OutMessage.RequestedClose() }),
   })
 
@@ -499,14 +516,14 @@ const codeView = (model: Model, h: H, tab: Tab, review: Review, windowId: number
               ),
             ),
           ),
-          h.textarea([
+          h.keyed("textarea")(`${windowId}:${tab.path}`, [
             h.Id(inputId(windowId)),
             h.Class("code-input"),
             h.AriaLabel(`${tab.name} editor`),
             h.Spellcheck(false),
             h.Wrap("off"),
             h.Autocomplete("off"),
-            h.Value(tab.text),
+            h.OnMount(LoadText({ text: tab.text })),
             h.OnInput((value) => Message.EditedText({ value })),
             h.OnFocus(Message.ClosedMenu()),
             h.OnKeyDownPreventDefault((key, modifiers) => (modifiers.ctrlKey && key.toLowerCase() === "s" ? Option.some(Message.PressedSave()) : Option.none())),

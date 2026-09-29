@@ -126,7 +126,7 @@ node scripts/check-readme-contract.mjs README.md
 
 ## Acknowledgements
 
-The public site in [`site/`](site/) draws its window glass with Canvas UI's [Glass](https://canvasui.dev) component ([source](https://github.com/DavidHDev/canvas-ui)). Canvas UI is licensed under MIT with a Commons Clause: you may use the components, including commercially, but you may not sell, sublicense, or redistribute them on their own, bundled, or ported. The vendored copy under `site/src/vendor/canvas-ui/` keeps the upstream license text. See [`site/README.md`](site/README.md).
+The public site in [`site/`](site/) draws its window glass with Canvas UI's [Glass](https://canvasui.dev) component ([source](https://github.com/DavidHDev/canvas-ui)). Canvas UI is licensed under MIT with a Commons Clause: you may use the components, including commercially, but you may not sell, sublicense, or redistribute them on their own, bundled, or ported. The vendored copy under `site/src/vendor/canvas-ui/` keeps the upstream license text. The site's interface font falls back to Selawik, self-hosted with its SIL Open Font License 1.1 text in `site/public/fonts/`. See [`site/README.md`](site/README.md).
 
 ## License
 

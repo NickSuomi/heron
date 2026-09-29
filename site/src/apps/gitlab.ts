@@ -41,6 +41,8 @@ export type PageInputs = Readonly<{
   openDetails: ReadonlyArray<string>
   isUserMenuOpen: boolean
   isMobile: boolean
+  /** Unique to the browser window, so two windows on the sign-in page keep their labels on their own fields. */
+  idPrefix: string
 }>
 
 /** What the pages ask the browser to do. The browser owns navigation, the form and the open details. */
@@ -295,10 +297,10 @@ const signInView = <M>(ctx: Ctx<M>, maybeRedirect: Option.Option<string>): Html 
           h.form(
             [h.Class("gl-signin-form"), h.OnSubmit(on.submittedSignIn), h.Autocomplete("off")],
             [
-              h.label([h.Class("gl-field-label"), h.For("gl-username")], ["Username or email"]),
-              h.input([h.Id("gl-username"), h.Class("gl-field"), h.Type("text"), h.Name("heron-demo-user"), h.Attribute("value", inputs.form.username), h.Autocomplete("off"), h.Spellcheck(false), h.OnInput(on.typedUsername)]),
-              h.label([h.Class("gl-field-label"), h.For("gl-password")], ["Password"]),
-              h.input([h.Id("gl-password"), h.Class("gl-field"), h.Type("password"), h.Name("heron-demo-password"), h.Autocomplete("new-password"), h.OnInput(on.typedPassword)]),
+              h.label([h.Class("gl-field-label"), h.For(`${inputs.idPrefix}-username`)], ["Username or email"]),
+              h.input([h.Id(`${inputs.idPrefix}-username`), h.Class("gl-field"), h.Type("text"), h.Name("heron-demo-user"), h.Attribute("value", inputs.form.username), h.Autocomplete("off"), h.Spellcheck(false), h.OnInput(on.typedUsername)]),
+              h.label([h.Class("gl-field-label"), h.For(`${inputs.idPrefix}-password`)], ["Password"]),
+              h.input([h.Id(`${inputs.idPrefix}-password`), h.Class("gl-field"), h.Type("password"), h.Name("heron-demo-password"), h.Autocomplete("new-password"), h.OnInput(on.typedPassword)]),
               h.label(
                 [h.Class("gl-check")],
                 [h.input([h.Type("checkbox"), h.Checked(inputs.form.isRememberMe), h.OnChange(() => on.toggledRememberMe)]), "Remember me"],

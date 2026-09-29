@@ -245,7 +245,7 @@ const searchForm = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.form(
     [h.Class("hp-search"), h.Role("search"), h.OnSubmit(Message.SubmittedSearch())],
     [
-      h.input([h.Type("search"), h.Placeholder("Search Help"), h.AriaLabel("Search Help"), h.Value(model.query), h.OnInput((value) => Message.UpdatedQuery({ value }))]),
+      h.input([h.Type("search"), h.Placeholder("Search Help"), h.AriaLabel("Search Help"), h.Attribute("value", model.query), h.OnInput((value) => Message.UpdatedQuery({ value }))]),
       h.button([h.Class("hp-search-go"), h.Type("submit"), h.AriaLabel("Search")], [h.img([h.Src(glyphUrl("search")), h.Alt(""), h.Width("16"), h.Height("16")])]),
     ],
   )

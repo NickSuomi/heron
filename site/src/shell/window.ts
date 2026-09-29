@@ -54,7 +54,7 @@ export const appView = (model: Model, win: Desk.Window, h: HtmlBuilder<Message>)
           slotId: `browser-${win.id}`,
           model: browser,
           view: Browser.view,
-          viewInputs: { review: model.review, forge: model.forge, now: model.now, isPhone: isPhone(model) },
+          viewInputs: { review: model.review, forge: model.forge, now: model.now, isPhone: isPhone(model), idPrefix: `ie${win.id}` },
           toParentMessage: (message) => Message.GotBrowserMessage({ windowId: win.id, message }),
         }),
       Diagram: (diagram) =>
@@ -62,7 +62,7 @@ export const appView = (model: Model, win: Desk.Window, h: HtmlBuilder<Message>)
           slotId: `diagram-${win.id}`,
           model: diagram,
           view: Diagram.view,
-          viewInputs: { form },
+          viewInputs: { form, idPrefix: `dg${win.id}` },
           toParentMessage: (message) => Message.GotDiagramMessage({ windowId: win.id, message }),
         }),
       Explorer: (explorer) =>

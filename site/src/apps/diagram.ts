@@ -185,18 +185,28 @@ const outline = (kind: NodeKind, width: number, height: number): string => {
   }
 }
 
-const fillFor = (kind: NodeKind): string =>
-  ({
-    MergeRequest: "url(#dg-fill-doc)",
-    Rules: "url(#dg-fill-rule)",
-    Lane: "url(#dg-fill-lane)",
-    Reviewer: "url(#dg-fill-session)",
-    Gate: "url(#dg-fill-session)",
-    Supervisor: "url(#dg-fill-super)",
-    Judge: "url(#dg-fill-judge)",
-    Verdict: "url(#dg-fill-verdict)",
-    Note: "url(#dg-fill-doc)",
-  })[kind]
+/**
+ * The page's gradients, marker and grid patterns carry the window's prefix, so two Diagram Viewer windows do not
+ * share ids and closing one does not strip the fills from the other.
+ */
+const svgId = (prefix: string, name: string): string => `${prefix}-${name}`
+const svgRef = (prefix: string, name: string): string => `url(#${svgId(prefix, name)})`
+
+const fillFor = (prefix: string, kind: NodeKind): string =>
+  svgRef(
+    prefix,
+    ({
+      MergeRequest: "fill-doc",
+      Rules: "fill-rule",
+      Lane: "fill-lane",
+      Reviewer: "fill-session",
+      Gate: "fill-session",
+      Supervisor: "fill-super",
+      Judge: "fill-judge",
+      Verdict: "fill-verdict",
+      Note: "fill-doc",
+    } as const)[kind],
+  )
 
 /** Extra strokes some masters carry: the supervisor's side bars, the note's folded corner. */
 const decoration = <M>(h: HtmlBuilder<M>, kind: NodeKind, width: number, height: number): ReadonlyArray<Html> => {
@@ -232,7 +242,7 @@ const selectionHandles = <M>(h: HtmlBuilder<M>, node: FlowNode): ReadonlyArray<H
   ]
 }
 
-const nodeView = (h: HtmlBuilder<Message>, model: Model, node: FlowNode): Html => {
+const nodeView = (h: HtmlBuilder<Message>, model: Model, node: FlowNode, prefix: string): Html => {
   const state = nodeState(model, node)
   const isSelected = Option.contains(model.maybeSelected, node.id)
   const isHighlighted = Option.contains(model.maybeHighlighted, node.kind)
@@ -250,9 +260,9 @@ const nodeView = (h: HtmlBuilder<Message>, model: Model, node: FlowNode): Html =
     ],
     [
       h.path([h.Class("dg-shape-shadow"), h.D(outline(node.kind, node.width, node.height)), h.Transform("translate(3 3)")]),
-      h.path([h.Class("dg-shape"), h.D(outline(node.kind, node.width, node.height)), h.Fill(fillFor(node.kind))]),
+      h.path([h.Class("dg-shape"), h.D(outline(node.kind, node.width, node.height)), h.Fill(fillFor(prefix, node.kind))]),
       ...decoration(h, node.kind, node.width, node.height),
-      h.path([h.Class("dg-shape-gloss"), h.D(outline(node.kind, node.width, node.height))]),
+      h.path([h.Class("dg-shape-gloss"), h.D(outline(node.kind, node.width, node.height)), h.Fill(svgRef(prefix, "gloss"))]),
       h.text(
         [h.Class("dg-label"), h.Attribute("x", String(node.width / 2 + (node.kind === "Lane" ? 6 : 0))), h.Attribute("y", String(centreY - 2)), h.Attribute("text-anchor", "middle")],
         [node.label],
@@ -267,7 +277,7 @@ const nodeView = (h: HtmlBuilder<Message>, model: Model, node: FlowNode): Html =
   )
 }
 
-const edgeView = (h: HtmlBuilder<Message>, model: Model, flow: Flow, from: string, to: string): Html =>
+const edgeView = (h: HtmlBuilder<Message>, model: Model, flow: Flow, from: string, to: string, prefix: string): Html =>
   Option.match(Option.all([findNode(flow, from), findNode(flow, to)]), {
     onNone: () => h.empty,
     onSome: ([source, target]) => {
@@ -276,7 +286,7 @@ const edgeView = (h: HtmlBuilder<Message>, model: Model, flow: Flow, from: strin
       return h.g(
         [h.Class(`dg-edge is-${state}`)],
         [
-          h.path([h.Class("dg-edge-line"), h.D(d), h.MarkerEnd("url(#dg-arrow)")]),
+          h.path([h.Class("dg-edge-line"), h.D(d), h.MarkerEnd(svgRef(prefix, "arrow"))]),
           ...(state === "active"
             ? [h.path([h.Class("dg-edge-flow"), h.D(d), h.Attribute("pathLength", "100")])]
             : []),
@@ -285,24 +295,24 @@ const edgeView = (h: HtmlBuilder<Message>, model: Model, flow: Flow, from: strin
     },
   })
 
-const defs = (h: HtmlBuilder<Message>): Html => {
+const defs = (h: HtmlBuilder<Message>, prefix: string): Html => {
   const gradient = (id: string, top: string, bottom: string): Html =>
     h.linearGradient(
-      [h.Id(id), h.Attribute("x1", "0"), h.Attribute("y1", "0"), h.Attribute("x2", "0"), h.Attribute("y2", "1")],
+      [h.Id(svgId(prefix, id)), h.Attribute("x1", "0"), h.Attribute("y1", "0"), h.Attribute("x2", "0"), h.Attribute("y2", "1")],
       [h.stop([h.Attribute("offset", "0"), h.Attribute("stop-color", top)]), h.stop([h.Attribute("offset", "1"), h.Attribute("stop-color", bottom)])],
     )
   return h.defs(
     [],
     [
-      gradient("dg-fill-doc", "#ffffff", "#dfe9f5"),
-      gradient("dg-fill-rule", "#fff6d8", "#f2d27a"),
-      gradient("dg-fill-lane", "#eef4fb", "#c3d6ee"),
-      gradient("dg-fill-session", "#f3f8fe", "#bcd4f0"),
-      gradient("dg-fill-super", "#eef3fb", "#a9c2e6"),
-      gradient("dg-fill-judge", "#f5eefb", "#cdb8e6"),
-      gradient("dg-fill-verdict", "#effaf1", "#a9d9b2"),
+      gradient("fill-doc", "#ffffff", "#dfe9f5"),
+      gradient("fill-rule", "#fff6d8", "#f2d27a"),
+      gradient("fill-lane", "#eef4fb", "#c3d6ee"),
+      gradient("fill-session", "#f3f8fe", "#bcd4f0"),
+      gradient("fill-super", "#eef3fb", "#a9c2e6"),
+      gradient("fill-judge", "#f5eefb", "#cdb8e6"),
+      gradient("fill-verdict", "#effaf1", "#a9d9b2"),
       h.linearGradient(
-        [h.Id("dg-gloss"), h.Attribute("x1", "0"), h.Attribute("y1", "0"), h.Attribute("x2", "0"), h.Attribute("y2", "1")],
+        [h.Id(svgId(prefix, "gloss")), h.Attribute("x1", "0"), h.Attribute("y1", "0"), h.Attribute("x2", "0"), h.Attribute("y2", "1")],
         [
           h.stop([h.Attribute("offset", "0"), h.Attribute("stop-color", "#fff"), h.Attribute("stop-opacity", "0.75")]),
           h.stop([h.Attribute("offset", "0.48"), h.Attribute("stop-color", "#fff"), h.Attribute("stop-opacity", "0.2")]),
@@ -310,17 +320,17 @@ const defs = (h: HtmlBuilder<Message>): Html => {
         ],
       ),
       h.marker(
-        [h.Id("dg-arrow"), h.ViewBox("0 0 10 10"), h.RefX("9"), h.RefY("5"), h.MarkerWidth("7"), h.MarkerHeight("7"), h.Orient("auto-start-reverse")],
+        [h.Id(svgId(prefix, "arrow")), h.ViewBox("0 0 10 10"), h.RefX("9"), h.RefY("5"), h.MarkerWidth("7"), h.MarkerHeight("7"), h.Orient("auto-start-reverse")],
         [h.path([h.D("M0 0 L10 5 L0 10 z"), h.Fill("#44546a")])],
       ),
       h.pattern(
-        [h.Id("dg-grid-minor"), h.Width("10"), h.Height("10"), h.PatternUnits("userSpaceOnUse")],
+        [h.Id(svgId(prefix, "grid-minor")), h.Width("10"), h.Height("10"), h.PatternUnits("userSpaceOnUse")],
         [h.path([h.D("M10 0 H0 V10"), h.Fill("none"), h.Stroke("#e4ebf3"), h.StrokeWidth("0.6")])],
       ),
       h.pattern(
-        [h.Id("dg-grid"), h.Width("50"), h.Height("50"), h.PatternUnits("userSpaceOnUse")],
+        [h.Id(svgId(prefix, "grid")), h.Width("50"), h.Height("50"), h.PatternUnits("userSpaceOnUse")],
         [
-          h.rect([h.Width("50"), h.Height("50"), h.Fill("url(#dg-grid-minor)")]),
+          h.rect([h.Width("50"), h.Height("50"), h.Fill(svgRef(prefix, "grid-minor"))]),
           h.path([h.D("M50 0 H0 V50"), h.Fill("none"), h.Stroke("#cad7e6"), h.StrokeWidth("0.8")]),
         ],
       ),
@@ -328,7 +338,7 @@ const defs = (h: HtmlBuilder<Message>): Html => {
   )
 }
 
-const pageView = (h: HtmlBuilder<Message>, model: Model, flow: Flow): Html =>
+const pageView = (h: HtmlBuilder<Message>, model: Model, flow: Flow, prefix: string): Html =>
   h.svg(
     [
       h.Class(`dg-page zoom-${model.zoom.toLowerCase()}`),
@@ -339,10 +349,10 @@ const pageView = (h: HtmlBuilder<Message>, model: Model, flow: Flow): Html =>
       ...(model.zoom === "Fit" ? [] : [h.Width(String((page.width * Number(model.zoom)) / 100)), h.Height(String((page.height * Number(model.zoom)) / 100))]),
     ],
     [
-      defs(h),
+      defs(h, prefix),
       h.rect([h.Class("dg-paper"), h.Width(String(page.width)), h.Height(String(page.height)), h.OnClick(Message.ClickedPage())]),
       ...(model.isGridShown
-        ? [h.rect([h.Class("dg-grid"), h.Width(String(page.width)), h.Height(String(page.height)), h.Fill("url(#dg-grid)"), h.OnClick(Message.ClickedPage())])]
+        ? [h.rect([h.Class("dg-grid"), h.Width(String(page.width)), h.Height(String(page.height)), h.Fill(svgRef(prefix, "grid")), h.OnClick(Message.ClickedPage())])]
         : []),
       h.text([h.Class("dg-title"), h.Attribute("x", "28"), h.Attribute("y", "40")], ["How Heron works"]),
       h.text([h.Class("dg-subtitle"), h.Attribute("x", "28"), h.Attribute("y", "58")], [
@@ -357,8 +367,8 @@ const pageView = (h: HtmlBuilder<Message>, model: Model, flow: Flow): Html =>
           ],
         ),
       ),
-      ...flow.edges.map((edge) => edgeView(h, model, flow, edge.from, edge.to)),
-      ...flow.nodes.map((node) => nodeView(h, model, node)),
+      ...flow.edges.map((edge) => edgeView(h, model, flow, edge.from, edge.to, prefix)),
+      ...flow.nodes.map((node) => nodeView(h, model, node, prefix)),
       h.text([h.Class("dg-footnote"), h.Attribute("x", String(page.width - 28)), h.Attribute("y", String(page.height - 18)), h.Attribute("text-anchor", "end")], [
         "Merge request !42 is a fictional example. Sessions and rules come from heron.config.example.json.",
       ]),
@@ -669,7 +679,10 @@ const phoneView = (h: HtmlBuilder<Message>, model: Model, flow: Flow): Html => {
   )
 }
 
-export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>
+/** `idPrefix` is unique to the window, for the ids inside the page's SVG. */
+export type DiagramViewInputs = ViewInputs & Readonly<{ idPrefix: string }>
+
+export const view = Submodel.defineView<Model, Message, DiagramViewInputs>((model, inputs, h) =>
   Option.match(flowFor(model.lane), {
     onNone: () => missing(h),
     onSome: (flow) =>
@@ -685,7 +698,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
                   model.isShapesShown ? shapesPane(h, model, flow) : h.empty,
                   h.div(
                     [h.Class("dg-canvas")],
-                    [h.div([h.Class(`dg-scroll zoom-${model.zoom.toLowerCase()}`)], [pageView(h, model, flow)]), pageTabs(h, model)],
+                    [h.div([h.Class(`dg-scroll zoom-${model.zoom.toLowerCase()}`)], [pageView(h, model, flow, inputs.idPrefix)]), pageTabs(h, model)],
                   ),
                   model.isShapeDataShown ? shapeDataPane(h, model, flow) : h.empty,
                 ],

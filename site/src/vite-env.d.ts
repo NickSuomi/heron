@@ -2,6 +2,8 @@
 
 declare module "virtual:heron-files" {
   export const heronFiles: ReadonlyArray<{ readonly path: string; readonly content: string }>
+  /** The root README.md as plain text, for README.txt on the desktop. */
+  export const readmeText: string
 }
 
 declare module "virtual:heron-build" {

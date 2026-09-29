@@ -26,6 +26,7 @@ export const Message = defineMessageUnion({
   ClickedStart: {},
   ClickedStartPath: { path: FilePath },
   ClickedStartApp: { app: AppId },
+  ClickedAllPrograms: {},
   ClickedPower: {},
   ClickedLock: {},
   ClickedToday: {},

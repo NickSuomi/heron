@@ -132,6 +132,9 @@
 }
 
 .sm-all-programs {
+  width: 100%;
+  font: inherit;
+  text-align: left;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -142,6 +145,18 @@
   border-radius: 0 0 3px 3px;
   background: linear-gradient(to bottom, #fff, #f3f6f9);
   color: #000;
+}
+
+.sm-all-programs:hover {
+  background: linear-gradient(to bottom, #f2f8fd, #d9ecfd);
+}
+
+.sm-all-programs.is-back .sm-arrow {
+  transform: rotate(180deg);
+}
+
+.sm-programs.is-all {
+  justify-content: flex-start;
 }
 
 .sm-arrow {

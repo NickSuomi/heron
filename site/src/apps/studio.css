@@ -713,7 +713,7 @@
   background: rgba(255, 255, 255, 0.25);
 }
 
-.task-dialog {
+.studio-modal .task-dialog {
   width: min(430px, calc(100% - 24px));
   border: 1px solid #3d5f8f;
   border-radius: 7px;

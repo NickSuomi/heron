@@ -1,5 +1,5 @@
 import { Array, Option, pipe, Record, Schema } from "effect"
-import { heronFiles } from "virtual:heron-files"
+import { heronFiles, readmeText } from "virtual:heron-files"
 
 import { mr42 } from "../data/mr42"
 
@@ -76,7 +76,7 @@ export const storefrontPath = "/storefront"
 const leaves: ReadonlyArray<VfsFile | VfsShortcut> = [
   shortcut("/Desktop/Computer", "explorer", "/"),
   shortcut("/Desktop/Heron", "explorer", "/Heron"),
-  file("/Desktop/README.txt", repositoryFile("README.md")),
+  file("/Desktop/README.txt", readmeText),
   file("/Desktop/How Heron works.vsd", ""),
   file("/Desktop/merge-request-42.diff", mr42.diff),
   file("/Desktop/heron.config.json", repositoryFile("heron.config.example.json")),

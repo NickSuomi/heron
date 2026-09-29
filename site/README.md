@@ -23,7 +23,7 @@ Open `http://localhost:5173/heron/`. Add `?css-glass` to force the CSS glass.
 pnpm build
 ```
 
-Output goes to `site/dist/`. The build reads the root `README.md`, `heron.config.example.json`, `docs/` and `src/` into the Heron folder on the desktop (the `heron-files` plugin in `vite.config.ts`), so the files a visitor opens are the repository's own. The `heron-build` plugin (`build/heron-build.ts`) runs the root package's own code in Node and puts its output in `virtual:heron-build`; see below.
+Output goes to `site/dist/`. The build reads the root `README.md`, `heron.config.example.json`, `docs/` and `src/` into the Heron folder on the desktop (the `heron-files` plugin in `vite.config.ts`), so the files a visitor opens are the repository's own. README.txt on the desktop is the root `README.md` as plain text, made by `build/readme-text.ts`: no HTML, headings underlined instead of marked with hashes, code indented, and links spelled out. The `heron-build` plugin (`build/heron-build.ts`) runs the root package's own code in Node and puts its output in `virtual:heron-build`; see below.
 
 ## Test
 
@@ -31,7 +31,7 @@ Output goes to `site/dist/`. The build reads the root `README.md`, `heron.config
 pnpm test
 ```
 
-Vitest runs `src/**/*.test.ts` with the Vite config, so the tests see the same `virtual:heron-build` module as the site. The Pages workflow runs them before the build.
+Vitest runs `src/**/*.test.ts` and `build/*.test.ts` with the Vite config, so the tests see the same `virtual:heron-build` module as the site. The Pages workflow runs them before the build.
 
 ## How the program works
 
@@ -57,14 +57,16 @@ Notepad (`src/apps/notepad.ts`) is the pattern for the other apps. It has its ow
 3. Point its registry entry's `launch` at its `init`.
 4. Add a `Got<App>Message` Message, route it in `src/update.ts`, and render it in `appView` in `src/shell/window.ts`.
 
-The Diagram Viewer, Explorer, the Welcome Center, Help and Support, and the Recycle Bin dialogs (`src/apps/dialog.ts`) take the same shape, and their OutMessage is the shared `Request` union in `src/apps/request.ts`: open a path, start an app, ask for approval, start the tour, close the window, or remember "Show this at startup". `updateApp` in `src/update.ts` routes each app's Messages and answers its Request. Each of these views takes a `form` view input, `Desktop` or `Phone`, and draws its Windows Mobile layout on the phone. The apps that are still stubs show their name and "Coming in unit 2".
+The Diagram Viewer, Explorer, the Welcome Center, Help and Support, and the Recycle Bin dialogs (`src/apps/dialog.ts`) take the same shape, and their OutMessage is the shared `Request` union in `src/apps/request.ts`: open a path, start an app, ask for approval, start the tour, close the window, or remember "Show this at startup". `updateApp` in `src/update.ts` routes each app's Messages and answers its Request. Each of these views takes a `form` view input, `Desktop` or `Phone`, and draws its Windows Mobile layout on the phone.
 
-- **The tour** (`src/tour.ts`) is a list of steps, each naming an app and an optional file. Entering a step opens or focuses that app, then runs the step's hook from `src/tourHooks.ts`. A balloon above the clock (`src/shell/tourBalloon.ts`) moves between steps.
+- **The tour** (`src/tour.ts`) is a list of steps, each naming an app and an optional file. Entering a step opens or focuses that app, then runs the step's hook from `src/tourHooks.ts`, which drives the app with the same Messages a visitor's input sends. The first step types `heron review --mr 42 --dry-run` into the Command Prompt and presses Enter. The second opens the diff in Heron Studio and shows the Error List, running a dry run first when none has run. The third signs in to the mock GitLab as `visitor`, opens !42, and starts a posted run when no note exists yet; if a dry run is still going, the posted run starts when it ends. A balloon above the clock (`src/shell/tourBalloon.ts`) moves between steps and says how far the review is. The approval prompt a finished review opens sits on top of the tour; closing it leaves the tour where it was.
 - **User Account Control** (`src/shell/secureDesktop.ts`) is the `uac` field of the Model. A finished review or a `RequestedApproval` dims the desktop, makes it inert, and focuses Cancel. Either button ends with "Heron never approves."
 
 An app that needs shared state, such as the review, takes it as `viewInputs` in its view and as a context argument in its `update`, the way Command Prompt and Heron Studio do. An app's CSS sits next to it (`src/apps/<app>.css`) and is imported by the app module.
 
-- **Command Prompt** (`src/apps/cmd.ts`): `help`, `cls`, `dir`, `cd`, `type`, `exit` over the Heron OS file system, with the home folder `C:\Users\Visitor` standing for its root, and a history for the up and down arrows. `heron --help`, `heron config check` and the other `heron` commands it knows print the real CLI's output. `heron review --mr 42 --dry-run` streams the shared review and prints the report; without `--dry-run` it posts.
+Text fields are uncontrolled: none sets a controlled `value` (`h.Value`). Foldkit writes a controlled value back on every render, and the clock renders often enough that a keystroke typed between two renders would be lost. A field shows its first text through an `h.Attribute("value", ...)` or a mount, and code that changes the text writes it into the element directly.
+
+- **Command Prompt** (`src/apps/cmd.ts`): `help`, `cls`, `dir`, `cd`, `type`, `exit` over the Heron OS file system, with the home folder `C:\Users\Visitor` standing for its root, and a history for the up and down arrows. `heron --help`, `heron config check` and the other `heron` commands it knows print the real CLI's output. `heron review --mr 42 --dry-run` streams the shared review and prints the report; without `--dry-run` it posts. Enter and Esc read and clear the command line inside the key event, so lines typed at any speed arrive whole.
 - **Internet Explorer** (`src/apps/browser.ts`, glyphs in `src/apps/browserIcons.ts`): a browser in the manner of version 7 on an Aero desktop, with glass Back and Forward buttons, the address bar, Refresh and Stop, a search box, tabs with Quick Tabs and a tab list, the Favorites Center, the command bar (Home, Feeds, Print, Page, Tools, Help) and a status bar with the zone. Each tab keeps its own history. It reaches `gitlab.heron.local` and `search.heron.local`; any other address shows its "cannot display the webpage" page. The Favorites entry "Heron on GitHub" and every link to github.com open in a new tab of the visitor's own browser. It opens on the sign-in page, or on !42 once the visitor has signed in during the session. On the phone it is a pocket browser: an address line with Go, the page in one column, and Back, Favorites, Refresh and Home above the soft keys.
 - **Heron Studio** (`src/apps/studio.ts`, tokenizer in `src/apps/highlight.ts`): opens `.ts`, `.vue`, `.json` and `.diff` files, with the merge request's files and Heron's source in Solution Explorer. Typing works; Save shows "Heron never edits code". Once the review is Done, findings show as red (blocker) and blue (advisory) squiggles with tooltips and in the Error List, whose rows jump to the line. On the phone it is a full-screen viewer with the findings under the code.
 
