@@ -118,20 +118,24 @@ export interface Finding extends ModelFinding {
 
 const Line = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 
+const described = (description: string) => Schema.String.annotate({ description })
+const summary = described("At most two plain sentences: what the change does and what must change before it merges.")
+const limitations = Schema.Array(described("One sentence naming something you could not check."))
+
 const modelFinding = (gates: NonEmptyReadonlyArray<Gate>) =>
   Schema.Struct({
     gate: Schema.Literals(gates.map((g) => g.name)),
     severity: Severity,
     location: Schema.NullOr(Schema.Struct({ path: Schema.String, line: Line })),
-    title: Schema.String,
-    body: Schema.String
+    title: described("At most 12 words naming the defect."),
+    body: described("At most two sentences: what is wrong and the fix.")
   })
 
 export const reviewOutput = (gates: NonEmptyReadonlyArray<Gate>) =>
   Schema.Struct({
-    summary: Schema.String,
+    summary,
     findings: Schema.Array(modelFinding(gates)),
-    limitations: Schema.Array(Schema.String)
+    limitations
   })
 export type ReviewOutput = {
   readonly summary: string
@@ -139,21 +143,25 @@ export type ReviewOutput = {
   readonly limitations: ReadonlyArray<string>
 }
 
-const Decision = Schema.Struct({ id: Schema.String, keep: Schema.Boolean, reason: Schema.String })
+const Decision = Schema.Struct({
+  id: Schema.String,
+  keep: Schema.Boolean,
+  reason: described("One sentence on why the finding is or is not a real defect at the reviewed head.")
+})
 
 /** A supervisor may add findings the gates missed; the judge only rules on what the branches produced. */
 export const synthesisOutput = (gates: NonEmptyReadonlyArray<Gate>, role: "supervisor" | "judge") =>
   role === "supervisor"
     ? Schema.Struct({
-      summary: Schema.String,
+      summary,
       decisions: Schema.Array(Decision),
       added: Schema.Array(modelFinding(gates)),
-      limitations: Schema.Array(Schema.String)
+      limitations
     })
     : Schema.Struct({
-      summary: Schema.String,
+      summary,
       decisions: Schema.Array(Decision),
-      limitations: Schema.Array(Schema.String)
+      limitations
     })
 export interface SynthesisOutput {
   readonly summary: string
@@ -193,12 +201,21 @@ export interface SessionRecord {
   readonly failure: string | null
 }
 
+/** A supervisor's or judge's ruling on one finding it was given. */
+export interface Ruling {
+  readonly by: SessionId
+  readonly finding: Finding
+  readonly keep: boolean
+  readonly reason: string
+}
+
 /** What the sessions produced. A review that could not finish is never read as a pass. */
 export type Outcome =
   | {
     readonly kind: "complete"
     readonly summary: string
     readonly findings: ReadonlyArray<Finding>
+    readonly rulings: ReadonlyArray<Ruling>
     readonly limitations: ReadonlyArray<string>
   }
   | { readonly kind: "incomplete"; readonly session: SessionId; readonly reason: string }

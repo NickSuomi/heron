@@ -1,9 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
 import MarkdownIt from "markdown-it"
-import type { FindingId, Outcome, Review, SessionId } from "../src/domain.ts"
+import type { Finding, FindingId, Outcome, Review, SessionId } from "../src/domain.ts"
 import { classify, planFor, slotsOf } from "../src/policy.ts"
 import { renderReport } from "../src/report.ts"
 import { change, configOf, sha, snapshotAt } from "./fakes.ts"
+import { sampleOutcome, sampleReview } from "./report-sample.ts"
 
 /** GitLab renders notes as GitHub-flavoured markdown with raw HTML allowed and bare URLs linked; markdown-it stands in for it. */
 const md = new MarkdownIt({ html: true, linkify: true })
@@ -13,20 +14,22 @@ const plan = planFor(classification.lane)
 
 /** A full report with `text` in every slot the model or a vendor writes. */
 const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
+  const finding = (severity: Finding["severity"]): Finding => ({
+    id: "gate.design#1" as FindingId,
+    origin: "gate.design" as SessionId,
+    gate: "design",
+    severity,
+    location: { path: text, line: 3 },
+    title: text,
+    body: text
+  })
   const outcome: Outcome = kind === "incomplete"
     ? { kind: "incomplete", session: "supervisor" as SessionId, reason: text }
     : {
       kind: "complete",
-      summary: text,
-      findings: [{
-        id: "gate.design#1" as FindingId,
-        origin: "gate.design" as SessionId,
-        gate: "design",
-        severity: "blocker",
-        location: { path: text, line: 3 },
-        title: text,
-        body: text
-      }],
+      summary: `One. Two. ${text}\n\n${text}`,
+      findings: [finding("blocker"), finding("advisory")],
+      rulings: [{ by: "supervisor" as SessionId, finding: finding("blocker"), keep: false, reason: text }],
       limitations: [text]
     }
   const review: Review = {
@@ -53,8 +56,8 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
 const tagPattern = /<(\/?)([a-z0-9]+)([^>]*)>/g
 const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&amp;/g, "&")
 
-/** Every tag the model text may add to a report: paragraphs and hard breaks. */
-const modelTags = new Set(["p", "br"])
+/** Every tag the model text may add to a report: paragraphs, hard breaks, bullet lists and code spans. */
+const modelTags = new Set(["p", "br", "ul", "li", "code"])
 const structure = (html: string) => [...html.matchAll(tagPattern)].map((m) => `${m[1]}${m[2]}`).filter((t) => !modelTags.has(t.replace("/", "")))
 
 /** Links whose text is not their target: anything but an autolink, and Heron's own blob link. */
@@ -141,7 +144,23 @@ const hostile = [
   "https://gitlab.example.com/group/app/-/issues/9",
   "http://evil.test/x",
   "www.evil.com/x",
-  "https://x.test/$a$b"
+  "https://x.test/$a$b",
+  "`@all` `<b>x</b>` `#12` `grp/proj!3` `[l](javascript:x)` `![x](u)`",
+  "`https://x.test/@all` `<https://x.test>`",
+  "`/approve`",
+  "x\n`/approve`",
+  "- `/approve`",
+  "`` a ``` b ``",
+  "``` `x` ```\n@all",
+  "`` ` `` @all ` #12",
+  "`a\\` @all `b`",
+  "\\`@all`",
+  "$`x`$ @all",
+  "**`@all`** **#12**",
+  "`</code><img src=x onerror=1>`",
+  "`<!--` @all `-->`",
+  "`|` a | b",
+  "- a\n- `b` @all\n  - c\n* /approve"
 ]
 
 describe("model text in a rendered report", () => {
@@ -155,10 +174,17 @@ describe("model text in a rendered report", () => {
   })
 })
 
-/** The rendered summary paragraph of a complete report. */
+/** The rendered summary paragraph of a complete report whose summary is `text`. */
 const summary = (text: string) => {
-  const lines = md.render(report(text)).split("\n")
-  return lines[lines.findIndex((l) => l.startsWith("<p>Reviewed head")) + 1]
+  const lines = md.render(renderReport({ ...sampleReview, outcome: { ...sampleOutcome, summary: text } })).split("\n")
+  return lines[lines.findIndex((l) => l.startsWith("<p>1 blocker")) + 1]
+}
+
+/** The markdown Heron writes for a blocker whose body is `body`. */
+const blockerBody = (body: string) => {
+  const [first, ...rest] = sampleOutcome.findings
+  const source = renderReport({ ...sampleReview, outcome: { ...sampleOutcome, findings: [{ ...first!, body }, ...rest] } })
+  return source.slice(source.indexOf("### Blockers\n\n") + 14, source.indexOf("\n\n<details>"))
 }
 
 describe("legitimate model text", () => {
@@ -175,14 +201,90 @@ describe("legitimate model text", () => {
   })
 
   it("keeps the model's lines and paragraphs", () => {
-    expect(md.render(report("one\ntwo\n\nthree"))).toContain("<p>one<br>\ntwo</p>\n<p>three</p>")
+    expect(blockerBody("one\ntwo\n\nthree")).toBe(
+      "- `correctness` Export button stays enabled while an export runs ([src\\/\u2060ExportButton\\.\u2060vue\\:\u206012](https://gitlab.example.com/group/app/-/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/ExportButton.vue#L12))  \n  one  \n  two\n  \n  three"
+    )
   })
 
   it("starts no line with the slash of a quick action", () => {
     expect(report("/approve\n  /merge")).toContain("\n\\/\u2060approve  \n\\/\u2060merge\n")
   })
 
-  it("shows quoted code as literal text", () => {
-    expect(summary("Use `a < b` here")).toBe("<p>Use `\u2060a &lt;\u2060 b`\u2060 here</p>")
+  it("shows quoted code as a code span", () => {
+    expect(summary("Use `a < b` here")).toBe("<p>Use <code>a &lt; b</code> here</p>")
+  })
+
+  it("shows mentions, references, HTML and quick actions inside backticks as literal code", () => {
+    expect(summary("`@all #12 <img src=x> [l](u) /approve`")).toBe("<p>\u2060<code>@all #12 &lt;img src=x&gt; [l](u) /approve</code></p>")
+  })
+
+  it("fences code with a backtick run longer than any run inside it", () => {
+    expect(blockerBody("Run `` a ``` b `` now")).toContain("  Run ````a ``` b```` now")
+    expect(summary("Run `` a ``` b `` now")).toBe("<p>Run <code>a ``` b</code> now</p>")
+    expect(summary("`` `x` ``")).toBe("<p>\u2060<code>`x`</code></p>")
+  })
+
+  it("shows an unpaired backtick as a plain character", () => {
+    expect(summary("a ` b")).toBe("<p>a `\u2060 b</p>")
+  })
+
+  it("renders the model's bullet lists", () => {
+    expect(blockerBody("Two problems:\n- `a` is unused\n* b leaks")).toBe(
+      "- `correctness` Export button stays enabled while an export runs ([src\\/\u2060ExportButton\\.\u2060vue\\:\u206012](https://gitlab.example.com/group/app/-/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/ExportButton.vue#L12))  \n  Two problems\\:\u2060\n  \n  - `a` is unused\n  - b leaks"
+    )
+  })
+
+  it("drops bold markers", () => {
+    expect(summary("**Keyboard** is fine")).toBe("<p>Keyboard is fine</p>")
+  })
+})
+
+/** The report as a reader sees it before opening any collapsed section. */
+const visible = (source: string) => source.replace(/<details>[\s\S]*?<\/details>/g, "")
+
+describe("report shape", () => {
+  const source = renderReport(sampleReview)
+
+  it("shows a busy review in at most 3 KB before any collapsed section", () => {
+    expect(Buffer.byteLength(visible(source))).toBeLessThanOrEqual(3 * 1024)
+    expect(source.split("\n").filter((l) => /^(## |### |<summary>)/.test(l) || /^\d+ blockers? · /.test(l))).toEqual([
+      "## Heron review: CHANGES REQUESTED",
+      "1 blocker · 6 advisories · head `aaaaaaaa` · lane `standard`",
+      "### Blockers",
+      "<summary>6 advisories</summary>",
+      "<summary>REVIEW CHECKS</summary>",
+      "<summary>AGENT PROVENANCE</summary>"
+    ])
+  })
+
+  it("keeps two summary sentences in view and moves the rest into REVIEW CHECKS", () => {
+    expect(summary(sampleOutcome.summary)).toBe(
+      "<p>The change adds a CSV export to the report page.\u2060 The export button must be disabled while an export runs.\u2060</p>"
+    )
+    expect(source).toContain(
+      "Summary, continued:\n\nWhat I kept\\:\u2060\n\n- Parallel export \\(\u2060gate\\.\u2060correctness\\#\u20601\\)\u2060\\.\u2060 A second click overwrites the first file\\.\u2060\n"
+    )
+  })
+
+  it("lists the supervisor's rulings in REVIEW CHECKS", () => {
+    expect(source).toContain(
+      "| `supervisor` | `gate.correctness#2` Export ignores the active filter | dropped | exportRows receives the filtered rows from the store\\.\u2060 |"
+    )
+  })
+
+  it("puts tool calls and vendor cost in one totals line", () => {
+    expect(source).toContain("| `gate.design` | model\\-\u2060q (alpha) | low | 40,000 / 1,200 | 13.0 s | ok |")
+    expect(source).toContain("Totals: 300,000 / 7,000 tokens in / out, 20 tool calls, $0.50 vendor-reported cost.")
+  })
+
+  it("omits the Blockers section when there are none", () => {
+    const findings = sampleOutcome.findings.filter((f) => f.severity === "advisory")
+    const pass = renderReport({ ...sampleReview, verdict: "PASS", outcome: { ...sampleOutcome, findings } })
+    expect(pass.split("\n").filter((l) => /^(## |### |<summary>)/.test(l))).toEqual([
+      "## Heron review: PASS",
+      "<summary>6 advisories</summary>",
+      "<summary>REVIEW CHECKS</summary>",
+      "<summary>AGENT PROVENANCE</summary>"
+    ])
   })
 })

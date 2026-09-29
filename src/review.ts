@@ -10,6 +10,7 @@ import {
   type Review,
   type ReviewPlan,
   reviewOutput,
+  type Ruling,
   type SessionId,
   type SessionRecord,
   type Slot,
@@ -55,6 +56,7 @@ export interface ReviewResult {
 interface BranchResult {
   readonly summary: string
   readonly findings: ReadonlyArray<Finding>
+  readonly rulings: ReadonlyArray<Ruling>
   readonly limitations: ReadonlyArray<string>
 }
 
@@ -100,6 +102,9 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
       )
     }).pipe(permits.get(slot.profile.harness)!.withPermits(1))
 
+  const rulingsOf = (inputs: ReadonlyArray<Finding>, out: Parameters<typeof applySynthesis>[1], slot: Slot): ReadonlyArray<Ruling> =>
+    out.decisions.map((d) => ({ by: slot.id, finding: inputs.find((f) => f.id === d.id)!, keep: d.keep, reason: d.reason }))
+
   const synthesize = (inputs: ReadonlyArray<Finding>, out: Parameters<typeof applySynthesis>[1], slot: Slot) =>
     Effect.fromResult(applySynthesis(inputs, out, slot.id)).pipe(
       Effect.mapError((e) =>
@@ -120,6 +125,7 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
       return {
         summary: out.summary,
         findings: yield* synthesize(inputs, out, sup),
+        rulings: rulingsOf(inputs, out, sup),
         limitations: [...outputs.flatMap(({ out }) => out.limitations), ...out.limitations]
       } satisfies BranchResult
     })
@@ -128,7 +134,7 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
     switch (plan.shape) {
       case "single": {
         const out = yield* run(plan.reviewer, reviewOutput(plan.reviewer.gates), packet, source)
-        return { summary: out.summary, findings: assignIds(plan.reviewer.id, out.findings), limitations: out.limitations }
+        return { summary: out.summary, findings: assignIds(plan.reviewer.id, out.findings), rulings: [], limitations: out.limitations }
       }
       case "gated":
         return yield* runBranch(plan.branch)
@@ -141,6 +147,7 @@ const execute = Effect.fn("execute")(function*(config: Config, plan: ReviewPlan,
         return {
           summary: out.summary,
           findings: yield* synthesize(inputs, out, judge),
+          rulings: [...b1.rulings, ...b2.rulings, ...rulingsOf(inputs, out, judge)],
           limitations: [...new Set([...b1.limitations, ...b2.limitations, ...out.limitations])]
         }
       }

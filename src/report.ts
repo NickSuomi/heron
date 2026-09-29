@@ -25,25 +25,126 @@ export const parseMarker = (body: string): Marker | null => {
 }
 
 /*
- * Model- and vendor-written text is plain text, never markdown. Every ASCII punctuation character is backslash-escaped,
- * so no code span, fence, emphasis, link, image, heading, list, quote, table, HTML or entity can open and no line can
- * start with the `/` of a quick action. Each escaped character is also followed by a word joiner (U+2060), which renders
- * as nothing but breaks every sigil-based GitLab reference, mention and autolink pattern, cross-project forms included
- * (a bare commit hash has no sigil and may still link); the joiner
- * goes after the escaped character because a backslash escapes only the character right after it. Single newlines
- * become two-space hard breaks and blank lines stay paragraph breaks; indentation is dropped so no line becomes a code
- * block. The cost: quoted code and URLs show as literal text, and copied text carries the invisible joiners.
+ * Model- and vendor-written text never reaches the note as markdown. Heron reads it into a small structure of its own
+ * (paragraphs, bullet items from lines that start with `- ` or `* `, and backtick code spans within one line), drops
+ * `**` emphasis markers, and writes the structure back out using only markdown that Heron builds.
+ *
+ * Plain text: every ASCII punctuation character is backslash-escaped, so no code span, fence, emphasis, link, image,
+ * heading, list, quote, table, HTML or entity can open and no line can start with the `/` of a quick action. Each escaped
+ * character is also followed by a word joiner (U+2060), which renders as nothing but breaks every sigil-based GitLab
+ * reference, mention and autolink pattern, cross-project forms included (a bare commit hash has no sigil and may still
+ * link); the joiner goes after the escaped character because a backslash escapes only the character right after it.
+ *
+ * Code spans: CommonMark shows code-span content literally, and GitLab's reference filters skip text inside `code`
+ * elements, so the content is written unescaped. Heron's fence is one backtick longer than any run in the content, so the
+ * content cannot close it. A paragraph line that would start with a fence gets a leading joiner, so the note does not
+ * depend on CommonMark refusing a fence whose info string holds a backtick. The escaped text around a span ends in a
+ * joiner, so no backslash can escape Heron's opening fence.
  */
 const plainLine = (line: string): string => line.replace(/[!-/:-@[-`{-~]/g, (c) => `\\${c}\u2060`)
 
-const plain = (s: string): string =>
-  s.replace(/\r\n?/g, "\n").split(/\n[ \t]*\n\s*/)
-    .map((p) => p.split("\n").map((l) => l.trim()).filter((l) => l !== "").map(plainLine).join("  \n"))
-    .filter((p) => p !== "")
-    .join("\n\n")
+/** Heron's code span. Newlines become spaces; padding keeps a leading or trailing backtick or space inside the span. */
+const code = (text: string): string => {
+  const flat = text.replace(/\s+/g, " ")
+  const fence = "`".repeat(Math.max(0, ...[...flat.matchAll(/`+/g)].map((m) => m[0].length)) + 1)
+  return /^[` ]|[` ]$/.test(flat) ? `${fence} ${flat} ${fence}` : `${fence}${flat}${fence}`
+}
 
-/** Text that renders mid-line, where a line break would end the construct around it. */
-const inline = (s: string): string => plain(s.replace(/\s+/g, " "))
+interface Span {
+  readonly code: boolean
+  readonly text: string
+}
+type Line = ReadonlyArray<Span>
+/** A paragraph of lines, or a bullet list of one-line items. */
+interface Block {
+  readonly list: boolean
+  readonly lines: ReadonlyArray<Line>
+}
+
+/** A backtick run, then content, then a run of exactly the same length, as CommonMark pairs them. */
+const codeSpan = /(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)/g
+
+const spansOf = (line: string): Line => {
+  const out: Array<Span> = []
+  const text = (t: string) => {
+    const kept = t.replace(/\*\*+/g, "")
+    if (kept !== "") out.push({ code: false, text: kept })
+  }
+  let from = 0
+  for (const m of line.matchAll(codeSpan)) {
+    const content = m[2]!.trim()
+    if (content === "") continue
+    text(line.slice(from, m.index))
+    out.push({ code: true, text: content })
+    from = m.index + m[0].length
+  }
+  text(line.slice(from))
+  return out.some((s) => s.text.trim() !== "") ? out : []
+}
+
+const blocksOf = (s: string): ReadonlyArray<Block> =>
+  s.replace(/\r\n?/g, "\n").split(/\n[ \t]*\n/).flatMap((paragraph) => {
+    const out: Array<{ list: boolean; lines: Array<Line> }> = []
+    for (const raw of paragraph.split("\n")) {
+      const item = /^[-*][ \t]+(.*)$/.exec(raw.trim())
+      const line = spansOf(item === null ? raw.trim() : item[1]!)
+      if (line.length === 0) continue
+      const last = out.at(-1)
+      if (last?.list === (item !== null)) last.lines.push(line)
+      else out.push({ list: item !== null, lines: [line] })
+    }
+    return out
+  })
+
+const lineText = (line: Line): string => line.map((s) => s.code ? code(s.text) : plainLine(s.text)).join("").trim()
+
+/** A paragraph line; one that would start with a fence starts with a joiner instead. */
+const paragraphLine = (line: Line): string => {
+  const text = lineText(line)
+  return text.startsWith("`") ? `\u2060${text}` : text
+}
+
+const markdown = (blocks: ReadonlyArray<Block>): string =>
+  blocks.map((b) => b.list ? b.lines.map((l) => `- ${lineText(l)}`).join("\n") : b.lines.map(paragraphLine).join("  \n")).join("\n\n")
+
+/** Model text that renders mid-line, where a line break would end the construct around it. */
+const inline = (s: string): string => lineText(spansOf(s.replace(/\s+/g, " ").trim()))
+
+/** Model text in a table cell or link label, where a code span could not hold a `|` or `]`. */
+const cell = (s: string): string => plainLine(s.replace(/\s+/g, " ").trim())
+
+/** One line from several, with a space between them and neighbouring text spans merged, so a sentence end is visible. */
+const joined = (lines: ReadonlyArray<Line>): Line =>
+  lines.flatMap((l, i) => i === 0 ? l : [{ code: false, text: " " }, ...l]).reduce<Array<Span>>((out, s) => {
+    const last = out.at(-1)
+    return last !== undefined && !last.code && !s.code ? [...out.slice(0, -1), { code: false, text: last.text + s.text }] : [...out, s]
+  }, [])
+
+const sentencesOf = (line: Line): ReadonlyArray<Line> => {
+  const out: Array<Array<Span>> = [[]]
+  for (const s of line) {
+    const pieces = s.code ? [s.text] : s.text.split(/(?<=[.!?])\s+/)
+    pieces.forEach((text, i) => {
+      if (i > 0) out.push([])
+      if (text !== "") out.at(-1)!.push({ code: s.code, text })
+    })
+  }
+  return out.filter((l) => l.length > 0)
+}
+
+/** The note shows at most this many sentences of the summary; the rest goes under REVIEW CHECKS. */
+const leadSentences = 2
+
+const splitSummary = (summary: string): { readonly lead: Line; readonly rest: ReadonlyArray<Block> } => {
+  const [first, ...more] = blocksOf(summary)
+  if (first === undefined || first.list) return { lead: [], rest: first === undefined ? [] : [first, ...more] }
+  const sentences = sentencesOf(joined(first.lines))
+  const overflow = sentences.slice(leadSentences)
+  return {
+    lead: joined(sentences.slice(0, leadSentences)),
+    rest: [...(overflow.length === 0 ? [] : [{ list: false, lines: [joined(overflow)] }]), ...more]
+  }
+}
 
 const short = (sha: string) => sha.slice(0, 8)
 
@@ -52,63 +153,98 @@ const location = (review: Review, f: Finding): string => {
   const { path, line } = f.location
   const segment = (p: string) => encodeURIComponent(p).replace(/\(/g, "%28").replace(/\)/g, "%29")
   const url = `${review.snapshot.projectWebUrl}/-/blob/${review.snapshot.revision.head}/${path.split("/").map(segment).join("/")}#L${line}`
-  return ` ([${inline(`${path}:${line}`)}](${url}))`
+  return ` ([${cell(`${path}:${line}`)}](${url}))`
 }
 
-const findingLine = (review: Review, f: Finding): string =>
-  `- **${f.severity === "blocker" ? "Blocker" : "Advisory"}** \`${f.gate}\` ${inline(f.title)}${location(review, f)}\n\n  ${plain(f.body).replace(/\n/g, "\n  ")}`
+const findingItem = (review: Review, f: Finding): string => {
+  const body = markdown(blocksOf(f.body))
+  return `- ${code(f.gate)} ${inline(f.title)}${location(review, f)}${body === "" ? "" : `  \n${body.replace(/^/gm, "  ")}`}`
+}
 
-const num = (n: number | null) => n === null ? "n/a" : String(n)
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+const total = (xs: ReadonlyArray<number | null>): number | null =>
+  xs.every((x) => x === null) ? null : xs.reduce<number>((a, x) => a + (x ?? 0), 0)
+
+const tokens = (n: number | null) => n === null ? "n/a" : n.toLocaleString("en-US")
 
 const details = (title: string, body: ReadonlyArray<string>): string =>
   `<details>\n<summary>${title}</summary>\n\n${body.join("\n")}\n\n</details>`
 
 export const renderReport = (review: Review): string => {
-  const { snapshot, outcome, verdict } = review
+  const { outcome, sessions, snapshot, verdict } = review
   const head = snapshot.revision.head
   const lane = review.classification.lane
+  const where = `head ${code(short(head))} · lane ${code(lane.name)}`
+  const moved = review.liveHead === null
+    ? []
+    : ["", `The source branch moved to ${code(short(review.liveHead))} during the review. These results describe ${code(short(head))} only.`]
   const lines: Array<string> = [
     printMarker({ iid: snapshot.ref.iid, head, configDigest: review.configDigest, verdict }),
     `## Heron review: ${verdict}`,
-    "",
-    `Reviewed head \`${short(head)}\` in lane \`${lane.name}\`.`
+    ""
   ]
-  if (review.liveHead !== null) {
-    lines.push("", `The source branch moved to \`${short(review.liveHead)}\` during the review. These results describe \`${short(head)}\` only.`)
-  }
+  const checks: Array<string> = [
+    "| Gate | Status |",
+    "| --- | --- |",
+    ...gateStatuses(lane.gates, outcome).map(([g, s]) => `| ${g} | ${s} |`)
+  ]
   if (outcome.kind === "incomplete") {
-    lines.push("", `The review could not finish: session \`${outcome.session}\` failed. ${inline(outcome.reason)}`)
+    lines.push(where, ...moved, "", `The review could not finish: session ${code(outcome.session)} failed. ${inline(outcome.reason)}`)
   } else {
-    lines.push("", plain(outcome.summary))
     const blockers = outcome.findings.filter((f) => f.severity === "blocker")
     const advisories = outcome.findings.filter((f) => f.severity === "advisory")
-    if (outcome.findings.length > 0) {
-      lines.push("", "### Findings", "", ...[...blockers, ...advisories].map((f) => findingLine(review, f)))
+    const { lead, rest } = splitSummary(outcome.summary)
+    lines.push(`${count(blockers.length, "blocker", "blockers")} · ${count(advisories.length, "advisory", "advisories")} · ${where}`, ...moved)
+    if (lead.length > 0) lines.push("", paragraphLine(lead))
+    if (blockers.length > 0) lines.push("", "### Blockers", "", ...blockers.map((f) => findingItem(review, f)))
+    if (advisories.length > 0) {
+      lines.push("", details(count(advisories.length, "advisory", "advisories"), advisories.map((f) => findingItem(review, f))))
     }
-    if (outcome.limitations.length > 0) {
-      lines.push("", "### Not checked", "", ...outcome.limitations.map((l) => `- ${plain(l).replace(/\n/g, "\n  ")}`))
+    if (outcome.rulings.length > 0) {
+      checks.push(
+        "",
+        "| By | Finding | Ruling | Reason |",
+        "| --- | --- | --- | --- |",
+        ...outcome.rulings.map((r) =>
+          `| ${code(r.by)} | ${code(r.finding.id)} ${cell(r.finding.title)} | ${r.keep ? "kept" : "dropped"} | ${cell(r.reason)} |`
+        )
+      )
     }
+    if (rest.length > 0) checks.push("", "Summary, continued:", "", markdown(rest))
+    const limitations = [...new Set(outcome.limitations)]
+    if (limitations.length > 0) checks.push("", "Not checked:", "", ...limitations.map((l) => `- ${inline(l)}`))
   }
   const matched = review.classification.matched
+  checks.push(
+    "",
+    matched.length === 0
+      ? `No classification rule matched; the default lane ${code(lane.name)} applied.`
+      : `Rules matched: ${matched.map((m) => `${code(m.rule)} (${count(m.paths.length, "path", "paths")})`).join(", ")}.`,
+    `Plan: ${review.plan.shape}, ${slotsOf(review.plan).length} sessions. Config digest ${code(review.configDigest.slice(0, 12))}.`
+  )
+  const costs = sessions.map((s) => s.usage.costUsd).filter((c) => c !== null)
+  const cost = costs.length === 0
+    ? "no vendor-reported cost"
+    : `$${costs.reduce((a, c) => a + c, 0).toFixed(2)} vendor-reported cost${
+      costs.length < sessions.length ? ` (${costs.length} of ${sessions.length} sessions reported one)` : ""
+    }`
   lines.push(
     "",
-    details("REVIEW CHECKS", [
-      "| Gate | Status |",
-      "| --- | --- |",
-      ...gateStatuses(lane.gates, outcome).map(([g, s]) => `| ${g} | ${s} |`),
-      "",
-      matched.length === 0
-        ? `No classification rule matched; the default lane \`${lane.name}\` applied.`
-        : `Rules matched: ${matched.map((m) => `\`${m.rule}\` (${m.paths.length} path${m.paths.length === 1 ? "" : "s"})`).join(", ")}.`,
-      `Plan: ${review.plan.shape}, ${slotsOf(review.plan).length} sessions. Config digest \`${review.configDigest.slice(0, 12)}\`.`
-    ]),
+    details("REVIEW CHECKS", checks),
     "",
     details("AGENT PROVENANCE", [
-      "| Session | Role | Backend | Model | Effort | Tokens in / out | Tool calls | Duration | Vendor cost | Result |",
-      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-      ...review.sessions.map((s) =>
-        `| ${s.slot.id} | ${s.slot.role} | ${inline(s.slot.profile.harness)} | ${inline(s.reportedModel ?? s.slot.profile.model)} | ${inline(s.slot.profile.effort)} | ${num(s.usage.inputTokens)} / ${num(s.usage.outputTokens)} | ${num(s.toolCalls)} | ${(s.durationMs / 1000).toFixed(1)} s | ${s.usage.costUsd === null ? "n/a" : `$${s.usage.costUsd.toFixed(4)}`} | ${s.failure === null ? "ok" : inline(s.failure)} |`
-      )
+      "| Session | Model | Effort | Tokens in / out | Duration | Result |",
+      "| --- | --- | --- | --- | --- | --- |",
+      ...sessions.map((s) =>
+        `| ${code(s.slot.id)} | ${cell(s.reportedModel ?? s.slot.profile.model)} (${cell(s.slot.profile.harness)}) | ${cell(s.slot.profile.effort)} | ${
+          tokens(s.usage.inputTokens)
+        } / ${tokens(s.usage.outputTokens)} | ${(s.durationMs / 1000).toFixed(1)} s | ${s.failure === null ? "ok" : cell(s.failure)} |`
+      ),
+      "",
+      `Totals: ${tokens(total(sessions.map((s) => s.usage.inputTokens)))} / ${tokens(total(sessions.map((s) => s.usage.outputTokens)))} tokens in / out, ${
+        tokens(total(sessions.map((s) => s.toolCalls)))
+      } tool calls, ${cost}.`
     ])
   )
   return lines.join("\n") + "\n"

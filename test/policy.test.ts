@@ -69,7 +69,7 @@ const f = (id: string, severity: "blocker" | "advisory"): Finding => ({
 
 describe("verdictOf", () => {
   it("derives the verdict from findings and completeness", () => {
-    const complete = (findings: Array<Finding>) => ({ kind: "complete" as const, summary: "", findings, limitations: [] })
+    const complete = (findings: Array<Finding>) => ({ kind: "complete" as const, summary: "", findings, rulings: [], limitations: [] })
     expect(verdictOf(complete([]))).toBe("PASS")
     expect(verdictOf(complete([f("a#1", "advisory")]))).toBe("PASS")
     expect(verdictOf(complete([f("a#1", "advisory"), f("a#2", "blocker")]))).toBe("CHANGES REQUESTED")

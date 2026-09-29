@@ -101,7 +101,7 @@ If several rules fire, the strictest lane wins.
 
 ### `policy`
 
-`policy.instructions` is a list of Markdown files. Heron appends their text to the instructions of every session.
+`policy.instructions` is a list of Markdown files. Heron appends their text to the instructions of every session. After them, Heron adds its own output rules: a summary of at most two sentences, finding titles of at most 12 words, and finding bodies of at most two sentences that name the fix.
 
 ### `limits`
 

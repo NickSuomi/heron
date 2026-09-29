@@ -165,10 +165,12 @@ describe("reviewOnce", () => {
       }, { publish: false })
       const lines = result.body.split("\n")
       const at = lines.indexOf("<summary>AGENT PROVENANCE</summary>")
-      expect(lines.slice(at + 2, at + 5)).toEqual([
-        "| Session | Role | Backend | Model | Effort | Tokens in / out | Tool calls | Duration | Vendor cost | Result |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-        "| reviewer | reviewer | alpha | model\\-\u2060q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |"
+      expect(lines.slice(at + 2, at + 7)).toEqual([
+        "| Session | Model | Effort | Tokens in / out | Duration | Result |",
+        "| --- | --- | --- | --- | --- | --- |",
+        "| `reviewer` | model\\-\u2060q (alpha) | low | n/a / n/a | 0.0 s | quota |",
+        "",
+        "Totals: n/a / n/a tokens in / out, n/a tool calls, no vendor-reported cost."
       ])
     }))
 
@@ -181,9 +183,33 @@ describe("reviewOnce", () => {
       const lines = result.body.split("\n")
       const at = lines.indexOf("<summary>AGENT PROVENANCE</summary>")
       expect(lines.slice(at + 4, at + 7)).toEqual([
-        "| gate.design | gate | alpha | model\\-\u2060q | low | n/a / n/a | n/a | 0.0 s | n/a | quota |",
-        "| gate.correctness | gate | alpha | model\\-\u2060q | low | n/a / n/a | n/a | 0.0 s | n/a | interrupted |",
+        "| `gate.design` | model\\-\u2060q (alpha) | low | n/a / n/a | 0.0 s | quota |",
+        "| `gate.correctness` | model\\-\u2060q (alpha) | low | n/a / n/a | 0.0 s | interrupted |",
         ""
+      ])
+    }))
+
+  it.effect("shows the supervisor's ruling on each gate finding in REVIEW CHECKS", () =>
+    Effect.gen(function*() {
+      const result = yield* run(fakeForge({ head: sha("a"), changes: [change("src/app.ts")] }), {
+        ...gated,
+        "gate.design": () => reviewOut([finding("design", "blocker", "Wrong layer")]),
+        "supervisor": () => ({
+          summary: "Fine.",
+          decisions: [
+            { id: "gate.design#1", keep: false, reason: "The layer is right." },
+            { id: "gate.correctness#1", keep: true, reason: "Real." }
+          ],
+          added: [],
+          limitations: []
+        })
+      }, { publish: false })
+      const lines = result.body.split("\n")
+      const at = lines.indexOf("| By | Finding | Ruling | Reason |")
+      expect([result.review.verdict, ...lines.slice(at + 2, at + 4)]).toEqual([
+        "PASS",
+        "| `supervisor` | `gate.design#1` Wrong layer | dropped | The layer is right\\.\u2060 |",
+        "| `supervisor` | `gate.correctness#1` advisory in correctness | kept | Real\\.\u2060 |"
       ])
     }))
 
@@ -192,7 +218,7 @@ describe("reviewOnce", () => {
       const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")], labels: ["x"] })
       const result = yield* run(forge, gated, { publish: false })
       expect([result.note, result.review.verdict, forge.state.notes.size, forge.state.labels]).toEqual([{ kind: "dry-run" }, "PASS", 0, ["x"]])
-      expect(result.body.split("\n").slice(1, 4)).toEqual(["## Heron review: PASS", "", "Reviewed head `aaaaaaaa` in lane `standard`."])
+      expect(result.body.split("\n").slice(1, 4)).toEqual(["## Heron review: PASS", "", "0 blockers · 1 advisory · head `aaaaaaaa` · lane `standard`"])
     }))
 
   it.live("never runs more sessions on one harness than its concurrency allows", () =>

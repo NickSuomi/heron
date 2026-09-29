@@ -36,7 +36,11 @@ The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUP
 5. Heron derives the verdict from the findings. If the branch moved during the review, the verdict is SUPERSEDED.
 6. Heron creates or updates its report note and sets the verdict label. The note starts with a hidden marker that records the head commit, the config digest, and the verdict.
 
-The report lists findings with links to `path:line` at the reviewed head, a gate status table, and a provenance table with the backend, model, effort, tokens, tool calls, time, and vendor-reported cost of each session.
+The report is meant to be read in about 20 seconds. It shows the verdict, one line with the blocker and advisory counts, the head and the lane, a summary of at most two sentences, and each blocker with a link to `path:line` at the reviewed head. Three collapsed sections hold the rest:
+
+- The advisories.
+- REVIEW CHECKS: the gate status table, the supervisor's or judge's ruling on each finding with its reason, the rest of a longer summary, what the sessions could not check, and why the lane was chosen.
+- AGENT PROVENANCE: the model, backend, effort, tokens, time and result of each session, and the total tool calls and vendor-reported cost.
 
 ## Quick start
 
