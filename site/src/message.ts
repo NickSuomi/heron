@@ -1,7 +1,12 @@
 import { Schema } from "effect"
 import { defineMessageUnion } from "foldkit/message"
 
+import * as Diagram from "./apps/diagram"
+import * as Dialog from "./apps/dialog"
+import * as Explorer from "./apps/explorer"
+import * as Help from "./apps/help"
 import * as Notepad from "./apps/notepad"
+import * as Welcome from "./apps/welcome"
 import { Edge, Size } from "./domain/geometry"
 import { AppId, FilePath } from "./domain/vfs"
 import { WindowId } from "./domain/window"
@@ -49,5 +54,22 @@ export const Message = defineMessageUnion({
   FailedMountGlass: {},
   // Apps
   GotNotepadMessage: { windowId: WindowId, message: Notepad.Message },
+  GotDiagramMessage: { windowId: WindowId, message: Diagram.Message },
+  GotExplorerMessage: { windowId: WindowId, message: Explorer.Message },
+  GotWelcomeMessage: { windowId: WindowId, message: Welcome.Message },
+  GotHelpMessage: { windowId: WindowId, message: Help.Message },
+  GotDialogMessage: { windowId: WindowId, message: Dialog.Message },
+  CompletedSaveWelcomeAtStartup: {},
+  // User Account Control: any app, or a finished review, can ask; Heron always cancels.
+  RequestedApproval: {},
+  ClickedUacContinue: {},
+  ClickedUacCancel: {},
+  ToggledUacDetails: {},
+  ClickedUacClose: {},
+  CompletedFocusUac: {},
+  // The tour
+  ClickedTourNext: {},
+  ClickedTourBack: {},
+  ClickedTourEnd: {},
 })
 export type Message = typeof Message.Type

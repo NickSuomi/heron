@@ -7,8 +7,10 @@ import { Message } from "../message"
 import { type Model, Switcher } from "../model"
 import { iconForNode, iconOf, titleOf } from "../apps/registry"
 import { iconUrl } from "./icons"
+import { secureDesktopView } from "./secureDesktop"
 import { startMenuView } from "./startMenu"
 import { taskbarView } from "./taskbar"
+import { tourBalloonView } from "./tourBalloon"
 import { windowView } from "./window"
 
 export const plainDocsUrl = "https://github.com/NickSuomi/heron#readme"
@@ -55,13 +57,14 @@ const switcherView = (model: Model, h: HtmlBuilder<Message>): Html =>
     },
   })
 
-export const desktopView = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class(`os${model.gesture._tag === "Idle" ? "" : ` is-${model.gesture._tag.toLowerCase()}`}`)],
+export const desktopView = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const isSecure = model.uac._tag !== "Hidden"
+  return h.div(
+    [h.Class(`os${model.gesture._tag === "Idle" ? "" : ` is-${model.gesture._tag.toLowerCase()}`}${isSecure ? " is-secure" : ""}`)],
     [
       h.a([h.Class("skip-link"), h.Href(plainDocsUrl)], ["Skip to the plain docs"]),
       h.main(
-        [h.Class("desk"), h.AriaLabel("Heron OS desktop")],
+        [h.Class("desk"), h.AriaLabel("Heron OS desktop"), h.Inert(isSecure)],
         [
           h.div([h.Class("wallpaper")]),
           h.div(
@@ -71,8 +74,8 @@ export const desktopView = (model: Model, h: HtmlBuilder<Message>): Html =>
           ...model.desk.windows.map((win, index) => windowView(model, win, index + 10, h)),
         ],
       ),
-      startMenuView(model, h),
-      taskbarView(model, h),
-      switcherView(model, h),
+      h.div([h.Class("os-chrome"), h.Inert(isSecure)], [startMenuView(model, h), taskbarView(model, h), switcherView(model, h), tourBalloonView(model, h)]),
+      secureDesktopView(model, h),
     ],
   )
+}

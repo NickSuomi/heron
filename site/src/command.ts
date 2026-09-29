@@ -1,5 +1,6 @@
-import { Duration, Effect } from "effect"
+import { Duration, Effect, Schema } from "effect"
 import { Command } from "foldkit"
+import * as Dom from "foldkit/dom"
 
 import { Message } from "./message"
 
@@ -49,4 +50,23 @@ export const PlayChime = Command.define("PlayChime", {
       Effect.catchCause(() => Effect.void),
       Effect.as(Message.CompletedPlayChime()),
     ),
+})
+
+export const welcomeAtStartupKey = "heron-os.welcome-at-startup"
+
+/** Remembers the Welcome Center's "Show this at startup" checkbox. Storage failures are ignored. */
+export const SaveWelcomeAtStartup = Command.define("SaveWelcomeAtStartup", {
+  args: { isShown: Schema.Boolean },
+  messages: [Message.CompletedSaveWelcomeAtStartup],
+  execute: ({ isShown }) =>
+    Effect.try(() => window.localStorage.setItem(welcomeAtStartupKey, String(isShown))).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedSaveWelcomeAtStartup()),
+    ),
+})
+
+/** The secure desktop opens with Cancel focused, so Enter or Space cancels. */
+export const FocusUacCancel = Command.define("FocusUacCancel", {
+  messages: [Message.CompletedFocusUac],
+  execute: Dom.focus("#uac-cancel").pipe(Effect.ignore, Effect.as(Message.CompletedFocusUac())),
 })

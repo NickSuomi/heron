@@ -11,7 +11,7 @@ export type FilePath = typeof FilePath.Type
 export const FileType = Schema.Literals(["Text", "Markdown", "TypeScript", "Json", "Diff", "Diagram", "Program", "Folder"])
 export type FileType = typeof FileType.Type
 
-export const AppId = Schema.Literals(["notepad", "editor", "diagram", "cmd", "explorer", "browser", "welcome", "uac", "help"])
+export const AppId = Schema.Literals(["notepad", "editor", "diagram", "cmd", "explorer", "browser", "welcome", "dialog", "help"])
 export type AppId = typeof AppId.Type
 
 export type VfsFile = Readonly<{ _tag: "File"; path: FilePath; name: string; type: FileType; content: string }>

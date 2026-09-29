@@ -5,7 +5,7 @@ import { taggedStruct } from "foldkit/schema"
 import { FilePath } from "../domain/vfs"
 
 /** The apps unit 2 builds. Each becomes its own module with the Notepad shape. */
-export const StubAppId = Schema.Literals(["editor", "diagram", "cmd", "explorer", "browser", "welcome", "uac", "help"])
+export const StubAppId = Schema.Literals(["editor", "cmd", "browser"])
 export type StubAppId = typeof StubAppId.Type
 
 export const Model = taggedStruct("Stub", { app: StubAppId, maybePath: Schema.Option(FilePath) })
