@@ -3,11 +3,12 @@ import { Command } from "foldkit"
 import * as Dom from "foldkit/dom"
 import * as Render from "foldkit/render"
 
+import { loadFileContents } from "./domain/vfs"
 import { Message } from "./message"
 
 export const WaitForLoader = Command.define("WaitForLoader", {
   messages: [Message.CompletedWaitForLoader],
-  execute: Effect.sleep(Duration.millis(900)).pipe(Effect.as(Message.CompletedWaitForLoader())),
+  execute: Effect.all([Effect.sleep(Duration.millis(900)), Effect.promise(loadFileContents)]).pipe(Effect.as(Message.CompletedWaitForLoader())),
 })
 
 export const WaitForWelcome = Command.define("WaitForWelcome", {

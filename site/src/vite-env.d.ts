@@ -1,6 +1,11 @@
 /// <reference types="vite/client" />
 
 declare module "virtual:heron-files" {
+  /** The paths under the repository that the Heron folder lists, without their text. */
+  export const heronPaths: ReadonlyArray<string>
+}
+
+declare module "virtual:heron-file-contents" {
   export const heronFiles: ReadonlyArray<{ readonly path: string; readonly content: string }>
   /** The root README.md as plain text, for README.txt on the desktop. */
   export const readmeText: string

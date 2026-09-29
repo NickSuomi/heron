@@ -18,7 +18,7 @@ import { FocusUacCancel, FocusWindow, PlayChime, SaveWelcomeAtStartup, WaitForLo
 import { cascadeRect, keepGrabbable, resize, translate } from "./domain/geometry"
 import * as Forge from "./domain/forge"
 import * as Review from "./domain/review"
-import { children, desktopPath, type FilePath, lookup } from "./domain/vfs"
+import { children, desktopPath, type FilePath, fileContentsAreLoaded, lookup } from "./domain/vfs"
 import * as Desk from "./domain/window"
 import { Message } from "./message"
 import { deskSize, type Flags, Gesture, isPhone, type Model, Session, Switcher, Uac } from "./model"
@@ -75,7 +75,9 @@ const openPath = (model: Model, path: FilePath): Model =>
 const startApp = (model: Model, app: AppDefinition): Model => launch(model, { app, maybeNode: Option.none() })
 
 // The desktop opens on the Welcome Center; the phone opens on its Today screen.
+// The desktop reads file text, which arrives after the first paint; a skip that lands before it is ignored.
 const enterDesktop = (model: Model, isAudioUnlocked: boolean): UpdateReturn => {
+  if (!fileContentsAreLoaded()) return { model }
   const arrived = { ...model, session: Session.Desktop(), isAudioUnlocked }
   return {
     model: model.desk.windows.length === 0 && !isPhone(model) && model.isWelcomeAtStartup ? startApp(arrived, definition("welcome")) : arrived,

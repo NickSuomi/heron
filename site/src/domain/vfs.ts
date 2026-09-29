@@ -1,5 +1,5 @@
 import { Array, Option, pipe, Record, Schema } from "effect"
-import { heronFiles, readmeText } from "virtual:heron-files"
+import { heronPaths } from "virtual:heron-files"
 
 import { mr42 } from "../data/mr42"
 
@@ -46,12 +46,38 @@ const path = (value: string): FilePath => FilePath.make(value)
 const baseName = (value: string): string => pipe(value.split("/"), Array.last, Option.getOrElse(() => value))
 const parentOf = (value: string): string => value.slice(0, Math.max(value.lastIndexOf("/"), 0)) || "/"
 
+// The text of the repository files arrives after the first paint (see `loadFileContents`). A file made with
+// `lazyFile` reads its text from that store when asked, so nothing reads it early: the shell holds the boot
+// screen until the store is full.
+let fileContents: ReadonlyMap<string, string> = new Map()
+let areFileContentsLoaded = false
+
+export const loadFileContents = (): Promise<void> =>
+  import("virtual:heron-file-contents").then((loaded) => {
+    fileContents = new Map([...loaded.heronFiles.map((entry) => [entry.path, entry.content] as const), ["README.txt", loaded.readmeText]])
+  }).catch((error: unknown) => {
+    // Without the text the folder still lists its files, each empty; say so rather than hold the boot screen forever.
+    console.error("Heron OS could not load its file contents", error)
+  }).finally(() => {
+    areFileContentsLoaded = true
+  })
+
+export const fileContentsAreLoaded = (): boolean => areFileContentsLoaded
+
 const file = (at: string, content: string): VfsFile => ({
   _tag: "File",
   path: path(at),
   name: baseName(at),
   type: fileTypeOf(at),
   content,
+})
+
+/** A file whose text is `fileContents[key]`, read when the file is used. */
+const lazyFile = (at: string, key: string): VfsFile => ({
+  ...file(at, ""),
+  get content() {
+    return fileContents.get(key) ?? ""
+  },
 })
 
 const shortcut = (at: string, app: AppId, target?: string): VfsShortcut => ({
@@ -62,31 +88,23 @@ const shortcut = (at: string, app: AppId, target?: string): VfsShortcut => ({
   maybeTarget: Option.map(Option.fromUndefinedOr(target), path),
 })
 
-const repositoryFile = (at: string): string =>
-  pipe(
-    heronFiles,
-    Array.findFirst((entry) => entry.path === at),
-    Option.map((entry) => entry.content),
-    Option.getOrElse(() => ""),
-  )
-
 /** Where the fictional acme/storefront repository is checked out, at the head of merge request !42. */
 export const storefrontPath = "/storefront"
 
 const leaves: ReadonlyArray<VfsFile | VfsShortcut> = [
   shortcut("/Desktop/Computer", "explorer", "/"),
   shortcut("/Desktop/Heron", "explorer", "/Heron"),
-  file("/Desktop/README.txt", readmeText),
+  lazyFile("/Desktop/README.txt", "README.txt"),
   file("/Desktop/How Heron works.vsd", ""),
   file("/Desktop/merge-request-42.diff", mr42.diff),
-  file("/Desktop/heron.config.json", repositoryFile("heron.config.example.json")),
+  lazyFile("/Desktop/heron.config.json", "heron.config.example.json"),
   shortcut("/Desktop/Command Prompt", "cmd"),
   shortcut("/Desktop/Internet Explorer", "browser"),
   shortcut("/Desktop/Recycle Bin", "explorer", "/Recycle Bin"),
   file("/Recycle Bin/approve.exe", ""),
   file("/Recycle Bin/force-push.bat", ""),
   file("/Recycle Bin/merge-without-review.lnk", ""),
-  ...heronFiles.map((entry) => file(`/Heron/${entry.path}`, entry.content)),
+  ...heronPaths.map((entry) => lazyFile(`/Heron/${entry}`, entry)),
   // The fictional acme/storefront checkout at the head of merge request !42.
   ...mr42.files.map((changed) => file(`${storefrontPath}/${changed.path}`, changed.after)),
 ]
