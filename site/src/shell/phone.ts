@@ -12,6 +12,8 @@ import type { Model } from "../model"
 import { plainDocsUrl } from "./desktop"
 import { formatDate, formatTime } from "./format"
 import { iconUrl } from "./icons"
+import { secureDesktopView } from "./secureDesktop"
+import { tourBalloonView } from "./tourBalloon"
 import { appView } from "./window"
 
 // Windows Mobile 6 on narrow screens: the same Model, with the top window shown full screen.
@@ -48,7 +50,7 @@ const startListView = (h: HtmlBuilder<Message>): Html =>
       h.button([h.Class("wm-start-item"), h.Role("menuitem"), h.OnClick(Message.ClickedToday())], [h.img([h.Src(inkGlyphUrl), h.Alt("")]), "Today"]),
       h.div([h.Class("wm-start-separator")]),
       ...apps
-        .filter((app) => app.id !== "uac")
+        .filter((app) => app.id !== "dialog")
         .map((app) =>
           h.button(
             [h.Class("wm-start-item"), h.Role("menuitem"), h.OnClick(app.id === "notepad" ? Message.ClickedStartPath({ path: readmePath }) : Message.ClickedStartApp({ app: app.id }))],
@@ -81,6 +83,8 @@ export const phoneView = (model: Model, h: HtmlBuilder<Message>): Html => {
         [Option.match(maybeTop, { onNone: () => todayView(model, h), onSome: (win) => h.div([h.Class(`wm-app app-${win.app._tag.toLowerCase()}`)], [appView(model, win, h)]) })],
      ),
       model.isStartMenuOpen ? startListView(h) : h.empty,
+      tourBalloonView(model, h),
+      secureDesktopView(model, h),
       h.footer(
         [h.Class("wm-softkeys")],
         pipe(

@@ -57,7 +57,10 @@ Notepad (`src/apps/notepad.ts`) is the pattern for the other apps. It has its ow
 3. Point its registry entry's `launch` at its `init`.
 4. Add a `Got<App>Message` Message, route it in `src/update.ts`, and render it in `appView` in `src/shell/window.ts`.
 
-The apps that are still stubs show their name and "Coming in unit 2".
+The Diagram Viewer, Explorer, the Welcome Center, Help and Support, and the Recycle Bin dialogs (`src/apps/dialog.ts`) take the same shape, and their OutMessage is the shared `Request` union in `src/apps/request.ts`: open a path, start an app, ask for approval, start the tour, close the window, or remember "Show this at startup". `updateApp` in `src/update.ts` routes each app's Messages and answers its Request. Each of these views takes a `form` view input, `Desktop` or `Phone`, and draws its Windows Mobile layout on the phone. The apps that are still stubs show their name and "Coming in unit 2".
+
+- **The tour** (`src/tour.ts`) is a list of steps, each naming an app and an optional file. Entering a step opens or focuses that app, then runs the step's hook from `src/tourHooks.ts`. A balloon above the clock (`src/shell/tourBalloon.ts`) moves between steps.
+- **User Account Control** (`src/shell/secureDesktop.ts`) is the `uac` field of the Model. A finished review or a `RequestedApproval` dims the desktop, makes it inert, and focuses Cancel. Either button ends with "Heron never approves."
 
 An app that needs shared state, such as the review, takes it as `viewInputs` in its view and as a context argument in its `update`, the way Command Prompt and Heron Studio do. An app's CSS sits next to it (`src/apps/<app>.css`) and is imported by the app module.
 
@@ -121,7 +124,7 @@ Every Heron fact on screen comes from the root [README.md](../README.md), the do
 
 ## Design book
 
-The design book at `/brand/` is generated from [`docs/brand/`](../docs/brand/) in the root package. Run `pnpm install` here first, then the steps in [docs/brand/README.md](../docs/brand/README.md#rebuilding). They read Inter and JetBrains Mono from this package's `node_modules`, write `public/brand/index.html`, and copy the assets and fonts into `public/brand/`.
+The design book is [docs/brand/README.md](../docs/brand/README.md). Help and Support renders it from the Heron folder at build time, and `node docs/brand/tools/build_book.ts` (run from the repository root) writes the same text to `public/brand/index.html` and regenerates the book's contrast table. Both use the Markdown reader in `src/apps/markdown.ts`.
 
 ## Fonts
 

@@ -6,6 +6,7 @@ import { Forge } from "./domain/forge"
 import { Review } from "./domain/review"
 import { FilePath } from "./domain/vfs"
 import { Desk, WindowId } from "./domain/window"
+import { Tour } from "./tour"
 
 /** Boot is the loader bar, then the welcome screen, then the desktop. */
 export const Session = defineTaggedUnion({
@@ -33,6 +34,17 @@ export type Switcher = typeof Switcher.Type
 export const GlassMode = Schema.Literals(["Native", "Css"])
 export type GlassMode = typeof GlassMode.Type
 
+/**
+ * The User Account Control joke on a dimmed secure desktop. Asking shows "Heron wants to approve this
+ * merge request" with Cancel focused; whichever button is clicked, Refused says Heron cancelled itself.
+ */
+export const Uac = defineTaggedUnion({
+  Hidden: {},
+  Asking: { isDetailsShown: Schema.Boolean },
+  Refused: { clicked: Schema.Literals(["Continue", "Cancel"]) },
+})
+export type Uac = typeof Uac.Type
+
 export const Model = Schema.Struct({
   session: Session,
   desk: Desk,
@@ -48,10 +60,13 @@ export const Model = Schema.Struct({
   review: Review,
   /** The mock GitLab: who is signed in this session, and when heron-bot posted and edited its note. */
   forge: Forge,
+  uac: Uac,
+  tour: Tour,
+  isWelcomeAtStartup: Schema.Boolean,
 })
 export type Model = typeof Model.Type
 
-export const Flags = Schema.Struct({ viewport: Size, now: Schema.Number, glass: GlassMode })
+export const Flags = Schema.Struct({ viewport: Size, now: Schema.Number, glass: GlassMode, isWelcomeAtStartup: Schema.Boolean })
 export type Flags = typeof Flags.Type
 
 export const taskbarHeight = 30

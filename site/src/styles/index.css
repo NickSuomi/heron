@@ -4,5 +4,9 @@
 @import "./taskbar.css";
 @import "./start-menu.css";
 @import "./apps.css";
+@import "./vista.css";
+@import "./diagram.css";
+@import "./explorer.css";
+@import "./welcome-help.css";
 @import "./boot.css";
 @import "./phone.css";

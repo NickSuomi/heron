@@ -2,19 +2,28 @@ import { Array, Match, Option, pipe } from "effect"
 import { Command, type Update } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 
+import type { AppState } from "./apps/appState"
 import * as Browser from "./apps/browser"
 import * as Cmd from "./apps/cmd"
+import * as Diagram from "./apps/diagram"
+import * as Dialog from "./apps/dialog"
+import * as Explorer from "./apps/explorer"
+import * as Help from "./apps/help"
 import * as Notepad from "./apps/notepad"
 import * as Studio from "./apps/studio"
 import { appIdOf, type AppDefinition, definition, type Launch, launchFor } from "./apps/registry"
-import { PlayChime, WaitForLoader, WaitForWelcome } from "./command"
+import { Request } from "./apps/request"
+import * as Welcome from "./apps/welcome"
+import { FocusUacCancel, PlayChime, SaveWelcomeAtStartup, WaitForLoader, WaitForWelcome } from "./command"
 import { cascadeRect, keepGrabbable, resize, translate } from "./domain/geometry"
 import * as Forge from "./domain/forge"
 import * as Review from "./domain/review"
 import { children, desktopPath, type FilePath, lookup } from "./domain/vfs"
 import * as Desk from "./domain/window"
 import { Message } from "./message"
-import { deskSize, type Flags, Gesture, isPhone, type Model, Session, Switcher } from "./model"
+import { deskSize, type Flags, Gesture, isPhone, type Model, Session, Switcher, Uac } from "./model"
+import { Tour, tourSteps } from "./tour"
+import { tourHooks } from "./tourHooks"
 
 type UpdateReturn = Update.Return<Model, Message>
 
@@ -33,6 +42,9 @@ export const init = (flags: Flags): UpdateReturn => ({
     glass: flags.glass,
     review: Review.Review.Idle(),
     forge: Forge.emptyForge,
+    uac: Uac.Hidden(),
+    tour: Tour.Off(),
+    isWelcomeAtStartup: flags.isWelcomeAtStartup,
   },
   commands: [WaitForLoader()],
 })
@@ -65,7 +77,7 @@ const startApp = (model: Model, app: AppDefinition): Model => launch(model, { ap
 const enterDesktop = (model: Model, isAudioUnlocked: boolean): UpdateReturn => {
   const arrived = { ...model, session: Session.Desktop(), isAudioUnlocked }
   return {
-    model: model.desk.windows.length === 0 && !isPhone(model) ? startApp(arrived, definition("welcome")) : arrived,
+    model: model.desk.windows.length === 0 && !isPhone(model) && model.isWelcomeAtStartup ? startApp(arrived, definition("welcome")) : arrived,
     commands: isAudioUnlocked && !model.isMuted ? [PlayChime()] : [],
   }
 }
@@ -167,6 +179,35 @@ const updateCmd = (model: Model, windowId: Desk.WindowId, message: Cmd.Message):
     }),
   )
 
+// ---------------------------------------------------------------------------------------------------
+// Apps built in unit 2c talk to the shell through `Request` (src/apps/request.ts).
+
+type AppReturn<A, M> = Update.ReturnWithOutMessage<A, M, Request>
+
+/** Runs one app's update inside its window, lifts its Commands, and answers its Request. */
+const updateApp = <A extends AppState, M>(
+  model: Model,
+  windowId: Desk.WindowId,
+  pick: (app: AppState) => Option.Option<A>,
+  step: (app: A) => AppReturn<A, M>,
+  toMessage: (message: M) => Message,
+): UpdateReturn =>
+  pipe(
+    Desk.find(model.desk, windowId),
+    Option.flatMap((win) => pick(win.app)),
+    Option.match({
+      onNone: () => ({ model }),
+      onSome: (app) => {
+        const next = step(app)
+        const updated = { ...model, desk: Desk.setApp(model.desk, windowId, next.model) }
+        const commands = Command.mapMessages(next.commands, toMessage)
+        if (next.outMessage === undefined) return { model: updated, commands }
+        const answered = handleRequest(updated, windowId, next.outMessage)
+        return { model: answered.model, commands: [...commands, ...(answered.commands ?? [])] }
+      },
+    }),
+  )
+
 const updateStudio = (model: Model, windowId: Desk.WindowId, message: Studio.Message): UpdateReturn =>
   pipe(
     Desk.find(model.desk, windowId),
@@ -217,7 +258,83 @@ const tickReview = (model: Model, now: number): Model => {
   return { ...model, review, desk, forge: Forge.observe(model.forge, model.review, review, now) }
 }
 
-export const update = (model: Model, message: Message): UpdateReturn =>
+const askForApproval = (model: Model): UpdateReturn =>
+  model.uac._tag === "Hidden"
+    ? { model: { ...model, uac: Uac.Asking({ isDetailsShown: false }), isStartMenuOpen: false, switcher: Switcher.Closed() }, commands: [FocusUacCancel()] }
+    : { model }
+
+/** The Commands a window needs when it opens: force-push.bat's pretend crash runs on a timer. */
+const openingCommands = (before: Model, after: Model): UpdateReturn => {
+  const maybeNew = after.desk.nextId > before.desk.nextId ? Array.last(after.desk.windows) : Option.none()
+  return Option.match(
+    Option.flatMap(maybeNew, (win) => (win.app._tag === "Dialog" ? Option.some([win.id, win.app] as const) : Option.none())),
+    {
+      onNone: () => ({ model: after }),
+      onSome: ([windowId, dialog]) => ({
+        model: after,
+        commands: Command.mapMessages(Dialog.initCommands(dialog), (message) => Message.GotDialogMessage({ windowId, message })),
+      }),
+    },
+  )
+}
+
+const openPathWithCommands = (model: Model, path: FilePath): UpdateReturn => openingCommands(model, openPath(model, path))
+
+const handleRequest = (model: Model, windowId: Desk.WindowId, request: Request): UpdateReturn =>
+  Request.match<UpdateReturn>(request, {
+    RequestedOpenPath: ({ path }) => openPathWithCommands(model, path),
+    RequestedStartApp: ({ app }) => ({ model: startApp(model, definition(app)) }),
+    RequestedApproval: () => askForApproval(model),
+    RequestedTour: () => enterTourStep(model, 0),
+    RequestedClose: () => ({ model: withDesk(model, (desk) => Desk.close(desk, windowId)) }),
+    RequestedWelcomeAtStartup: ({ isShown }) => ({ model: { ...model, isWelcomeAtStartup: isShown }, commands: [SaveWelcomeAtStartup({ isShown })] }),
+  })
+
+const byTag =
+  <Tag extends AppState["_tag"]>(tag: Tag) =>
+  (app: AppState): Option.Option<Extract<AppState, { _tag: Tag }>> =>
+    app._tag === tag ? Option.some(app as Extract<AppState, { _tag: Tag }>) : Option.none()
+
+// ---------------------------------------------------------------------------------------------------
+// The tour: each step opens or focuses its app, then runs its hook from src/tourHooks.ts.
+
+const focusOrLaunch = (model: Model, app: AppDefinition, maybePath: Option.Option<FilePath>): Model =>
+  pipe(
+    Array.findLast(model.desk.windows, (win) => appIdOf(win.app) === app.id),
+    Option.match({
+      onSome: (win) => withDesk(model, (desk) => Desk.focus(desk, win.id)),
+      onNone: () => launch(model, { app, maybeNode: Option.flatMap(maybePath, lookup) }),
+    }),
+  )
+
+const enterTourStep = (model: Model, index: number): UpdateReturn =>
+  pipe(
+    Array.get(tourSteps, index),
+    Option.match({
+      onNone: () => ({ model: { ...model, tour: Tour.Off() } }),
+      onSome: (step) => {
+        const opened = { ...focusOrLaunch(model, definition(step.app), step.maybePath), tour: Tour.On({ step: index }) }
+        return Option.match(opened.desk.maybeFocused, {
+          onNone: () => ({ model: opened }),
+          onSome: (windowId) => tourHooks[step.id](opened, windowId),
+        })
+      },
+    }),
+  )
+
+const tourStep = (model: Model, offset: number): UpdateReturn =>
+  Tour.match<UpdateReturn>(model.tour, {
+    Off: () => ({ model }),
+    On: ({ step }) => (step + offset >= tourSteps.length ? { model: { ...model, tour: Tour.Off() } } : enterTourStep(model, Math.max(0, step + offset))),
+  })
+
+// ---------------------------------------------------------------------------------------------------
+// The secure desktop
+
+const refuse = (model: Model, clicked: "Continue" | "Cancel"): UpdateReturn =>
+  model.uac._tag === "Asking" ? { model: { ...model, uac: Uac.Refused({ clicked }) } } : { model }
+
+const baseUpdate = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     CompletedWaitForLoader: () =>
       model.session._tag === "Booting" && model.session.stage === "Loader"
@@ -231,12 +348,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: { ...withDesk(model, Desk.blur), maybeSelectedIcon: Option.none(), switcher: Switcher.Closed() },
     }),
     ClickedIcon: ({ path }) => ({ model: { ...withDesk(model, Desk.blur), maybeSelectedIcon: Option.some(path) } }),
-    DoubleClickedIcon: ({ path }) => ({ model: openPath({ ...model, maybeSelectedIcon: Option.some(path) }, path) }),
+    DoubleClickedIcon: ({ path }) => openPathWithCommands({ ...model, maybeSelectedIcon: Option.some(path) }, path),
     ClickedStart: () => ({ model: modifyFields(model, { isStartMenuOpen: (open) => !open }) }),
-    ClickedStartPath: ({ path }) => ({ model: openPath(model, path) }),
+    ClickedStartPath: ({ path }) => openPathWithCommands(model, path),
     ClickedStartApp: ({ app }) => ({ model: startApp(model, definition(app)) }),
     ClickedPower: () => ({
-      model: { ...model, session: Session.Booting({ stage: "Loader" }), desk: Desk.emptyDesk, isStartMenuOpen: false, review: Review.Review.Idle(), forge: Forge.emptyForge },
+      model: {
+        ...model,
+        session: Session.Booting({ stage: "Loader" }),
+        desk: Desk.emptyDesk,
+        isStartMenuOpen: false,
+        review: Review.Review.Idle(),
+        forge: Forge.emptyForge,
+        uac: Uac.Hidden(),
+        tour: Tour.Off(),
+      },
       commands: [WaitForLoader()],
     }),
     ClickedLock: () => ({
@@ -280,12 +406,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       Match.value(model).pipe(
         Match.withReturnType<UpdateReturn>(),
         Match.when({ session: { _tag: "Booting" } }, () => enterDesktop(model, true)),
+        Match.when({ uac: { _tag: "Asking" } }, () => refuse(model, "Cancel")),
+        Match.when({ uac: { _tag: "Refused" } }, () => ({ model: { ...model, uac: Uac.Hidden() } })),
         Match.when({ switcher: { _tag: "Open" } }, () => ({ model: { ...model, switcher: Switcher.Closed() } })),
         Match.when({ isStartMenuOpen: true }, () => ({ model: { ...model, isStartMenuOpen: false } })),
         Match.orElse(() => ({ model: { ...model, maybeSelectedIcon: Option.none() } })),
       ),
     PressedEnter: () =>
-      model.session._tag === "Booting"
+      model.uac._tag !== "Hidden"
+        ? { model }
+        : model.session._tag === "Booting"
         ? enterDesktop(model, true)
         : {
             model: isDesktopActive(model)
@@ -306,4 +436,36 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     GotCmdMessage: ({ windowId, message }) => updateCmd(model, windowId, message),
     GotStudioMessage: ({ windowId, message }) => updateStudio(model, windowId, message),
     GotBrowserMessage: ({ windowId, message }) => updateBrowser(model, windowId, message),
+    GotDiagramMessage: ({ windowId, message }) =>
+      updateApp(model, windowId, byTag("Diagram"), (app) => Diagram.update(app, message), (child) => Message.GotDiagramMessage({ windowId, message: child })),
+    GotExplorerMessage: ({ windowId, message }) =>
+      updateApp(model, windowId, byTag("Explorer"), (app) => Explorer.update(app, message), (child) => Message.GotExplorerMessage({ windowId, message: child })),
+    GotWelcomeMessage: ({ windowId, message }) =>
+      updateApp(model, windowId, byTag("Welcome"), (app) => Welcome.update(app, message), (child) => Message.GotWelcomeMessage({ windowId, message: child })),
+    GotHelpMessage: ({ windowId, message }) =>
+      updateApp(model, windowId, byTag("Help"), (app) => Help.update(app, message), (child) => Message.GotHelpMessage({ windowId, message: child })),
+    GotDialogMessage: ({ windowId, message }) =>
+      updateApp(model, windowId, byTag("Dialog"), (app) => Dialog.update(app, message), (child) => Message.GotDialogMessage({ windowId, message: child })),
+    CompletedSaveWelcomeAtStartup: () => ({ model }),
+
+    RequestedApproval: () => askForApproval(model),
+    ClickedUacContinue: () => refuse(model, "Continue"),
+    ClickedUacCancel: () => refuse(model, "Cancel"),
+    ToggledUacDetails: () => ({
+      model: model.uac._tag === "Asking" ? { ...model, uac: Uac.Asking({ isDetailsShown: !model.uac.isDetailsShown }) } : model,
+    }),
+    ClickedUacClose: () => ({ model: { ...model, uac: Uac.Hidden() } }),
+    CompletedFocusUac: () => ({ model }),
+
+    ClickedTourNext: () => tourStep(model, 1),
+    ClickedTourBack: () => tourStep(model, -1),
+    ClickedTourEnd: () => ({ model: { ...model, tour: Tour.Off() } }),
   })
+
+/** A review that has just finished asks to approve the merge request, and Heron cancels itself. */
+export const update = (model: Model, message: Message): UpdateReturn => {
+  const next = baseUpdate(model, message)
+  if (model.review._tag !== "Running" || next.model.review._tag !== "Done") return next
+  const asked = askForApproval(next.model)
+  return { model: asked.model, commands: [...(next.commands ?? []), ...(asked.commands ?? [])] }
+}

@@ -6,9 +6,13 @@ import type { IconName } from "../shell/icons"
 import type { AppState } from "./appState"
 import * as Browser from "./browser"
 import * as Cmd from "./cmd"
+import * as Diagram from "./diagram"
+import * as Dialog from "./dialog"
+import * as Explorer from "./explorer"
+import * as Help from "./help"
 import * as Notepad from "./notepad"
 import * as Studio from "./studio"
-import * as Stub from "./stub"
+import * as Welcome from "./welcome"
 
 /** What an app may read from the session when it starts: whether the visitor signed in to the mock GitLab. */
 export type LaunchSession = Readonly<{ isSignedInToForge: boolean }>
@@ -28,24 +32,21 @@ export type AppDefinition = Readonly<{
   launch: (maybeNode: Option.Option<VfsNode>, session: LaunchSession) => AppState
 }>
 
-const stub =
-  (app: Stub.StubAppId) =>
-  (maybeNode: Option.Option<VfsNode>): AppState =>
-    Stub.Model({ app, maybePath: Option.map(maybeNode, (node) => node.path) })
-
 const fileOf = (maybeNode: Option.Option<VfsNode>): Option.Option<VfsFile> =>
   Option.filter(maybeNode, (node): node is VfsFile => node._tag === "File")
 
+// `launch` is always a function literal: explorer.ts imports this module, so reading an app module's
+// export while this array is built could run before that module has finished loading.
 export const apps: ReadonlyArray<AppDefinition> = [
   { id: "notepad", name: "Notepad", icon: "notepad", opens: ["Text", "Markdown"], size: { width: 680, height: 500 }, isSingleInstance: false, launch: (node) => Notepad.init(fileOf(node)) },
   { id: "editor", name: "Heron Studio", icon: "studio", opens: ["TypeScript", "Vue", "Json", "Diff"], size: { width: 1040, height: 680 }, isSingleInstance: false, launch: (node) => Studio.init(fileOf(node)) },
-  { id: "diagram", name: "Diagram Viewer", icon: "diagram", opens: ["Diagram"], size: { width: 860, height: 580 }, isSingleInstance: false, launch: stub("diagram") },
+  { id: "diagram", name: "Diagram Viewer", icon: "diagram", opens: ["Diagram"], size: { width: 1120, height: 690 }, isSingleInstance: false, launch: (node) => Diagram.init(node) },
   { id: "cmd", name: "Command Prompt", icon: "cmd", opens: [], size: { width: 680, height: 400 }, isSingleInstance: false, launch: () => Cmd.init() },
-  { id: "explorer", name: "Explorer", icon: "folder", opens: ["Folder"], size: { width: 760, height: 520 }, isSingleInstance: false, launch: stub("explorer") },
+  { id: "explorer", name: "Explorer", icon: "folder", opens: ["Folder"], size: { width: 860, height: 560 }, isSingleInstance: false, launch: (node) => Explorer.init(node) },
   { id: "browser", name: "Internet Explorer", icon: "browser", opens: [], size: { width: 960, height: 640 }, isSingleInstance: false, launch: (_node, session) => Browser.init(session.isSignedInToForge) },
-  { id: "welcome", name: "Welcome Center", icon: "welcome", opens: [], size: { width: 640, height: 460 }, isSingleInstance: true, launch: stub("welcome") },
-  { id: "uac", name: "User Account Control", icon: "shield", opens: ["Program"], size: { width: 460, height: 300 }, isSingleInstance: true, launch: stub("uac") },
-  { id: "help", name: "Help and Support", icon: "help", opens: [], size: { width: 820, height: 580 }, isSingleInstance: true, launch: stub("help") },
+  { id: "welcome", name: "Welcome Center", icon: "welcome", opens: [], size: { width: 700, height: 545 }, isSingleInstance: true, launch: () => Welcome.init() },
+  { id: "dialog", name: "Heron OS", icon: "program", opens: ["Program"], size: { width: 480, height: 300 }, isSingleInstance: false, launch: (node) => Dialog.init(node) },
+  { id: "help", name: "Help and Support", icon: "help", opens: [], size: { width: 900, height: 620 }, isSingleInstance: true, launch: () => Help.init() },
 ]
 
 export const definition = (id: AppId): AppDefinition =>
@@ -57,7 +58,17 @@ export const definition = (id: AppId): AppDefinition =>
 
 export const appIdOf = (state: AppState): AppId =>
   Match.value(state).pipe(
-    Match.tagsExhaustive({ Notepad: () => "notepad" as const, Cmd: () => "cmd" as const, Studio: () => "editor" as const, Browser: () => "browser" as const, Stub: (model) => model.app }),
+    Match.tagsExhaustive({
+      Notepad: () => "notepad" as const,
+      Cmd: () => "cmd" as const,
+      Studio: () => "editor" as const,
+      Browser: () => "browser" as const,
+      Diagram: () => "diagram" as const,
+      Explorer: () => "explorer" as const,
+      Welcome: () => "welcome" as const,
+      Help: () => "help" as const,
+      Dialog: () => "dialog" as const,
+    }),
   )
 
 export const titleOf = (state: AppState): string =>
@@ -67,14 +78,11 @@ export const titleOf = (state: AppState): string =>
       Cmd: Cmd.title,
       Studio: Studio.title,
       Browser: Browser.title,
-      Stub: (model) =>
-        Option.match(model.maybePath, {
-          onNone: () => definition(model.app).name,
-          onSome: (path) =>
-            model.app === "explorer"
-              ? Option.match(lookup(path), { onNone: () => path, onSome: (node) => node.name })
-              : `${Option.match(lookup(path), { onNone: () => path, onSome: (node) => node.name })} - ${definition(model.app).name}`,
-        }),
+      Diagram: Diagram.title,
+      Explorer: Explorer.title,
+      Welcome: Welcome.title,
+      Help: Help.title,
+      Dialog: Dialog.title,
     }),
   )
 

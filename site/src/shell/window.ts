@@ -3,10 +3,15 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 
 import * as Browser from "../apps/browser"
 import * as Cmd from "../apps/cmd"
+import * as Diagram from "../apps/diagram"
+import * as Dialog from "../apps/dialog"
+import * as Explorer from "../apps/explorer"
+import * as Help from "../apps/help"
 import * as Notepad from "../apps/notepad"
-import { appIdOf, definition, iconOf, titleOf } from "../apps/registry"
+import { appIdOf, iconOf, titleOf } from "../apps/registry"
+import type { Form } from "../apps/request"
 import * as Studio from "../apps/studio"
-import * as Stub from "../apps/stub"
+import * as Welcome from "../apps/welcome"
 import { edges } from "../domain/geometry"
 import * as Desk from "../domain/window"
 import { Message } from "../message"
@@ -16,8 +21,10 @@ import { iconUrl } from "./icons"
 
 const px = (value: number): string => `${Math.round(value)}px`
 
-export const appView = (model: Model, win: Desk.Window, h: HtmlBuilder<Message>): Html =>
-  Match.value(win.app).pipe(
+/** The app inside a window. The phone draws the same app full screen, in its Windows Mobile form. */
+export const appView = (model: Model, win: Desk.Window, h: HtmlBuilder<Message>): Html => {
+  const form: Form = isPhone(model) ? "Phone" : "Desktop"
+  return Match.value(win.app).pipe(
     Match.tagsExhaustive({
       Notepad: (notepad) =>
         h.submodel({
@@ -50,9 +57,49 @@ export const appView = (model: Model, win: Desk.Window, h: HtmlBuilder<Message>)
           viewInputs: { review: model.review, forge: model.forge, now: model.now, isPhone: isPhone(model) },
           toParentMessage: (message) => Message.GotBrowserMessage({ windowId: win.id, message }),
         }),
-      Stub: (stub) => Stub.view(h, definition(stub.app).name, stub),
+      Diagram: (diagram) =>
+        h.submodel({
+          slotId: `diagram-${win.id}`,
+          model: diagram,
+          view: Diagram.view,
+          viewInputs: { form },
+          toParentMessage: (message) => Message.GotDiagramMessage({ windowId: win.id, message }),
+        }),
+      Explorer: (explorer) =>
+        h.submodel({
+          slotId: `explorer-${win.id}`,
+          model: explorer,
+          view: Explorer.view,
+          viewInputs: { form },
+          toParentMessage: (message) => Message.GotExplorerMessage({ windowId: win.id, message }),
+        }),
+      Welcome: (welcome) =>
+        h.submodel({
+          slotId: `welcome-${win.id}`,
+          model: welcome,
+          view: Welcome.view,
+          viewInputs: { form, isShownAtStartup: model.isWelcomeAtStartup },
+          toParentMessage: (message) => Message.GotWelcomeMessage({ windowId: win.id, message }),
+        }),
+      Help: (help) =>
+        h.submodel({
+          slotId: `help-${win.id}`,
+          model: help,
+          view: Help.view,
+          viewInputs: { form },
+          toParentMessage: (message) => Message.GotHelpMessage({ windowId: win.id, message }),
+        }),
+      Dialog: (dialog) =>
+        h.submodel({
+          slotId: `dialog-${win.id}`,
+          model: dialog,
+          view: Dialog.view,
+          viewInputs: { form },
+          toParentMessage: (message) => Message.GotDialogMessage({ windowId: win.id, message }),
+        }),
     }),
   )
+}
 
 /** The glass layer behind a frame: Canvas UI Glass when the browser has HTML-in-canvas, CSS otherwise. */
 export const glassLayer = (model: Model, h: HtmlBuilder<Message>, corner: number): Html =>
