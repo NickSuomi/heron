@@ -110,8 +110,12 @@ const markdown = (blocks: ReadonlyArray<Block>): string =>
 /** Model text that renders mid-line, where a line break would end the construct around it. */
 const inline = (s: string): string => lineText(spansOf(s.replace(/\s+/g, " ").trim()))
 
-/** Model text in a table cell or link label, where a code span could not hold a `|` or `]`. */
+/** Model text in a link label, where a code span could not hold a `]`. */
 const cell = (s: string): string => plainLine(s.replace(/\s+/g, " ").trim())
+
+/** Model text in a table cell. GFM splits a row on every unescaped `|`, code spans included, so those are escaped. */
+const tableCell = (s: string): string =>
+  spansOf(s.replace(/\s+/g, " ").trim()).map((span) => span.code ? code(span.text).replace(/\|/g, "\\|") : plainLine(span.text)).join("").trim()
 
 /** One line from several, with a space between them and neighbouring text spans merged, so a sentence end is visible. */
 const joined = (lines: ReadonlyArray<Line>): Line =>
@@ -210,7 +214,7 @@ export const renderReport = (review: Review): string => {
         "| By | Finding | Ruling | Reason |",
         "| --- | --- | --- | --- |",
         ...outcome.rulings.map((r) =>
-          `| ${code(r.by)} | ${code(r.finding.id)} ${cell(r.finding.title)} | ${r.keep ? "kept" : "dropped"} | ${cell(r.reason)} |`
+          `| ${code(r.by)} | ${code(r.finding.id)} ${tableCell(r.finding.title)} | ${r.keep ? "kept" : "dropped"} | ${tableCell(r.reason)} |`
         )
       )
     }

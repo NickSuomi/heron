@@ -272,6 +272,19 @@ describe("report shape", () => {
     )
   })
 
+  it("shows code spans in a ruling's title and reason, and keeps a pipe inside the code in its cell", () => {
+    const [kept] = sampleOutcome.rulings
+    const rulings = [{ ...kept!, finding: { ...kept!.finding, title: "`aria-label` hides the hint" }, reason: "The `a | b` union reaches `render`." }]
+    const html = md.render(renderReport({ ...sampleReview, outcome: { ...sampleOutcome, rulings } }))
+    const row = /<tr>\s*<td><code>supervisor<\/code><\/td>[\s\S]*?<\/tr>/.exec(html)![0]
+    expect([...row.matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1])).toEqual([
+      "<code>supervisor</code>",
+      `<code>${kept!.finding.id}</code> <code>aria-label</code> hides the hint`,
+      kept!.keep ? "kept" : "dropped",
+      "The <code>a | b</code> union reaches <code>render</code>.\u2060"
+    ])
+  })
+
   it("puts tool calls and vendor cost in one totals line", () => {
     expect(source).toContain("| `gate.design` | model\\-\u2060q (alpha) | low | 40,000 / 1,200 | 13.0 s | ok |")
     expect(source).toContain("Totals: 300,000 / 7,000 tokens in / out, 20 tool calls, $0.50 vendor-reported cost.")
