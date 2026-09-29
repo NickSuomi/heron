@@ -75,7 +75,16 @@ describe("claude-cli harness", () => {
   it.effect("reports a missing login as auth", () =>
     Effect.gen(function*() {
       const error = yield* Effect.flip(run("claude-noauth.jsonl", { code: 1 }).effect)
-      expect([error.kind, error.detail]).toEqual(["auth", "Claude Code reported authentication_failed"])
+      expect([error.kind, error.detail]).toEqual(["auth", "Claude Code reported authentication_failed: Not logged in · Please run /login"])
+    }))
+
+  it.effect("keeps the vendor's reason when Claude Code rejects the request", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(run("claude-oldcli.synthetic.jsonl", { code: 1 }).effect)
+      expect([error.kind, error.detail]).toEqual([
+        "vendor",
+        "Claude Code reported invalid_request: API Error: 400 Claude Code 2.1.274 does not support this model; version 2.1.280 or newer is required. Run 'claude update', or update the Claude desktop app, then try again."
+      ])
     }))
 
   it.effect("rejects a session that used a tool other than the heron server", () =>
