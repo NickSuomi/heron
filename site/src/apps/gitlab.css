@@ -1256,7 +1256,6 @@
   padding: 5px 9px;
   border: 1px solid #dfe2e6;
   text-align: left;
-  white-space: nowrap;
 }
 
 .gl-md-table th {
@@ -1700,4 +1699,12 @@
 .gl-signin-page.is-mobile .gl-signin-box,
 .gl-signin-page.is-mobile .gl-flash {
   width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-label,
+  .gl-spinner,
+  .gl-note {
+    animation: none;
+  }
 }

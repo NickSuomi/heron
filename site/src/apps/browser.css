@@ -1175,3 +1175,9 @@
 .wm:has(.wm-app.app-browser) {
   grid-template-columns: minmax(0, 1fr);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .ie-throbber {
+    animation: none;
+  }
+}

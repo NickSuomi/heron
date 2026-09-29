@@ -480,7 +480,7 @@ const reportNoteView = <M>(ctx: Ctx<M>): Html => {
                   h.strong([h.Class("gl-note-author")], [botName]),
                   h.span([h.Class("gl-muted")], [`@${botName}`]),
                   h.span([h.Class("gl-muted")], ["·"]),
-                  h.a([h.Class("gl-note-time"), h.Href(`${mergeRequestUrl}#note_${mr42.noteId}`), h.Title(new Date(posted.createdAt).toLocaleString("en-US"))], [timeAgo(posted.createdAt, inputs.now)]),
+                  link(ctx, `${mergeRequestUrl}#note_${mr42.noteId}`, [h.Class("gl-note-time"), h.Title(new Date(posted.createdAt).toLocaleString("en-US"))], [timeAgo(posted.createdAt, inputs.now)]),
                   badge(h, "bot", "Bot"),
                 ],
               ),

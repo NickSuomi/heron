@@ -157,6 +157,8 @@ export const windowView = (model: Model, win: Desk.Window, zIndex: number, h: Ht
           .join(" "),
       ),
       h.DataAttribute("glass-root", ""),
+      h.DataAttribute("window-id", String(win.id)),
+      h.Tabindex(-1),
       h.Role("dialog"),
       h.AriaLabel(title),
       h.Style(

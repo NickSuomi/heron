@@ -83,7 +83,7 @@ A glass frame is five layers, back to front.
 
 Caption text sits on a white halo so it reads on any wallpaper: text shadows of 5, 9, and 14 px in white at 100%, 90%, and 70%.
 
-In browsers with the HTML-in-canvas API and WebGL 2, Canvas UI's Glass component draws a pinned lens under the tint: it refracts and frosts a copy of the wallpaper aligned to the surface. That lens shows the wallpaper, not the windows behind. Every other browser gets the CSS recipe above, and it must look right on its own. Add `?css-glass` to the address to force it.
+In browsers with the HTML-in-canvas API and WebGL 2, Canvas UI's Glass component draws a pinned lens under the tint: it refracts and frosts a copy of the wallpaper aligned to the surface. That lens shows the wallpaper, not the windows behind. Every other browser gets the CSS recipe above, and it must look right on its own. Add `?css-glass` to the address to force it. Canvas UI is copyright (c) 2026 David Haz, under MIT with the Commons Clause; the site ships [its licence](https://nicksuomi.github.io/heron/licenses/canvas-ui-LICENSE.txt).
 
 Explorer and Help and Support extend the glass into the window, as the era did: their travel buttons, address bar, and search box sit on the frame, not on a white bar.
 

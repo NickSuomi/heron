@@ -18,14 +18,40 @@ export type Block =
 
 const punctuation = /[!-/:-@[-`{-~]/
 
-/** The index of the next unescaped `target` at or after `from`, or -1. */
+/** The length of the run of `char` that starts at `from`. */
+const runLength = (text: string, char: string, from: number): number => {
+  let end = from
+  while (text[end] === char) end++
+  return end - from
+}
+
+/**
+ * The CommonMark code span whose opening backtick run starts at `from`: it closes at the next run of exactly as many
+ * backticks, line endings become spaces, and one space is stripped from each side when both sides have one and the
+ * content is not only spaces. Null when no run closes it, and then the opening run is literal text.
+ */
+const codeSpanAt = (text: string, from: number): Readonly<{ content: string; end: number }> | null => {
+  const fence = runLength(text, "`", from)
+  for (let at = text.indexOf("`", from + fence); at !== -1; at = text.indexOf("`", at + runLength(text, "`", at))) {
+    if (runLength(text, "`", at) !== fence) continue
+    const content = text.slice(from + fence, at).replace(/\n/g, " ")
+    const isPadded = content.startsWith(" ") && content.endsWith(" ") && content.trim() !== ""
+    return { content: isPadded ? content.slice(1, -1) : content, end: at + fence }
+  }
+  return null
+}
+
+/** The index of the next `target` at or after `from` that is neither backslash-escaped nor inside a code span, or -1. */
 const findUnescaped = (text: string, target: string, from: number): number => {
   for (let i = from; i < text.length; i++) {
     if (text[i] === "\\" && punctuation.test(text[i + 1] ?? "")) i++
     else if (text.startsWith(target, i)) return i
+    else if (text[i] === "`") i = (codeSpanAt(text, i)?.end ?? i + runLength(text, "`", i)) - 1
   }
   return -1
 }
+
+const skipIndent = (text: string, from: number): number => from + runLength(text, " ", from)
 
 export const parseInline = (text: string): ReadonlyArray<Inline> => {
   const out: Array<Inline> = []
@@ -44,23 +70,35 @@ export const parseInline = (text: string): ReadonlyArray<Inline> => {
     } else if (char === "\\" && next === "\n") {
       flush()
       out.push({ _tag: "Break" })
-      i += 2
-    } else if (char === " " && text.startsWith(" \n", i + 1)) {
-      flush()
-      out.push({ _tag: "Break" })
-      i += 3
-    } else if (char === "\n") {
-      buffer += " "
-      i++
+      i = skipIndent(text, i + 2)
+    } else if (char === " " || char === "\n") {
+      // Spaces before a line ending: two or more make a hard break, fewer a soft break; both drop the spaces and the
+      // next line's indent. Spaces that end the paragraph are dropped too.
+      const spaces = runLength(text, " ", i)
+      const after = i + spaces
+      if (after === text.length) {
+        i = after
+      } else if (text[after] !== "\n") {
+        buffer += " ".repeat(spaces)
+        i = after
+      } else if (spaces >= 2) {
+        flush()
+        out.push({ _tag: "Break" })
+        i = skipIndent(text, after + 1)
+      } else {
+        buffer += " "
+        i = skipIndent(text, after + 1)
+      }
     } else if (char === "`") {
-      const end = text.indexOf("`", i + 1)
-      if (end === -1) {
-        buffer += char
-        i++
+      const span = codeSpanAt(text, i)
+      if (span === null) {
+        const fence = runLength(text, "`", i)
+        buffer += text.slice(i, i + fence)
+        i += fence
       } else {
         flush()
-        out.push({ _tag: "Code", text: text.slice(i + 1, end) })
-        i = end + 1
+        out.push({ _tag: "Code", text: span.content })
+        i = span.end
       }
     } else if (text.startsWith("**", i)) {
       const end = findUnescaped(text, "**", i + 2)

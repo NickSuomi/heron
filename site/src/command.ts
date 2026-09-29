@@ -1,6 +1,7 @@
 import { Duration, Effect, Schema } from "effect"
 import { Command } from "foldkit"
 import * as Dom from "foldkit/dom"
+import * as Render from "foldkit/render"
 
 import { Message } from "./message"
 
@@ -69,4 +70,24 @@ export const SaveWelcomeAtStartup = Command.define("SaveWelcomeAtStartup", {
 export const FocusUacCancel = Command.define("FocusUacCancel", {
   messages: [Message.CompletedFocusUac],
   execute: Dom.focus("#uac-cancel").pipe(Effect.ignore, Effect.as(Message.CompletedFocusUac())),
+})
+
+/**
+ * Keyboard input follows the active window: its marked primary input takes focus, or the window itself. Focus that is
+ * already inside the window, such as a field the visitor just clicked, stays where it is.
+ */
+export const FocusWindow = Command.define("FocusWindow", {
+  args: { windowId: Schema.Number },
+  messages: [Message.CompletedFocusWindow],
+  execute: ({ windowId }) =>
+    Render.afterCommit.pipe(
+      Effect.andThen(Effect.sync(() => {
+        const win = document.querySelector(`[data-window-id="${windowId}"]`)
+        if (!(win instanceof HTMLElement) || win.contains(document.activeElement)) return
+        const primary = win.querySelector("[data-primary-input]")
+        ;(primary instanceof HTMLElement ? primary : win).focus({ preventScroll: true })
+      })),
+      Effect.ignore,
+      Effect.as(Message.CompletedFocusWindow()),
+    ),
 })

@@ -156,6 +156,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
       menuBar,
       h.textarea([
         h.Class(`notepad-text${model.isWordWrap ? "" : " is-nowrap"}`),
+        h.DataAttribute("primary-input", ""),
         h.AriaLabel(title(model)),
         h.Spellcheck(false),
         h.OnMount(LoadText({ text: model.text })),

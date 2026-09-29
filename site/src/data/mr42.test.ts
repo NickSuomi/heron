@@ -44,7 +44,7 @@ describe("merge request !42", () => {
       "<!-- heron:v1 mr=42 head=9abe74a0d67dfd7a0c5e599d51a1edfd91c0e3e7 config=90980f470d74e1f4b1239b864b8030a43317076cb182936f4c38b302a409a292 verdict=changes-requested -->",
       "## Heron review: CHANGES REQUESTED",
       "",
-      "Reviewed head `9abe74a0` in lane `standard`.",
+      "1 blocker · 4 advisories · head `9abe74a0` · lane `standard`",
     ])
   })
 })

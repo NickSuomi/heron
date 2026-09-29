@@ -634,7 +634,7 @@ const desktopView = (model: Model, inputs: ViewInputs, h: H): Html => {
           ),
           h.div(
             [h.Class("ie-viewport")],
-            [model.isQuickTabs ? quickTabsView(h, model, inputs) : h.keyed("div")(`page-${entry.id}-${entry.index}`, [h.Class("ie-page")], [contentView(h, model, url, inputs, false)])],
+            [model.isQuickTabs ? quickTabsView(h, model, inputs) : h.keyed("div")(`page-${entry.id}-${entry.index}`, [h.Class("ie-page"), h.Tabindex(0), h.DataAttribute("primary-input", "")], [contentView(h, model, url, inputs, false)])],
           ),
           h.footer(
             [h.Class("ie-status")],

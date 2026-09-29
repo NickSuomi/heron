@@ -416,6 +416,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, { re
       h.input([
         h.Id(inputId),
         h.Class("cmd-input"),
+        h.DataAttribute("primary-input", ""),
         h.Type("text"),
         h.AriaLabel(`Command line, ${prompt(model)}`),
         h.Autocomplete("off"),

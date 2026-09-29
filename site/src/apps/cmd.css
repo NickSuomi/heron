@@ -72,3 +72,11 @@
 .wm .cmd-buffer {
   width: auto;
 }
+
+/* A steady caret instead of a blinking one. */
+@media (prefers-reduced-motion: reduce) {
+  .cmd:focus-within .cmd-caret {
+    animation: none;
+    visibility: visible;
+  }
+}

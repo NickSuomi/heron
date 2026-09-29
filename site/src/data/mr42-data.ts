@@ -178,7 +178,7 @@ export const sessions: ReadonlyArray<RawSession> = [
         line: 15,
         excerpt: "any[]",
         title: "The selection is typed as any[]",
-        body: "selected holds project ids, and archiveSelected takes ReadonlyArray<ProjectId>. With ref<any[]> the compiler cannot catch a row object or a plain string slipping in. Type it as ref<Array<ProjectId>>([]).",
+        body: "archiveSelected takes ReadonlyArray<ProjectId>, but with ref<any[]> the compiler cannot catch a row object or a plain string slipping into selected. Type it as ref<Array<ProjectId>>([]).",
       },
       {
         gate: "design",
@@ -211,7 +211,7 @@ export const sessions: ReadonlyArray<RawSession> = [
         line: 12,
         excerpt: "api.delete",
         title: "Archiving deletes the projects",
-        body: "archiveSelected sends DELETE /projects/:id for every id. The doc comment on line 6 and the button both promise an archive that can be restored, but DELETE removes the project. Call the archive endpoint instead, for example POST /projects/:id/archive, and pin the request in a test.",
+        body: "archiveSelected sends DELETE /projects/:id for every id, which removes the projects that the doc comment on line 6 and the button promise to archive. Call the archive endpoint instead, for example POST /projects/:id/archive, and pin the request in a test.",
       },
       {
         gate: "correctness",
@@ -268,7 +268,7 @@ export const sessions: ReadonlyArray<RawSession> = [
         line: 11,
         excerpt: "for (const id of ids)",
         title: "A failed request stops the batch halfway",
-        body: "The loop awaits one request at a time and the first error throws out of it, after earlier projects were already changed. ProjectList.vue does not catch it, so the user sees nothing. Collect every result, for example with Promise.allSettled, and report which projects failed.",
+        body: "The first failed request throws out of the loop after earlier projects were already changed, and ProjectList.vue does not catch it, so the user sees nothing. Collect every result, for example with Promise.allSettled, and report which projects failed.",
       },
     ],
     decisions: [
@@ -287,7 +287,7 @@ export const sessions: ReadonlyArray<RawSession> = [
 ]
 
 export const summary =
-  "Adds bulk archiving to the project list: a checkbox on each row, an Archive button and an archiveSelected helper. The helper deletes each project instead of archiving it, so the change cannot merge as it is. Four smaller issues concern the selection type, rows hidden by the filter, a partial failure, and the button label."
+  "Adds bulk archiving to the project list: a checkbox on each row, an Archive button and an archiveSelected helper. The helper deletes each project instead of archiving it, so the change cannot merge as it is."
 
 /** What Heron's verdict rule gives for these findings: one blocker means CHANGES REQUESTED. The build checks it. */
 export const verdict = "CHANGES REQUESTED" as const

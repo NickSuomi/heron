@@ -76,6 +76,7 @@ export const Message = defineMessageUnion({
   ToggledUacDetails: {},
   ClickedUacClose: {},
   CompletedFocusUac: {},
+  CompletedFocusWindow: {},
   // The tour
   ClickedTourNext: {},
   ClickedTourBack: {},

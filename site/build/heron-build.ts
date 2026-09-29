@@ -4,6 +4,11 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { Plugin } from "vite"
 
+import type * as HeronConfig from "../../src/config.ts"
+import type { FindingId, GateName, ModelFinding, Outcome, Review, SessionId, SessionRecord, Sha } from "../../src/domain.ts"
+import type * as HeronPolicy from "../../src/policy.ts"
+import type * as HeronReport from "../../src/report.ts"
+
 import * as mr42 from "../src/data/mr42-data.ts"
 
 // `virtual:heron-build` holds what Heron itself prints, produced at build time by the repository's own code:
@@ -37,6 +42,9 @@ const captured: ReadonlyArray<ReadonlyArray<string>> = [
 
 type Result<A> = { readonly _tag: "Success"; readonly success: A } | { readonly _tag: "Failure"; readonly failure: { readonly message: string } }
 
+/** The fictional data's plain strings, as the branded ids Heron's own decoders would produce. */
+const brand = <B extends string>(value: string): B => value as B
+
 const succeed = <A>(result: Result<A>, what: string): A => {
   if (result._tag === "Failure") throw new Error(`${what}: ${result.failure.message}`)
   return result.success
@@ -57,8 +65,13 @@ const runCli = (repoRoot: string, args: ReadonlyArray<string>): Promise<string> 
 }
 
 const render = async (repoRoot: string) => {
-  const load = (path: string) => import(pathToFileURL(join(repoRoot, path)).href)
-  const [config, policy, report] = await Promise.all([load("src/config.ts"), load("src/policy.ts"), load("src/report.ts")])
+  // Typed as Heron's own modules, so a change to their shapes fails the site's typecheck before it fails this build.
+  const load = <M>(path: string): Promise<M> => import(pathToFileURL(join(repoRoot, path)).href)
+  const [config, policy, report] = await Promise.all([
+    load<typeof HeronConfig>("src/config.ts"),
+    load<typeof HeronPolicy>("src/policy.ts"),
+    load<typeof HeronReport>("src/report.ts"),
+  ])
 
   const file = succeed(config.decodeConfigFile(JSON.parse(readFileSync(join(repoRoot, exampleConfig), "utf8")), machineEnv), "config")
   const texts = new Map<string, string>(config.instructionPaths(file).map((path: string) => [path, readFileSync(join(repoRoot, path), "utf8")]))
@@ -69,23 +82,32 @@ const render = async (repoRoot: string) => {
   const classification = policy.classify(resolved, changes)
   check(classification.lane.name === mr42.lane.name, `lane ${classification.lane.name}`)
   const plan = policy.planFor(classification.lane)
-  const slots: ReadonlyArray<{ id: string; role: string; gates: ReadonlyArray<{ name: string }> }> = policy.slotsOf(plan)
+  const slots = policy.slotsOf(plan)
   check(slots.map((s) => s.id).join() === mr42.sessions.map((s) => s.id).join(), `sessions ${slots.map((s) => s.id).join()}`)
 
-  const modelFinding = (f: mr42.RawFinding) => ({ gate: f.gate, severity: f.severity, location: { path: f.path, line: f.line }, title: f.title, body: f.body })
+  const modelFinding = (f: mr42.RawFinding): ModelFinding => ({
+    gate: brand<GateName>(f.gate),
+    severity: f.severity,
+    location: { path: f.path, line: f.line },
+    title: f.title,
+    body: f.body,
+  })
   const gates = mr42.sessions.filter((s) => s.role === "gate")
   const supervisor = mr42.sessions.find((s) => s.role === "supervisor")
   if (supervisor === undefined) throw new Error("mr42-data.ts has no supervisor session")
-  const inputs = gates.flatMap((s) => policy.assignIds(s.id, s.findings.map(modelFinding)))
+  const supervisorId = brand<SessionId>(supervisor.id)
+  const inputs = gates.flatMap((s) => policy.assignIds(brand<SessionId>(s.id), s.findings.map(modelFinding)))
+  const decisions = supervisor.decisions.map((d) => ({ ...d, id: brand<FindingId>(d.id) }))
   const findings = succeed(
-    policy.applySynthesis(inputs, { summary: mr42.summary, decisions: supervisor.decisions, added: supervisor.findings.map(modelFinding), limitations: [] }, supervisor.id),
+    policy.applySynthesis(inputs, { summary: mr42.summary, decisions, added: supervisor.findings.map(modelFinding), limitations: [] }, supervisorId),
     "supervisor decisions",
   )
-  const outcome = { kind: "complete", summary: mr42.summary, findings, limitations: mr42.sessions.flatMap((s) => s.limitations) }
+  const rulings = decisions.map((d) => ({ by: supervisorId, finding: inputs.find((f) => f.id === d.id)!, keep: d.keep, reason: d.reason }))
+  const outcome: Outcome = { kind: "complete", summary: mr42.summary, findings, rulings, limitations: mr42.sessions.flatMap((s) => s.limitations) }
   const verdict = policy.verdictOf(outcome)
   check(verdict === mr42.verdict, `verdict ${verdict}`)
 
-  const records = slots.map((slot) => {
+  const records = slots.map((slot): SessionRecord => {
     const session = mr42.sessions.find((s) => s.id === slot.id)!
     return {
       slot,
@@ -97,7 +119,7 @@ const render = async (repoRoot: string) => {
       failure: null,
     }
   })
-  const review = {
+  const review: Review = {
     snapshot: {
       ref: { project: mergeRequest.project, iid: mergeRequest.iid },
       title: mergeRequest.title,
@@ -108,7 +130,7 @@ const render = async (repoRoot: string) => {
       webUrl: mergeRequest.webUrl,
       projectWebUrl: mergeRequest.projectWebUrl,
       labels: mergeRequest.labels,
-      revision: { base: mergeRequest.base, start: mergeRequest.base, head: mergeRequest.head },
+      revision: { base: brand<Sha>(mergeRequest.base), start: brand<Sha>(mergeRequest.base), head: brand<Sha>(mergeRequest.head) },
       changes,
     },
     classification,
@@ -120,13 +142,11 @@ const render = async (repoRoot: string) => {
     liveHead: null,
   }
   return {
-    note: report.renderReport(review) as string,
-    findingIds: findings.map((f: { id: string }) => f.id) as ReadonlyArray<string>,
-    configDigest: resolved.digest as string,
-    labels: resolved.labels as Readonly<Record<"inProgress" | "pass" | "changesRequested" | "blocked", string | null>>,
-    profiles: Object.fromEntries(
-      [...new Set(slots.map((s: { profile?: unknown }) => s.profile))].map((p) => [(p as { name: string }).name, p]),
-    ) as Readonly<Record<string, { name: string; harness: string; model: string; effort: string }>>,
+    note: report.renderReport(review),
+    findingIds: findings.map((f) => f.id),
+    configDigest: resolved.digest,
+    labels: resolved.labels,
+    profiles: Object.fromEntries(slots.map((s) => [s.profile.name, s.profile])),
   }
 }
 

@@ -2,6 +2,11 @@
  * Aero frame: an 8 px glass border and a 30 px caption, rounded on top, with the client area inset.
  * The glass is a tint over backdrop-filter; with HTML-in-canvas, Canvas UI Glass draws beneath the tint.
  */
+/* The window takes focus only so the keyboard reaches it; the active frame already shows which window that is. */
+.window:focus {
+  outline: none;
+}
+
 .window {
   --frame: 8px;
   --caption: 30px;

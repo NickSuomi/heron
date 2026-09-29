@@ -14,7 +14,7 @@ import * as Studio from "./apps/studio"
 import { appIdOf, type AppDefinition, definition, type Launch, launchFor } from "./apps/registry"
 import { Request } from "./apps/request"
 import * as Welcome from "./apps/welcome"
-import { FocusUacCancel, PlayChime, SaveWelcomeAtStartup, WaitForLoader, WaitForWelcome } from "./command"
+import { FocusUacCancel, FocusWindow, PlayChime, SaveWelcomeAtStartup, WaitForLoader, WaitForWelcome } from "./command"
 import { cascadeRect, keepGrabbable, resize, translate } from "./domain/geometry"
 import * as Forge from "./domain/forge"
 import * as Review from "./domain/review"
@@ -459,6 +459,7 @@ const baseUpdate = (model: Model, message: Message): UpdateReturn =>
     }),
     ClickedUacClose: () => ({ model: { ...model, uac: Uac.Hidden() } }),
     CompletedFocusUac: () => ({ model }),
+    CompletedFocusWindow: () => ({ model }),
 
     ClickedTourNext: () => tourStep(model, 1),
     ClickedTourBack: () => tourStep(model, -1),
@@ -472,11 +473,19 @@ const isOnTourStep = (model: Model, id: (typeof tourSteps)[number]["id"]): boole
  * A review that has just finished asks to approve the merge request, and Heron cancels itself. If the tour is waiting
  * on the Note step for a dry run to end, the posted run it needs starts now.
  */
-export const update = (model: Model, message: Message): UpdateReturn => {
+const reviewUpdate = (model: Model, message: Message): UpdateReturn => {
   const next = baseUpdate(model, message)
   if (model.review._tag !== "Running" || next.model.review._tag !== "Done") return next
   const asked = askForApproval(next.model)
   const continued =
     isOnTourStep(asked.model, "Note") && isNoteDue(asked.model) ? { ...asked.model, review: Review.start(asked.model.review, "Post") } : asked.model
   return { model: continued, commands: [...(next.commands ?? []), ...(asked.commands ?? [])] }
+}
+
+/** Whenever another window becomes the focused one, keyboard focus moves into it. */
+export const update = (model: Model, message: Message): UpdateReturn => {
+  const next = reviewUpdate(model, message)
+  const focused = next.model.desk.maybeFocused
+  if (Option.isNone(focused) || Option.contains(model.desk.maybeFocused, focused.value)) return next
+  return { ...next, commands: [...(next.commands ?? []), FocusWindow({ windowId: focused.value })] }
 }

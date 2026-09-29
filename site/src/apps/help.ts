@@ -282,7 +282,7 @@ const desktopView = (h: HtmlBuilder<Message>, model: Model): Html =>
           tool(h, "options", "Options", Option.none(), true),
         ],
       ),
-      h.div([h.Class("hp-body")], [model.isContentsShown ? contents(h, model) : h.empty, h.div([h.Class("hp-scroll")], [pageView(h, model)])]),
+      h.div([h.Class("hp-body")], [model.isContentsShown ? contents(h, model) : h.empty, h.div([h.Class("hp-scroll"), h.Tabindex(0), h.DataAttribute("primary-input", "")], [pageView(h, model)])]),
       h.div([h.Class("hp-status")], [h.span([h.Class("hp-status-mode")], ["Offline Help"]), h.span([], ["Nothing on this page loads from the network."])]),
     ],
   )

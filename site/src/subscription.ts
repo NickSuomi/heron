@@ -7,6 +7,10 @@ import type { Model } from "./model"
 const isTextField = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA"].includes(target.tagName))
 
+/** Focus on the page itself or the desktop surface, not inside a window, the taskbar or the Start menu. */
+const isOnDesktop = (target: EventTarget | null): boolean =>
+  target === document.body || target === document.documentElement || (target instanceof Element && target.closest(".desktop-surface") !== null)
+
 /** Browsers keep Alt+Tab and the Windows key, so Heron OS switches windows with Alt+` and opens Start with Ctrl+Esc. */
 const shellKey = (event: KeyboardEvent): Option.Option<Message> => {
   if (event.altKey && event.code === "Backquote") return Option.some(Message.PressedSwitchWindow({ isBackward: event.shiftKey }))
@@ -16,6 +20,8 @@ const shellKey = (event: KeyboardEvent): Option.Option<Message> => {
   const isDesktopIcon = event.target instanceof Element && event.target.closest(".desktop-icon") !== null
   const isControl = event.target instanceof HTMLButtonElement || event.target instanceof HTMLAnchorElement
   if (event.key === "Enter" && (isDesktopIcon || !isControl)) return Option.some(Message.PressedEnter())
+  // Arrow keys move the desktop selection only; everywhere else they scroll, and change selects and radio groups.
+  if (!isOnDesktop(event.target)) return Option.none()
   if (["ArrowDown", "ArrowRight"].includes(event.key)) return Option.some(Message.PressedArrow({ isForward: true }))
   if (["ArrowUp", "ArrowLeft"].includes(event.key)) return Option.some(Message.PressedArrow({ isForward: false }))
   return Option.none()
