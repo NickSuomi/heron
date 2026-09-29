@@ -132,6 +132,8 @@ const render = async (repoRoot: string) => {
       labels: mergeRequest.labels,
       revision: { base: brand<Sha>(mergeRequest.base), start: brand<Sha>(mergeRequest.base), head: brand<Sha>(mergeRequest.head) },
       changes,
+      issues: [],
+      pipeline: null,
     },
     classification,
     plan,

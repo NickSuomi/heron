@@ -93,8 +93,8 @@ describe("the report note as the mock GitLab renders it", () => {
     ])
   })
 
-  it("renders the gate table, the rulings table, what was not checked, and the plan under REVIEW CHECKS", () => {
-    const [gates, rulings, notCheckedLabel, notChecked, plan] = details("REVIEW CHECKS")
+  it("renders the gate table, the rulings table, what was not checked, the scope line and the plan under REVIEW CHECKS", () => {
+    const [gates, rulings, notCheckedLabel, notChecked, scope, plan] = details("REVIEW CHECKS")
     expect(tableText(gates)).toEqual({
       head: ["Gate", "Status"],
       rows: [["design", "pass"], ["correctness", "changes requested"], ["security", "pass"]],
@@ -110,8 +110,11 @@ describe("the report note as the mock GitLab renders it", () => {
       "The server side of DELETE /projects/:id was not read. src/api/client.ts only forwards the path.",
       "The change adds no test, so the request archiveSelected sends was checked by reading only.",
     ])
+    expect(scope?._tag === "Paragraph" && plainText(scope.children)).toBe(
+      "Heron reviews by reading the source and target branches. It does not run tests, the app, a browser or a device.",
+    )
     expect(plan?._tag === "Paragraph" && plainText(plan.children)).toBe(
-      "No classification rule matched; the default lane standard applied. Plan: gated, 4 sessions. Config digest 90980f470d74.",
+      "No classification rule matched; the default lane standard applied. Plan: gated, 4 sessions. Config digest fc7316b64819.",
     )
   })
 

@@ -41,7 +41,7 @@ describe("merge request !42", () => {
 
   it("carries the note Heron's renderReport wrote, marker first", () => {
     expect(mr42.note.split("\n").slice(0, 4)).toEqual([
-      "<!-- heron:v1 mr=42 head=9abe74a0d67dfd7a0c5e599d51a1edfd91c0e3e7 config=90980f470d74e1f4b1239b864b8030a43317076cb182936f4c38b302a409a292 verdict=changes-requested -->",
+      "<!-- heron:v1 mr=42 head=9abe74a0d67dfd7a0c5e599d51a1edfd91c0e3e7 config=fc7316b64819f6cde6f519a0f217ce44cf2377479dd909b7e7da0e363ac7a876 verdict=changes-requested -->",
       "## Heron review: CHANGES REQUESTED",
       "",
       "1 blocker · 4 advisories · head `9abe74a0` · lane `standard`",

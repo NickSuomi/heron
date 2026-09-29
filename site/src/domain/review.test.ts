@@ -18,7 +18,7 @@ describe("the shared review", () => {
   it("loads the config, takes the snapshot and picks the lane before any session", () => {
     const review = runTo(start(Review.Idle(), "DryRun"), 1250)
     expect(eventsOf(review).map(describeEvent)).toEqual([
-      "config    loaded, digest 90980f470d74",
+      "config    loaded, digest fc7316b64819",
       "snapshot  acme/storefront !42 at 9abe74a0, 3 changed files",
       "lane      standard (gated), no rule matched; 4 sessions",
     ])
