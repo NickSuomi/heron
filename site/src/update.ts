@@ -1,12 +1,14 @@
 import { Array, Match, Option, pipe } from "effect"
-import type { Update } from "foldkit"
+import { Command, type Update } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 
+import * as Cmd from "./apps/cmd"
 import * as Notepad from "./apps/notepad"
+import * as Studio from "./apps/studio"
 import { appIdOf, type AppDefinition, definition, type Launch, launchFor } from "./apps/registry"
 import { PlayChime, WaitForLoader, WaitForWelcome } from "./command"
 import { cascadeRect, keepGrabbable, resize, translate } from "./domain/geometry"
-import { Review } from "./domain/review"
+import * as Review from "./domain/review"
 import { children, desktopPath, type FilePath, lookup } from "./domain/vfs"
 import * as Desk from "./domain/window"
 import { Message } from "./message"
@@ -27,7 +29,7 @@ export const init = (flags: Flags): UpdateReturn => ({
     isMuted: false,
     isAudioUnlocked: false,
     glass: flags.glass,
-    review: Review.Idle(),
+    review: Review.Review.Idle(),
   },
   commands: [WaitForLoader()],
 })
@@ -142,6 +144,56 @@ const updateNotepad = (model: Model, windowId: Desk.WindowId, message: Notepad.M
     }),
   )
 
+const updateCmd = (model: Model, windowId: Desk.WindowId, message: Cmd.Message): UpdateReturn =>
+  pipe(
+    Desk.find(model.desk, windowId),
+    Option.flatMap((win) => (win.app._tag === "Cmd" ? Option.some(win.app) : Option.none())),
+    Option.match({
+      onNone: () => ({ model }),
+      onSome: (cmd) => {
+        const next = Cmd.update(cmd, message, { review: model.review, now: model.now, inputId: Cmd.inputIdFor(windowId) })
+        const updated = { ...model, desk: Desk.setApp(model.desk, windowId, next.model) }
+        const commands = Command.mapMessages(next.commands, (child) => Message.GotCmdMessage({ windowId, message: child }))
+        return next.outMessage === undefined
+          ? { model: updated, commands }
+          : Cmd.OutMessage.match<UpdateReturn>(next.outMessage, {
+              RequestedClose: () => ({ model: { ...updated, desk: Desk.close(updated.desk, windowId) } }),
+              RequestedReview: ({ delivery }) => ({ model: { ...updated, review: Review.start(updated.review, delivery) }, commands }),
+            })
+      },
+    }),
+  )
+
+const updateStudio = (model: Model, windowId: Desk.WindowId, message: Studio.Message): UpdateReturn =>
+  pipe(
+    Desk.find(model.desk, windowId),
+    Option.flatMap((win) => (win.app._tag === "Studio" ? Option.some(win.app) : Option.none())),
+    Option.match({
+      onNone: () => ({ model }),
+      onSome: (studio) => {
+        const next = Studio.update(studio, message, { windowId })
+        const updated = { ...model, desk: Desk.setApp(model.desk, windowId, next.model) }
+        const commands = Command.mapMessages(next.commands, (child) => Message.GotStudioMessage({ windowId, message: child }))
+        return next.outMessage === undefined
+          ? { model: updated, commands }
+          : Studio.OutMessage.match<UpdateReturn>(next.outMessage, {
+              RequestedClose: () => ({ model: { ...updated, desk: Desk.close(updated.desk, windowId) } }),
+              RequestedReview: ({ delivery }) => ({ model: { ...updated, review: Review.start(updated.review, delivery) }, commands }),
+            })
+      },
+    }),
+  )
+
+/** Moves the shared review on. When a run ends, Command Prompts keep the lines they streamed and editors show the Error List. */
+const tickReview = (model: Model, now: number): Model => {
+  const review = Review.advance(model.review, now)
+  const desk =
+    review._tag === "Done" && model.review._tag === "Running"
+      ? model.desk.windows.reduce((desk, win) => win.app._tag === "Cmd" ? Desk.setApp(desk, win.id, Cmd.settle(win.app, review)) : win.app._tag === "Studio" ? Desk.setApp(desk, win.id, Studio.settle(win.app)) : desk, model.desk)
+      : model.desk
+  return { ...model, review, desk }
+}
+
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     CompletedWaitForLoader: () =>
@@ -161,7 +213,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedStartPath: ({ path }) => ({ model: openPath(model, path) }),
     ClickedStartApp: ({ app }) => ({ model: startApp(model, definition(app)) }),
     ClickedPower: () => ({
-      model: { ...model, session: Session.Booting({ stage: "Loader" }), desk: Desk.emptyDesk, isStartMenuOpen: false, review: Review.Idle() },
+      model: { ...model, session: Session.Booting({ stage: "Loader" }), desk: Desk.emptyDesk, isStartMenuOpen: false, review: Review.Review.Idle() },
       commands: [WaitForLoader()],
     }),
     ClickedLock: () => ({
@@ -225,5 +277,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     CompletedMountGlass: () => ({ model }),
     FailedMountGlass: () => ({ model: { ...model, glass: "Css" } }),
 
+    TickedReview: ({ now }) => ({ model: tickReview(model, now) }),
+
     GotNotepadMessage: ({ windowId, message }) => updateNotepad(model, windowId, message),
+    GotCmdMessage: ({ windowId, message }) => updateCmd(model, windowId, message),
+    GotStudioMessage: ({ windowId, message }) => updateStudio(model, windowId, message),
   })

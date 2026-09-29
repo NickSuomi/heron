@@ -1,7 +1,9 @@
 import { Schema } from "effect"
 import { defineMessageUnion } from "foldkit/message"
 
+import * as Cmd from "./apps/cmd"
 import * as Notepad from "./apps/notepad"
+import * as Studio from "./apps/studio"
 import { Edge, Size } from "./domain/geometry"
 import { AppId, FilePath } from "./domain/vfs"
 import { WindowId } from "./domain/window"
@@ -47,7 +49,11 @@ export const Message = defineMessageUnion({
   CompletedPlayChime: {},
   CompletedMountGlass: {},
   FailedMountGlass: {},
+  // The shared review of !42
+  TickedReview: { now: Schema.Number },
   // Apps
   GotNotepadMessage: { windowId: WindowId, message: Notepad.Message },
+  GotCmdMessage: { windowId: WindowId, message: Cmd.Message },
+  GotStudioMessage: { windowId: WindowId, message: Studio.Message },
 })
 export type Message = typeof Message.Type

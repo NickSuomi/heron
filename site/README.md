@@ -6,7 +6,10 @@ This is its own package, with its own `package.json` and `pnpm-lock.yaml`, separ
 
 ## Develop
 
+The build runs Heron itself (see [The merge request !42](#the-merge-request-42)), so install the root package first:
+
 ```sh
+pnpm install
 cd site
 pnpm install
 pnpm dev
@@ -20,7 +23,15 @@ Open `http://localhost:5173/heron/`. Add `?css-glass` to force the CSS glass.
 pnpm build
 ```
 
-Output goes to `site/dist/`. The build reads the root `README.md`, `heron.config.example.json`, `docs/` and `src/` into the Heron folder on the desktop (the `heron-files` plugin in `vite.config.ts`), so the files a visitor opens are the repository's own.
+Output goes to `site/dist/`. The build reads the root `README.md`, `heron.config.example.json`, `docs/` and `src/` into the Heron folder on the desktop (the `heron-files` plugin in `vite.config.ts`), so the files a visitor opens are the repository's own. The `heron-build` plugin (`build/heron-build.ts`) runs the root package's own code in Node and puts its output in `virtual:heron-build`; see below.
+
+## Test
+
+```sh
+pnpm test
+```
+
+Vitest runs `src/**/*.test.ts` with the Vite config, so the tests see the same `virtual:heron-build` module as the site. The Pages workflow runs them before the build.
 
 ## How the program works
 
@@ -29,7 +40,7 @@ Output goes to `site/dist/`. The build reads the root `README.md`, `heron.config
 - `session`: the boot loader, the welcome screen, then the desktop. Boot takes about 1.5 s; a click, Enter or Esc skips it.
 - `desk` (`src/domain/window.ts`): the open windows in z-order, bottom first, and the focused window. A window holds its app state, its bounds, `Normal` or `Maximised`, and whether it is minimised.
 - `gesture`: a title-bar move or an edge resize in progress.
-- `review` (`src/domain/review.ts`): the one shared review of the fictional merge request acme/storefront !42, `Idle`, `Running` or `Done` with its verdict, whether the report note was posted, and the labels. Apps in unit 2 read and change it.
+- `review` (`src/domain/review.ts`): the one shared review of the fictional merge request acme/storefront !42, `Idle`, `Running` or `Done`. See [The review engine](#the-review-engine).
 - The Start menu, the window switcher, the selected desktop icon, the clock, sound, and the glass mode.
 
 `src/update.ts` handles every Message in `src/message.ts`. The views live in `src/shell/`. The phone layout (`src/shell/phone.ts`) renders the same Model: the top visible window fills the screen, and the Today screen shows when none is open.
@@ -46,6 +57,38 @@ Notepad (`src/apps/notepad.ts`) is the pattern for the other apps. It has its ow
 4. Add a `Got<App>Message` Message, route it in `src/update.ts`, and render it in `appView` in `src/shell/window.ts`.
 
 The apps that are still stubs show their name and "Coming in unit 2".
+
+An app that needs shared state, such as the review, takes it as `viewInputs` in its view and as a context argument in its `update`, the way Command Prompt and Heron Studio do. An app's CSS sits next to it (`src/apps/<app>.css`) and is imported by the app module.
+
+- **Command Prompt** (`src/apps/cmd.ts`): `help`, `cls`, `dir`, `cd`, `type`, `exit` over the Heron OS file system, with the home folder `C:\Users\Visitor` standing for its root, and a history for the up and down arrows. `heron --help`, `heron config check` and the other `heron` commands it knows print the real CLI's output. `heron review --mr 42 --dry-run` streams the shared review and prints the report; without `--dry-run` it posts.
+- **Heron Studio** (`src/apps/studio.ts`, tokenizer in `src/apps/highlight.ts`): opens `.ts`, `.vue`, `.json` and `.diff` files, with the merge request's files and Heron's source in Solution Explorer. Typing works; Save shows "Heron never edits code". Once the review is Done, findings show as red (blocker) and blue (advisory) squiggles with tooltips and in the Error List, whose rows jump to the line. On the phone it is a full-screen viewer with the findings under the code.
+
+## The merge request !42
+
+`src/data/mr42.ts` is the one source for the fictional merge request acme/storefront !42: its change, its review and Heron's report note. Every app that shows the merge request imports it. The data says it is fictional (`isFictional: true`).
+
+```ts
+import { mr42, findingsIn, type MergeRequest42, type Finding, type Session, type ChangedFile } from "./data/mr42"
+```
+
+- `mr42.files`: the three changed files (`src/locales/en.json`, `src/projects/ProjectList.vue`, `src/projects/archive.ts`), each with `before`, `after` and the GitLab-style `diff`. `mr42.diff` is the whole change as `git diff` prints it; the desktop's `merge-request-42.diff` is this text. The diffs are computed from the contents (`src/data/unifiedDiff.ts`), so they cannot drift from the files.
+- `mr42.sessions`: the standard lane's plan, `gate.design`, `gate.correctness`, `gate.security`, then `supervisor`, with the profile's harness, model and effort from `heron.config.example.json`, and start times that follow the `claude` harness's concurrency of 2.
+- `mr42.findings`: what the report lists, blockers first: one blocker and four advisories, each at `path:line` with an `excerpt` the editor underlines. `findingsIn(path)` filters them.
+- `mr42.verdict`, `mr42.configDigest`, `mr42.noteId`, and `mr42.note`: the report note, exactly as `heron review --mr 42 --dry-run` prints it.
+
+The hand-written part is `src/data/mr42-data.ts`: the file contents, each session's raw findings and the supervisor's keep-or-drop decisions. At build time `build/heron-build.ts` imports the root package's `src/config.ts`, `src/policy.ts` and `src/report.ts` in Node (with the root's own effect 4.0.0-rc.115; nothing from it is bundled), loads `heron.config.example.json` with the forge pointed at `gitlab.heron.local` and `acme/storefront`, and runs Heron's `classify`, `planFor`, `applySynthesis`, `verdictOf` and `renderReport` over the data. The build fails if the lane, the session plan or the verdict disagrees with the data, or if `heron config check` prints another digest. It also runs the real CLI for the `heron` commands Command Prompt knows and keeps their output. `virtual:heron-build` exports `reportNote`, `findingIds`, `configDigest`, `labelNames`, `profiles` and `cliOutput`.
+
+## The review engine
+
+`src/domain/review.ts` simulates one run of `heron review` over `mr42`. The Model's `review` is:
+
+- `Idle` before the first run.
+- `Running`: the delivery (`DryRun` or `Post`), the run number, the events emitted so far, and the mock merge request's live `labels` and `isReportNotePosted`.
+- `Done`: the same, plus the verdict and when the run started and ended.
+
+`start(review, delivery)` begins a run; it does nothing while one is running. While a run is Running, a subscription in `src/subscription.ts` ticks every 100 ms and `advance(review, now)` emits every event that is due. The events are `LoadedConfig`, `TookSnapshot`, `Classified`, `StartedSession` and `FinishedSession` for each session, then, for a posted run only, `ChangedLabels` (the in-progress label first, the verdict's label at the end) and `PostedNote` (`created`, or `updated` on a later run), and finally `Finished`. `timeline` gives each event's time: the session times of the data, played 25 times faster, so a run takes about 9 seconds. A dry run leaves the labels and the note alone.
+
+Apps read the one shared state: `labelsOf`, `isReportNotePosted`, `eventsOf`, `sessionStatus`, `progressOf`, `describeEvent` (one line per event, as Command Prompt and the Output window print it) and `cliResult` (what the CLI prints when the run ends). The real CLI prints only that result; Command Prompt says so before it streams the events.
 
 ## Keyboard
 
@@ -66,7 +109,7 @@ The native glass needs Chrome's HTML-in-canvas origin trial for `https://nicksuo
 
 ## Content
 
-Every Heron fact on screen comes from the root [README.md](../README.md), the docs, and the source. The merge request acme/storefront !42, its diff (`src/domain/mergeRequest42.diff`) and its review are a fictional example and say so.
+Every Heron fact on screen comes from the root [README.md](../README.md), the docs, and the source. The merge request acme/storefront !42, its diff and its review (`src/data/mr42.ts`) are a fictional example and say so; the report note and the CLI output are Heron's own, produced at build time.
 
 ## Design book
 

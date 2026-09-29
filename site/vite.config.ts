@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import { defineConfig, type Plugin } from "vite"
 
+import { heronBuild } from "./build/heron-build.ts"
+
 // The Heron folder on the desktop is the real repository, read at build time.
 const repoRoot = resolve(import.meta.dirname, "..")
 const sources = ["README.md", "heron.config.example.json", "docs", "src"]
@@ -30,6 +32,6 @@ const heronFiles = (): Plugin => {
 
 export default defineConfig({
   base: "/heron/",
-  plugins: [heronFiles()],
+  plugins: [heronFiles(), heronBuild()],
   build: { target: "es2022", assetsInlineLimit: 0, chunkSizeWarningLimit: 900 },
 })

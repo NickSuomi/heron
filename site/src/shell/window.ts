@@ -1,19 +1,21 @@
 import { Match, Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 
+import * as Cmd from "../apps/cmd"
 import * as Notepad from "../apps/notepad"
 import { appIdOf, definition, iconOf, titleOf } from "../apps/registry"
+import * as Studio from "../apps/studio"
 import * as Stub from "../apps/stub"
 import { edges } from "../domain/geometry"
 import * as Desk from "../domain/window"
 import { Message } from "../message"
-import type { Model } from "../model"
+import { isPhone, type Model } from "../model"
 import { GlassSurface } from "./glass"
 import { iconUrl } from "./icons"
 
 const px = (value: number): string => `${Math.round(value)}px`
 
-export const appView = (win: Desk.Window, h: HtmlBuilder<Message>): Html =>
+export const appView = (model: Model, win: Desk.Window, h: HtmlBuilder<Message>): Html =>
   Match.value(win.app).pipe(
     Match.tagsExhaustive({
       Notepad: (notepad) =>
@@ -22,6 +24,22 @@ export const appView = (win: Desk.Window, h: HtmlBuilder<Message>): Html =>
           model: notepad,
           view: Notepad.view,
           toParentMessage: (message) => Message.GotNotepadMessage({ windowId: win.id, message }),
+        }),
+      Cmd: (cmd) =>
+        h.submodel({
+          slotId: `cmd-${win.id}`,
+          model: cmd,
+          view: Cmd.view,
+          viewInputs: { review: model.review, inputId: Cmd.inputIdFor(win.id) },
+          toParentMessage: (message) => Message.GotCmdMessage({ windowId: win.id, message }),
+        }),
+      Studio: (studio) =>
+        h.submodel({
+          slotId: `studio-${win.id}`,
+          model: studio,
+          view: Studio.view,
+          viewInputs: { review: model.review, windowId: win.id, isPhone: isPhone(model) },
+          toParentMessage: (message) => Message.GotStudioMessage({ windowId: win.id, message }),
         }),
       Stub: (stub) => Stub.view(h, definition(stub.app).name, stub),
     }),
@@ -106,7 +124,7 @@ export const windowView = (model: Model, win: Desk.Window, zIndex: number, h: Ht
         [h.img([h.Class("title-icon"), h.Src(iconUrl(iconOf(win.app))), h.Alt("")]), h.span([h.Class("title-text")], [title])],
       ),
       captionButtons(win, h),
-      h.div([h.Class("client")], [appView(win, h)]),
+      h.div([h.Class("client")], [appView(model, win, h)]),
       ...resizeHandles(win, h),
     ],
   )

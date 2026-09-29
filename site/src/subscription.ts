@@ -46,6 +46,21 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
       Stream.map(() => Message.ResizedViewport({ viewport: viewportNow() })),
     ),
   ),
+  // While a review runs, its clock ticks ten times a second; the update emits the events that are due.
+  review: entry(
+    { isRunning: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ isRunning: model.review._tag === "Running" }),
+      dependenciesToStream: ({ isRunning }) =>
+        Stream.when(
+          Stream.tick(Duration.millis(100)).pipe(
+            Stream.mapEffect(() => Clock.currentTimeMillis),
+            Stream.map((now) => Message.TickedReview({ now })),
+          ),
+          Effect.sync(() => isRunning),
+        ),
+    },
+  ),
   pointer: entry(
     { isDragging: Schema.Boolean },
     {

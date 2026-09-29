@@ -1,14 +1,14 @@
 import { Array, Option, pipe, Record, Schema } from "effect"
 import { heronFiles } from "virtual:heron-files"
 
-import mergeRequestDiff from "./mergeRequest42.diff?raw"
+import { mr42 } from "../data/mr42"
 
 /** An absolute path in the Heron OS file system, such as `/Desktop/README.txt`. */
 export const FilePath = Schema.String.pipe(Schema.brand("FilePath"))
 export type FilePath = typeof FilePath.Type
 
 /** What a file is, decided by its extension. Apps declare the types they open. */
-export const FileType = Schema.Literals(["Text", "Markdown", "TypeScript", "Json", "Diff", "Diagram", "Program", "Folder"])
+export const FileType = Schema.Literals(["Text", "Markdown", "TypeScript", "Vue", "Json", "Diff", "Diagram", "Program", "Folder"])
 export type FileType = typeof FileType.Type
 
 export const AppId = Schema.Literals(["notepad", "editor", "diagram", "cmd", "explorer", "browser", "welcome", "uac", "help"])
@@ -24,6 +24,7 @@ const extensionTypes: Record<string, FileType> = {
   txt: "Text",
   md: "Markdown",
   ts: "TypeScript",
+  vue: "Vue",
   json: "Json",
   css: "Text",
   diff: "Diff",
@@ -69,12 +70,15 @@ const repositoryFile = (at: string): string =>
     Option.getOrElse(() => ""),
   )
 
+/** Where the fictional acme/storefront repository is checked out, at the head of merge request !42. */
+export const storefrontPath = "/storefront"
+
 const leaves: ReadonlyArray<VfsFile | VfsShortcut> = [
   shortcut("/Desktop/Computer", "explorer", "/"),
   shortcut("/Desktop/Heron", "explorer", "/Heron"),
   file("/Desktop/README.txt", repositoryFile("README.md")),
   file("/Desktop/How Heron works.vsd", ""),
-  file("/Desktop/merge-request-42.diff", mergeRequestDiff),
+  file("/Desktop/merge-request-42.diff", mr42.diff),
   file("/Desktop/heron.config.json", repositoryFile("heron.config.example.json")),
   shortcut("/Desktop/Command Prompt", "cmd"),
   shortcut("/Desktop/Internet Explorer", "browser"),
@@ -83,6 +87,8 @@ const leaves: ReadonlyArray<VfsFile | VfsShortcut> = [
   file("/Recycle Bin/force-push.bat", ""),
   file("/Recycle Bin/merge-without-review.lnk", ""),
   ...heronFiles.map((entry) => file(`/Heron/${entry.path}`, entry.content)),
+  // The fictional acme/storefront checkout at the head of merge request !42.
+  ...mr42.files.map((changed) => file(`${storefrontPath}/${changed.path}`, changed.after)),
 ]
 
 const folderPaths = (at: string): ReadonlyArray<string> =>

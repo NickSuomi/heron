@@ -24,8 +24,14 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: site/pnpm-lock.yaml
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            site/pnpm-lock.yaml
+      # The site build runs Heron itself (its CLI and renderReport), so the root package needs its dependencies too.
       - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
+        working-directory: site
+      - run: pnpm test
         working-directory: site
       - run: pnpm build
         working-directory: site

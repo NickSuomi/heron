@@ -78,7 +78,7 @@ export const phoneView = (model: Model, h: HtmlBuilder<Message>): Html => {
      ),
       h.main(
         [h.Class(`wm-body${Option.isSome(maybeTop) ? " is-app" : ""}`)],
-        [Option.match(maybeTop, { onNone: () => todayView(model, h), onSome: (win) => h.div([h.Class(`wm-app app-${win.app._tag.toLowerCase()}`)], [appView(win, h)]) })],
+        [Option.match(maybeTop, { onNone: () => todayView(model, h), onSome: (win) => h.div([h.Class(`wm-app app-${win.app._tag.toLowerCase()}`)], [appView(model, win, h)]) })],
      ),
       model.isStartMenuOpen ? startListView(h) : h.empty,
       h.footer(
