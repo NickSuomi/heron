@@ -155,6 +155,15 @@ describe("GitLab forge", () => {
         web_url: `https://gitlab.example.com/group/app/-/issues/${iid}`,
         references: { full: `group/app#${iid}` }
       })
+      // GitLab 18.11 leaves `references` out of related_issues items.
+      const related = (id: number, iid: number, title: string, project: string) => ({
+        id,
+        iid,
+        title,
+        description: `Details of ${iid}.`,
+        state: "opened",
+        web_url: `https://gitlab.example.com/${project}/-/work_items/${iid}`
+      })
       const log = [
         "\x1b[0KRunning with gitlab-runner 18.0",
         "section_start:1700000000:step_script\r\x1b[0K\x1b[32;1m$ pnpm test\x1b[0m",
@@ -169,7 +178,7 @@ describe("GitLab forge", () => {
         page([diff("src/a.ts")], ""),
         { body: [version()] },
         page([issue(1, 12, "Totals are wrong")], ""),
-        page([issue(1, 12, "Totals are wrong"), issue(2, 14, "Follow-up")], ""),
+        page([related(1, 12, "Totals are wrong", "group/app"), related(2, 14, "Follow-up", "group/plans")], ""),
         page([{ id: 7001, name: "unit", stage: "test", web_url: "https://gitlab.example.com/group/app/-/jobs/7001" }], ""),
         { body: log }
       ])
@@ -181,7 +190,7 @@ describe("GitLab forge", () => {
       ])
       expect(snapshot.issues).toEqual([
         { reference: "group/app#12", relation: "closes", title: "Totals are wrong", description: "Details of 12.", state: "opened", webUrl: "https://gitlab.example.com/group/app/-/issues/12" },
-        { reference: "group/app#14", relation: "related", title: "Follow-up", description: "Details of 14.", state: "opened", webUrl: "https://gitlab.example.com/group/app/-/issues/14" }
+        { reference: "group/plans#14", relation: "related", title: "Follow-up", description: "Details of 14.", state: "opened", webUrl: "https://gitlab.example.com/group/plans/-/work_items/14" }
       ])
       const tail = snapshot.pipeline!.failedJobs[0]!.logTail.split("\n")
       expect([snapshot.pipeline!.id, snapshot.pipeline!.status, tail.length, tail[0], tail.slice(-3)]).toEqual([

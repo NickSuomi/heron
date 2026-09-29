@@ -33,12 +33,17 @@ const MergeRequest = Schema.Struct({
 })
 const Issue = Schema.Struct({
   id: Schema.Int,
+  iid: Schema.Int,
   title: Schema.String,
   description: Schema.NullOr(Schema.String),
   state: Schema.String,
   web_url: Schema.String,
-  references: Schema.Struct({ full: Schema.String })
+  // GitLab 18.11 leaves this out of related_issues items.
+  references: Schema.optionalKey(Schema.Struct({ full: Schema.String }))
 })
+/** `group/app#12` from the issue's page URL, for items that come without `references`. */
+const referenceOf = (issue: typeof Issue.Type): string =>
+  issue.references?.full ?? `${new URL(issue.web_url).pathname.split("/-/")[0]!.slice(1)}#${issue.iid}`
 const Job = Schema.Struct({ id: Schema.Int, name: Schema.String, stage: Schema.String, web_url: Schema.String })
 const Version = Schema.Struct({
   state: Schema.String,
@@ -222,7 +227,7 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
           ...closing.map((i) => ({ i, relation: "closes" as const })),
           ...related.filter((r) => !closing.some((c) => c.id === r.id)).map((i) => ({ i, relation: "related" as const }))
         ].map(({ i, relation }) => ({
-          reference: i.references.full,
+          reference: referenceOf(i),
           relation,
           title: i.title,
           description: i.description ?? "",
