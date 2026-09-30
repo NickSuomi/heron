@@ -145,6 +145,7 @@ const render = async (repoRoot: string) => {
     dismissed: [],
     rereview: null,
     subscription: null,
+    memory: null,
   }
   return {
     note: report.renderReport(review),

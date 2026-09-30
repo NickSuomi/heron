@@ -52,7 +52,8 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
     liveHead: null,
     dismissed: [],
     rereview: null,
-    subscription: null
+    subscription: null,
+    memory: null
   }
   return renderReport(review)
 }

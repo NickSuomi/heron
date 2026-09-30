@@ -1,10 +1,13 @@
-import { Clock, Data, Duration, Effect, Schema, Semaphore } from "effect"
+import { Clock, Data, Duration, Effect, Option, Schema, Semaphore } from "effect"
 import type { Config } from "./config.ts"
 import {
   type Branch,
   type Comments,
   type Discussions,
   type Finding,
+  type Gate,
+  type MemoryEntry,
+  type MemoryUse,
   type MrRef,
   type MrSnapshot,
   type Outcome,
@@ -33,6 +36,7 @@ import {
   classify,
   dropDismissed,
   labelTransition,
+  memoryQueries,
   planFor,
   publication,
   rereviewStart,
@@ -40,7 +44,7 @@ import {
   threadActions,
   verdictOf
 } from "./policy.ts"
-import { Forge, Harness, type HarnessResult, type Noteable, type SourceCheckout } from "./ports.ts"
+import { Forge, Harness, type HarnessResult, Memory, type Noteable, type SourceCheckout } from "./ports.ts"
 import { earlierText, findingsText, instructionsFor, packetText } from "./prompt.ts"
 import { renderCleared, renderReport, renderThread } from "./report.ts"
 
@@ -92,14 +96,15 @@ const execute = Effect.fn("execute")(function*(
   snapshot: MrSnapshot,
   source: SourceCheckout,
   discussions: Discussions,
-  rereview: Rereview | null
+  rereview: Rereview | null,
+  memory: MemoryUse | null
 ) {
   const harness = yield* Harness
   const permits = new Map<string, Semaphore.Semaphore>()
   for (const [key, h] of Object.entries(config.harnesses)) permits.set(key, yield* Semaphore.make(h.concurrency))
   const sessions: Array<SessionRecord> = []
   const warnings = new Set<string>()
-  const packet = packetText(snapshot, rereview)
+  const packet = packetText(snapshot, rereview, memory?.kind === "recalled" ? memory.entries : [])
   const earlier = rereview?.earlier ?? []
   const withEarlier = (prompt: string, adds: boolean) => rereview === null ? prompt : `${prompt}\n\n${earlierText(rereview, adds)}`
 
@@ -120,7 +125,7 @@ const execute = Effect.fn("execute")(function*(
         })
       const result = yield* harness.run({
         slot,
-        instructions: instructionsFor(slot, config.policy),
+        instructions: instructionsFor(slot, config.policy, memory !== null),
         prompt,
         source,
         discussions,
@@ -243,6 +248,36 @@ export const readDiscussions = Effect.fn("readDiscussions")(function*(snapshot: 
   return { mergeRequest, issues: Object.fromEntries(issues) } satisfies Discussions
 })
 
+/** How long a review waits for the team memory before it goes on without it. */
+export const MEMORY_TIMEOUT = Duration.seconds(10)
+/** The most memories one packet carries. */
+const MAX_MEMORIES = 30
+
+/**
+ * The team memory for this change, read once by the parent, as `read_discussions` is: no session reaches the store or its
+ * key. Null when none is configured. A store that fails or is slow means a review without memory, never a failed one.
+ */
+export const recallMemory = Effect.fn("recallMemory")(function*(snapshot: MrSnapshot, gates: ReadonlyArray<Gate>) {
+  const memory = yield* Effect.serviceOption(Memory)
+  if (Option.isNone(memory)) return null
+  const store = memory.value
+  return yield* Effect.forEach(memoryQueries(snapshot, gates), store.recall, { concurrency: "unbounded" }).pipe(
+    Effect.map((found): MemoryUse => {
+      const seen = new Set<string>()
+      const entries = found.flat().filter((e: MemoryEntry) => {
+        const key = JSON.stringify([e.text, e.metadata["mergeRequest"] ?? "", e.metadata["note"] ?? ""])
+        return seen.has(key) ? false : (seen.add(key), true)
+      })
+      return { kind: "recalled", entries: entries.slice(0, MAX_MEMORIES) }
+    }),
+    Effect.timeoutOrElse({
+      duration: MEMORY_TIMEOUT,
+      orElse: () => Effect.succeed<MemoryUse>({ kind: "unavailable", reason: `no answer within ${Duration.format(MEMORY_TIMEOUT)}` })
+    }),
+    Effect.catch((e) => Effect.succeed<MemoryUse>({ kind: "unavailable", reason: e.message }))
+  )
+})
+
 const applyThread = (ref: MrRef, revision: MrSnapshot["revision"], action: ThreadAction) =>
   Effect.gen(function*() {
     const forge = yield* Forge
@@ -319,18 +354,19 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
     const limits = harness.limits
     const before = limits === undefined ? null : yield* limits
     const discussions = yield* readDiscussions(snapshot)
+    const memory = yield* recallMemory(snapshot, classification.lane.gates)
     const done = yield* Effect.scoped(
-      Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source, discussions, rereview))
+      Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source, discussions, rereview, memory))
     )
     const after = limits === undefined ? null : yield* limits
     const subscription: SubscriptionUse | null = before === null || after === null ? null : { before, after, warnings: done.warnings }
     // A person dismissed these in their threads; code drops them after the rulings, so no session can bring one back.
     const { dismissed, outcome } = dropDismissed(done.outcome, dismissals)
-    return { sessions: done.sessions, outcome, dismissed, subscription }
+    return { sessions: done.sessions, outcome, dismissed, subscription, memory }
   })
   if (!request.publish) {
-    const { dismissed, outcome, sessions, subscription } = yield* reviewed
-    const review: Review = { ...base, sessions, outcome, dismissed, subscription, verdict: verdictOf(outcome), liveHead: null }
+    const { dismissed, memory, outcome, sessions, subscription } = yield* reviewed
+    const review: Review = { ...base, sessions, outcome, dismissed, subscription, memory, verdict: verdictOf(outcome), liveHead: null }
     const threads = yield* syncThreads(review, false)
     return { review, body: renderReport(review, threads), note: { kind: "dry-run" }, threads } satisfies ReviewResult
   }
@@ -342,10 +378,10 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const clearRunning = labels.inProgress === null ? Effect.void : forge.updateLabels(ref, { add: [], remove: [labels.inProgress] }).pipe(Effect.ignore)
 
   return yield* Effect.gen(function*() {
-    const { dismissed, outcome, sessions, subscription } = yield* reviewed
+    const { dismissed, memory, outcome, sessions, subscription } = yield* reviewed
     const live = yield* forge.live(ref)
     const moved = live.head !== head
-    const review: Review = { ...base, sessions, outcome, dismissed, subscription, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
+    const review: Review = { ...base, sessions, outcome, dismissed, subscription, memory, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
     // Threads go first so the note, the full record, can say what happened to them. A failed thread write never stops the note.
     const threads = yield* syncThreads(review, true)
     const body = renderReport(review, threads)

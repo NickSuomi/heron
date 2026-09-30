@@ -1,13 +1,15 @@
-import { Clock, Duration, Effect, Schema } from "effect"
+import { Clock, Duration, Effect, Option, Schema } from "effect"
 import type { Config } from "./config.ts"
-import { answerOutput, type Command, type CommandNote, type MrRef, type NoteId, outputJsonSchema, type UserId } from "./domain.ts"
-import { answererOf, classify, planCommands, type PlannedCommand, planFor } from "./policy.ts"
-import { Forge, Harness } from "./ports.ts"
+import { answerOutput, type Command, type CommandNote, type MemoryWrite, type MrRef, type NoteId, outputJsonSchema, type UserId } from "./domain.ts"
+import { answererOf, classify, dismissedMemory, learnedMemory, planCommands, type PlannedCommand, planFor } from "./policy.ts"
+import { Forge, Harness, Memory } from "./ports.ts"
 import { instructionsFor, questionText } from "./prompt.ts"
 import {
   DISMISS_REASON,
   DISMISS_WHERE,
   HELP,
+  LEARN_RULE,
+  NO_MEMORY,
   renderAnswer,
   renderConfiguration,
   renderDenied,
@@ -15,9 +17,10 @@ import {
   renderFailed,
   renderResolveDone,
   renderResolvedThread,
-  renderReviewed
+  renderReviewed,
+  renderStored
 } from "./report.ts"
-import { readDiscussions, reviewOnce } from "./review.ts"
+import { MEMORY_TIMEOUT, readDiscussions, reviewOnce } from "./review.ts"
 
 export class PollRefused extends Schema.TaggedError<PollRefused>()("PollRefused", {}) {
   override get message() {
@@ -69,7 +72,7 @@ const answer = (config: Config, ref: MrRef, note: CommandNote, question: string)
     const result = yield* Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) =>
       harness.run({
         slot,
-        instructions: instructionsFor(slot, config.policy),
+        instructions: instructionsFor(slot, config.policy, false),
         prompt: questionText(snapshot, note.thread, question),
         source,
         discussions,
@@ -99,6 +102,24 @@ const resolveAll = (ref: MrRef, by: string) =>
     } satisfies Done
   })
 
+/**
+ * Writes one memory an allowed user's command asked for, and says what it stored. Null when no team memory is configured.
+ * A store that fails or is slow is a reply saying nothing was stored; the command it came with still counts.
+ */
+const remember = (write: (date: string) => MemoryWrite, kind: "rule" | "reason") =>
+  Effect.gen(function*() {
+    const memory = yield* Effect.serviceOption(Memory)
+    if (Option.isNone(memory)) return null
+    const store = memory.value
+    const entry = write(new Date(yield* Clock.currentTimeMillis).toISOString())
+    const failure = yield* store.retain(entry).pipe(
+      Effect.as(null),
+      Effect.timeoutOrElse({ duration: MEMORY_TIMEOUT, orElse: () => Effect.succeed(`no answer within ${Duration.format(MEMORY_TIMEOUT)}`) }),
+      Effect.catch((e) => Effect.succeed(e.message))
+    )
+    return { reply: renderStored(kind, store.bank, entry.text, failure), failure }
+  })
+
 const run = (config: Config, ref: MrRef, note: CommandNote, command: Command) =>
   Effect.gen(function*() {
     const forge = yield* Forge
@@ -123,7 +144,25 @@ const run = (config: Config, ref: MrRef, note: CommandNote, command: Command) =>
         // The reply is the record later reviews read, so it goes first; resolving is the visible half.
         yield* forge.replyToThread(ref, note.discussion, renderDismissed({ fingerprint: note.blocker, by: note.author.username, reason: command.reason }))
         yield* forge.resolveThread(ref, note.discussion, true)
-        return { reply: "", result: `dismissed ${note.blocker.gate} in ${note.blocker.path}`, failed: false } satisfies Done
+        const result = `dismissed ${note.blocker.gate} in ${note.blocker.path}`
+        const blocker = note.blocker
+        const stored = yield* remember((date) => dismissedMemory(ref, note, blocker, command.reason, date), "reason")
+        if (stored === null) return { reply: "", result, failed: false } satisfies Done
+        return {
+          reply: stored.reply,
+          result: `${result}, ${stored.failure === null ? "stored in memory" : `memory failed: ${stored.failure}`}`,
+          failed: stored.failure !== null
+        } satisfies Done
+      }
+      case "learn": {
+        if (command.rule === "") return { reply: LEARN_RULE, result: "no rule given", failed: false } satisfies Done
+        const stored = yield* remember((date) => learnedMemory(ref, note, command.rule, date), "rule")
+        if (stored === null) return { reply: NO_MEMORY, result: "no team memory configured", failed: false } satisfies Done
+        return {
+          reply: stored.reply,
+          result: stored.failure === null ? "stored in memory" : `memory failed: ${stored.failure}`,
+          failed: stored.failure !== null
+        } satisfies Done
       }
       case "help":
         return { reply: HELP, result: "replied", failed: false } satisfies Done

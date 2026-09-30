@@ -38,6 +38,7 @@ export const jobEnv = {
   HOME: "/tmp/heron-home",
   GITLAB_TOKEN: "glpat-must-not-leak",
   CI_JOB_TOKEN: "job-token-must-not-leak",
+  HERON_HINDSIGHT_API_KEY: "hs-key-must-not-leak",
   CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-test-token",
   CODEX_HOME: "/var/lib/codex-home",
   CLAUDE_CONFIG_DIR: "/var/lib/operator-claude",

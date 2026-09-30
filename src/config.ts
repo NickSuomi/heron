@@ -22,6 +22,10 @@ export class ConfigError extends Schema.TaggedError<ConfigError>()("ConfigError"
 const Text = Schema.String.check(Schema.isMinLength(1))
 const Positive = Schema.Int.check(Schema.isGreaterThan(0))
 
+const Url = Schema.String.check(Schema.isPattern(/^https?:\/\/[^\s/]+(\/[^\s]*)?$/))
+/** A Hindsight bank id Heron may put in a URL path as it is. */
+const BANK = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+
 const HarnessFile = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("claude-cli"), concurrency: Positive, command: Schema.optionalKey(Text) }),
   Schema.Struct({ kind: Schema.Literal("codex-cli"), concurrency: Positive, command: Schema.optionalKey(Text) }),
@@ -47,7 +51,7 @@ const LaneFile = Schema.Union([
 export const ConfigFile = Schema.Struct({
   forge: Schema.Struct({
     kind: Schema.Literal("gitlab"),
-    url: Schema.String.check(Schema.isPattern(/^https?:\/\/[^\s/]+(\/[^\s]*)?$/)),
+    url: Url,
     project: Text,
     botUserId: UserId
   }),
@@ -73,9 +77,21 @@ export const ConfigFile = Schema.Struct({
   }))),
   policy: Schema.optionalKey(Schema.Struct({ instructions: Schema.Array(Text) })),
   limits: Schema.optionalKey(Schema.Struct({ maxTurns: Schema.optionalKey(Positive), sessionTimeoutSeconds: Schema.optionalKey(Positive) })),
-  poll: Schema.optionalKey(Schema.Struct({ concurrency: Schema.optionalKey(Positive) }))
+  poll: Schema.optionalKey(Schema.Struct({ concurrency: Schema.optionalKey(Positive) })),
+  /** `kind` may be left out, so `HERON_HINDSIGHT_URL` alone turns the team memory on. */
+  memory: Schema.optionalKey(Schema.Struct({
+    kind: Schema.optionalKey(Schema.Literal("hindsight")),
+    url: Url,
+    bank: Schema.optionalKey(Schema.String.check(Schema.isPattern(BANK)))
+  }))
 })
 export type ConfigFile = typeof ConfigFile.Type
+
+export interface MemoryConfig {
+  readonly kind: "hindsight"
+  readonly url: string
+  readonly bank: string
+}
 
 export interface Rule {
   readonly id: string
@@ -100,6 +116,8 @@ export interface Config {
   readonly limits: { readonly maxTurns: number | null; readonly sessionTimeoutSeconds: number | null }
   /** How many merge requests `heron poll` handles at once; commands on one merge request always run one at a time. */
   readonly poll: { readonly concurrency: number }
+  /** The team memory, or null when none is configured. The key never sits here; the adapter reads it from the env. */
+  readonly memory: MemoryConfig | null
   /** The file after env overrides, as decoded; printed by `config check`. */
   readonly effective: ConfigFile
   readonly digest: string
@@ -131,6 +149,7 @@ export const envVars: ReadonlyArray<EnvVar> = [
   { name: "HERON_MAX_TURNS", target: ["limits", "maxTurns"], kind: "int", description: "Optional turn limit per session. Unset means no limit." },
   { name: "HERON_SESSION_TIMEOUT_SECONDS", target: ["limits", "sessionTimeoutSeconds"], kind: "int", description: "Optional wall-clock limit per session, in seconds. Unset means no limit." },
   { name: "HERON_POLL_CONCURRENCY", target: ["poll", "concurrency"], kind: "int", description: "Merge requests heron poll handles at once. Default 2." },
+  { name: "HERON_HINDSIGHT_URL", target: ["memory", "url"], kind: "string", description: "Hindsight API base URL for the team memory. Setting it turns the team memory on." },
   { name: "HERON_PROFILE_*_HARNESS", target: ["profiles", "*", "harness"], kind: "string", description: "Harness key of one profile." },
   { name: "HERON_PROFILE_*_MODEL", target: ["profiles", "*", "model"], kind: "string", description: "Model of one profile." },
   { name: "HERON_PROFILE_*_EFFORT", target: ["profiles", "*", "effort"], kind: "string", description: "Reasoning effort of one profile." },
@@ -143,7 +162,8 @@ export const envVars: ReadonlyArray<EnvVar> = [
   { name: "ANTHROPIC_API_KEY", target: null, kind: "secret", description: "API key for the claude-cli harness, instead of CLAUDE_CODE_OAUTH_TOKEN." },
   { name: "CODEX_HOME", target: null, kind: "path", description: "Persistent Codex home holding the codex-cli login." },
   { name: "CODEX_API_KEY", target: null, kind: "secret", description: "API key for the codex-cli harness, instead of a login in CODEX_HOME." },
-  { name: "OPENROUTER_API_KEY", target: null, kind: "secret", description: "API key for the ai-sdk harness." }
+  { name: "OPENROUTER_API_KEY", target: null, kind: "secret", description: "API key for the ai-sdk harness." },
+  { name: "HERON_HINDSIGHT_API_KEY", target: null, kind: "secret", description: "Hindsight API key, when its API requires one. Never passed to a harness." }
 ]
 
 export type Env = Readonly<Record<string, string | undefined>>
@@ -219,6 +239,15 @@ const canonical = (u: unknown): string =>
     : JSON.stringify(u)
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
+
+/**
+ * The bank of one project: its path in lower case, runs of other characters turned into `-`, and a short hash of the exact
+ * path, so `acme/store-front` and `acme/store/front` never share a bank.
+ */
+export const bankOf = (project: string): string => {
+  const slug = project.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 96)
+  return `heron-${slug === "" ? "project" : slug}-${sha256(project).slice(0, 8)}`
+}
 
 const missing = (what: string) => Result.fail(new ConfigError({ message: what }))
 
@@ -300,6 +329,7 @@ export const resolveConfig = (
       policy,
       limits: { maxTurns: file.limits?.maxTurns ?? null, sessionTimeoutSeconds: file.limits?.sessionTimeoutSeconds ?? null },
       poll: { concurrency: file.poll?.concurrency ?? 2 },
+      memory: file.memory === undefined ? null : { kind: "hindsight", url: file.memory.url, bank: file.memory.bank ?? bankOf(file.forge.project) },
       effective: file,
       digest: sha256(canonical({ config: file, instructions }))
     }

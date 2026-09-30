@@ -11,6 +11,8 @@ import type {
   LabelTransition,
   LimitReading,
   Marker,
+  MemoryEntry,
+  MemoryWrite,
   MrRef,
   MrSnapshot,
   NoteId,
@@ -149,3 +151,29 @@ export interface HarnessShape {
 }
 
 export class Harness extends Context.Service<Harness, HarnessShape>()("heron/Harness") {}
+
+export class MemoryError extends Schema.TaggedError<MemoryError>()("MemoryError", {
+  operation: Schema.String,
+  /** Sanitized: a status or a transport failure, never the key or a response body. */
+  detail: Schema.String
+}) {
+  override get message() {
+    return `${this.operation}: ${this.detail}`
+  }
+}
+
+/**
+ * The team memory of the configured project: one bank, read before a review and written only by `@heron learn` and
+ * `@heron dismiss` from allowed users. Only the parent holds it; no session reaches the store or its key.
+ */
+export interface MemoryShape {
+  /** The bank's name, for the replies that say where a memory went. */
+  readonly bank: string
+  /** The entries that match `query`; none when the bank does not exist yet. */
+  readonly recall: (query: string) => Effect.Effect<ReadonlyArray<MemoryEntry>, MemoryError>
+  /** Stores `entry` as written, creating the bank on first use; the same `id` replaces the earlier entry. */
+  readonly retain: (entry: MemoryWrite) => Effect.Effect<void, MemoryError>
+}
+
+/** Absent when no team memory is configured: Heron then reviews and answers commands exactly as without one. */
+export class Memory extends Context.Service<Memory, MemoryShape>()("heron/Memory") {}

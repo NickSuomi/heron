@@ -26,6 +26,10 @@ In **Settings > CI/CD > Variables**, add:
 | `HERON_BOT_USER_ID` | The bot's user id | |
 | `HERON_ALLOWED_TRIGGER_USERS` | Comma-separated user ids that may start a review, for example `2001,2002` | |
 | `HERON_CONFIG_JSON` | The JSON below | |
+| `HERON_HINDSIGHT_URL` | Optional. Your Hindsight API base URL, for example `https://hindsight.example`. Setting it turns the [team memory](../README.md#team-memory) on | |
+| `HERON_HINDSIGHT_API_KEY` | Optional. The Hindsight API key, when your Hindsight server requires one | Masked |
+
+Leave out both Hindsight variables to run without a team memory. With `HERON_HINDSIGHT_URL` set, the review job reads the project's bank before its sessions, and the poll job writes to it for `@heron learn` and `@heron dismiss`. Both jobs need to reach the Hindsight server from the runner. The key can read and change every bank on that server, so give it the same care as the bot token. See [Security](security.md#team-memory).
 
 `HERON_ALLOWED_TRIGGER_USERS` is the admission filter. GitLab sets `GITLAB_USER_ID` in a manual job to the user who started that job. Heron refuses to run when that id is not in the list, and the job fails. If `HERON_ALLOWED_TRIGGER_USERS` is missing or empty, anyone who can run the job can start a review.
 

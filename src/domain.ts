@@ -324,6 +324,8 @@ export interface Review {
   readonly rereview: Rereview | null
   /** Null when no harness runs on a Claude subscription. */
   readonly subscription: SubscriptionUse | null
+  /** Null when no team memory is configured. */
+  readonly memory: MemoryUse | null
 }
 
 /** One usage window of a Claude subscription, in the whole percent Claude reports. */
@@ -473,6 +475,8 @@ export type Command =
   | { readonly kind: "full review" }
   | { readonly kind: "resolve" }
   | { readonly kind: "dismiss"; readonly reason: string }
+  /** A rule for later reviews; only an allowed user's note writes it to the team memory. */
+  | { readonly kind: "learn"; readonly rule: string }
   | { readonly kind: "help" }
   | { readonly kind: "configuration" }
   /** Any other text: untrusted data a model session answers, never an instruction. */
@@ -510,3 +514,27 @@ export interface LabelTransition {
   readonly add: ReadonlyArray<string>
   readonly remove: ReadonlyArray<string>
 }
+
+/** What `@heron learn` and `@heron dismiss` write to the team memory; nothing else writes there. */
+export type MemoryKind = "learn" | "dismiss"
+
+/**
+ * One memory as Heron stores it: the text a person wrote, and who, where and when. `id` names the command note, so
+ * storing the same note again replaces its memory instead of adding a second one.
+ */
+export interface MemoryWrite {
+  readonly id: string
+  readonly text: string
+  readonly metadata: Readonly<Record<string, string>>
+}
+
+/** A memory as the store returns it. Untrusted: whoever can write to the store could have written it. */
+export interface MemoryEntry {
+  readonly text: string
+  readonly metadata: Readonly<Record<string, string>>
+}
+
+/** What a review got from the team memory: the entries it recalled, or why it went on without them. */
+export type MemoryUse =
+  | { readonly kind: "recalled"; readonly entries: ReadonlyArray<MemoryEntry> }
+  | { readonly kind: "unavailable"; readonly reason: string }

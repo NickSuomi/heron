@@ -22,7 +22,9 @@ import {
   type Lane,
   type LocatedFinding,
   type Marker,
+  type MemoryWrite,
   type ModelFinding,
+  type MrRef,
   type MrSnapshot,
   type NoteId,
   type Outcome,
@@ -335,6 +337,9 @@ export const parseCommand = (body: string): Command | null => {
   }
   const dismiss = /^dismiss(?:\s+(.*))?$/i.exec(text)
   if (dismiss !== null) return { kind: "dismiss", reason: (dismiss[1] ?? "").trim() }
+  // A rule may go on over the next lines; all of it is the rule.
+  const learn = /^learn(?:\s+(.*))?$/i.exec(text)
+  if (learn !== null) return { kind: "learn", rule: [learn[1] ?? "", ...rest].join("\n").trim() }
   return { kind: "question", text: [text, ...rest].join("\n").trim() }
 }
 
@@ -359,3 +364,48 @@ export const planCommands = (allowed: ReadonlyArray<UserId>, source: { readonly 
     return [{ kind: "deny", note, reply }]
   })
 }
+
+/** How many changed paths one recall query names; Hindsight rejects a query over 500 tokens. */
+const PATHS_PER_QUERY = 25
+const MAX_PATH_QUERIES = 4
+
+/**
+ * What a review asks the team memory, built from the change alone: the title, each gate, and the changed paths in groups.
+ * Memories name a gate, a path or the words of a rule, so each query can match one by its words or its meaning.
+ */
+export const memoryQueries = (snapshot: MrSnapshot, gates: ReadonlyArray<Gate>): ReadonlyArray<string> => {
+  const paths = changedPaths(snapshot.changes)
+  const groups = Array.from({ length: Math.min(MAX_PATH_QUERIES, Math.ceil(paths.length / PATHS_PER_QUERY)) }, (_, i) =>
+    paths.slice(i * PATHS_PER_QUERY, (i + 1) * PATHS_PER_QUERY))
+  return [
+    snapshot.title,
+    ...gates.map((g) => `Review rules for the ${g.name} gate`),
+    ...groups.map((g) => `Review rules for changes to ${g.join(", ")}`)
+  ].filter((q) => q.trim() !== "")
+}
+
+/** One memory per command note: storing the same note twice replaces it. */
+const memoryId = (ref: MrRef, note: NoteId) => `heron:${ref.project}!${ref.iid}:note:${note}`
+
+/** What `@heron learn` stores: the rule exactly as the person wrote it, and who, where and when. */
+export const learnedMemory = (ref: MrRef, note: CommandNote, rule: string, date: string): MemoryWrite => ({
+  id: memoryId(ref, note.id),
+  text: rule,
+  metadata: { kind: "learn", author: note.author.username, mergeRequest: `${ref.project}!${ref.iid}`, note: String(note.id), date }
+})
+
+/** What `@heron dismiss` stores: the reason with the finding it dismissed, so a review of the same gate or path recalls it. */
+export const dismissedMemory = (ref: MrRef, note: CommandNote, finding: Fingerprint, reason: string, date: string): MemoryWrite => ({
+  id: memoryId(ref, note.id),
+  text: `Dismissed a ${finding.gate} finding in ${finding.path} ("${finding.title}"): ${reason}`,
+  metadata: {
+    kind: "dismiss",
+    author: note.author.username,
+    mergeRequest: `${ref.project}!${ref.iid}`,
+    note: String(note.id),
+    date,
+    gate: finding.gate,
+    path: finding.path,
+    title: finding.title
+  }
+})

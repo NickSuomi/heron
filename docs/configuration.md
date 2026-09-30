@@ -132,9 +132,29 @@ A review session has no turn limit and no time limit by default. The model reads
 
 Each merge request's review keeps to each harness's `concurrency`, but two reviews that run at once each do, so the sessions on one harness can reach `poll.concurrency` times its `concurrency`.
 
+### `memory`
+
+Optional. With it, Heron keeps a [team memory](../README.md#team-memory) in a Hindsight server. Without it, Heron reads and writes no memory.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `kind` | `hindsight` | The memory server. `hindsight` is the only one. |
+| `url` | required | Hindsight API base URL, such as `https://hindsight.example`. `HERON_HINDSIGHT_URL` overrides it, and setting that variable alone turns the memory on. |
+| `bank` | derived | The Hindsight bank for this project. By default `heron-`, the project path in lower case with other characters turned into `-`, and 8 hex characters of the path's SHA-256, for example `heron-acme-storefront-4eb8eda7` for `acme/storefront`. Letters, digits, `.`, `_` and `-` only. |
+
+```json
+"memory": { "kind": "hindsight", "url": "https://hindsight.example" }
+```
+
+Heron sends `HERON_HINDSIGHT_API_KEY` as a bearer token when it is set. Hindsight's API needs one only when its `ApiKeyTenantExtension` is on. The key stays in the Heron process; see [Security](security.md#team-memory).
+
+Heron creates the bank on the first `@heron learn` or `@heron dismiss`, and sets its `retain_extraction_mode` to `chunks` on every write, so the bank stores the text as written and needs no LLM. A review reads the bank through at most one recall per query: the title, one per gate, and up to four groups of 25 changed paths. It waits at most 10 seconds for all of them.
+
+`heron config check` prints `memory: not configured`, or the URL, the bank and whether `HERON_HINDSIGHT_API_KEY` is set. It never prints the key.
+
 ## Config digest
 
-The digest is a SHA-256 over the effective config and the content of every instruction file. Heron writes it into the hidden marker of the report note and shows the first 12 characters in the report. A change to an instruction file changes the digest. The next run after a digest change reviews the whole change, not only the newer commits.
+The digest is a SHA-256 over the effective config and the content of every instruction file. The effective config includes `memory`, so turning the memory on, or changing its URL or bank, changes the digest. Heron writes it into the hidden marker of the report note and shows the first 12 characters in the report. A change to an instruction file changes the digest. The next run after a digest change reviews the whole change, not only the newer commits.
 
 ## Environment variables
 
@@ -163,6 +183,7 @@ Variables with the config key `none` are read directly and are not part of the c
 | `HERON_MAX_TURNS` | `limits.maxTurns` | int | Optional turn limit per session. Unset means no limit. |
 | `HERON_SESSION_TIMEOUT_SECONDS` | `limits.sessionTimeoutSeconds` | int | Optional wall-clock limit per session, in seconds. Unset means no limit. |
 | `HERON_POLL_CONCURRENCY` | `poll.concurrency` | int | Merge requests heron poll handles at once. Default 2. |
+| `HERON_HINDSIGHT_URL` | `memory.url` | string | Hindsight API base URL for the team memory. Setting it turns the team memory on. |
 | `HERON_PROFILE_*_HARNESS` | `profiles.*.harness` | string | Harness key of one profile. |
 | `HERON_PROFILE_*_MODEL` | `profiles.*.model` | string | Model of one profile. |
 | `HERON_PROFILE_*_EFFORT` | `profiles.*.effort` | string | Reasoning effort of one profile. |
@@ -176,6 +197,7 @@ Variables with the config key `none` are read directly and are not part of the c
 | `CODEX_HOME` | none | path | Persistent Codex home holding the codex-cli login. |
 | `CODEX_API_KEY` | none | secret | API key for the codex-cli harness, instead of a login in CODEX_HOME. |
 | `OPENROUTER_API_KEY` | none | secret | API key for the ai-sdk harness. |
+| `HERON_HINDSIGHT_API_KEY` | none | secret | Hindsight API key, when its API requires one. Never passed to a harness. |
 
 <!-- env-table:end -->
 

@@ -79,7 +79,8 @@ People on the allow list can run Heron from a comment on the merge request. A co
 | `@heron review` | Reviews the merge request as `heron review` does: only the new commits when a [re-review](#re-reviews) is safe. It replies with the verdict and a link to the report. |
 | `@heron full review` | Reviews the whole merge request, even when a re-review would be safe. |
 | `@heron resolve` | Resolves every open thread Heron started on the merge request, with a reply naming who asked. |
-| `@heron dismiss`, then a reason | Only as a reply in a Heron blocker thread. Records that the blocker is dismissed, with the reason and who dismissed it, replies with `Dismissed by`, the person and the reason, and resolves the thread. Later reviews leave that finding out of the verdict and list it under REVIEW CHECKS. |
+| `@heron dismiss`, then a reason | Only as a reply in a Heron blocker thread. Records that the blocker is dismissed, with the reason and who dismissed it, replies with `Dismissed by`, the person and the reason, and resolves the thread. Later reviews leave that finding out of the verdict and list it under REVIEW CHECKS. With a [team memory](#team-memory), Heron also stores the reason there, with the finding's gate, path and title, and replies with what it stored. |
+| `@heron learn`, then a rule | Stores the rule, as written, in the [team memory](#team-memory), with who wrote it, the merge request and the date, and replies with what it stored. The rule may go on over the next lines. |
 | `@heron configuration` | Replies with the lanes, rules, profiles, limits and config digest. |
 | `@heron help` | Replies with this list. `@heron` alone does the same. |
 | `@heron`, then any other text | A question. One model session reads the merge request as a review does, with the thread, and answers in the same thread. |
@@ -91,6 +92,16 @@ Commands on one merge request run one at a time, in the order they were written.
 Only users in `admission.allowedTriggerUserIds` can run a command, and `heron poll` refuses to start without that list. Anyone else gets one reply per merge request, "Only maintainers can run Heron."; Heron marks their later comments with the `no_entry_sign` emoji and says nothing more.
 
 A dismissal is a hidden record in Heron's reply in the blocker thread. Heron reads it only from notes the bot wrote, and it matches the finding by the thread's fingerprint: the gate, the path and the normalised title. Heron drops a dismissed finding in code after the rulings, so no model session can bring it back.
+
+### Team memory
+
+With `memory` configured, Heron keeps a team memory in [Hindsight](https://hindsight.vectorize.io/), a self-hosted memory server: one bank per reviewed project, which people can read and correct in Hindsight's own UI. Only `@heron learn` and `@heron dismiss` from users on the allow list write to it. Nothing else does: not model output, and not other comments.
+
+Before the sessions start, Heron asks the bank for memories that match the change: its title, each gate of the lane, and the changed paths. It puts what it finds in every session's packet as a `Team memory (untrusted)` section. Sessions weigh a memory as guidance and check it against the code; like a comment, it is never an instruction. No session reaches Hindsight or its key.
+
+Heron needs no LLM in Hindsight. It sets each bank to `chunks` extraction, which stores the text as written, and it reads only stored memories, never Hindsight's own observations or reflect. A Hindsight server with `HINDSIGHT_API_LLM_PROVIDER=none` is enough.
+
+When Hindsight fails or takes more than 10 seconds, the review goes on without memory, and REVIEW CHECKS says so in one line. `@heron learn` then replies that it could not store the rule. Without `memory` configured, Heron reads and writes no memory, its prompts, notes and replies stay as they were, and `@heron learn` replies that no team memory is configured. See [Configuration](docs/configuration.md#team-memory).
 
 `heron poll --dry-run` prints the actions it would take and writes nothing, not even an emoji. See [Run Heron from GitLab CI](docs/gitlab-ci.md#answer-comment-commands) for the scheduled job.
 
@@ -150,10 +161,10 @@ This command was not run while this README was checked, because it needs a GitLa
 
 ## Architecture
 
-- `src/review.ts` holds `reviewOnce`, the one review pipeline. It talks to GitLab and to the models through two ports defined in `src/ports.ts`: `Forge` and `Harness`. `src/poll.ts` holds `pollOnce`, which finds `@heron` comments, claims each one and runs it, calling `reviewOnce` for a review.
+- `src/review.ts` holds `reviewOnce`, the one review pipeline. It talks to GitLab and to the models through two ports defined in `src/ports.ts`, `Forge` and `Harness`, and to the team memory through a third, `Memory`, which is present only when one is configured. `src/poll.ts` holds `pollOnce`, which finds `@heron` comments, claims each one and runs it, calling `reviewOnce` for a review.
 - `src/policy.ts` holds the decisions as plain functions: admission, lane choice, the session plan, the verdict, label changes, whether to create, update, or skip the note, what to do with each blocker thread, how to read a comment command, which comments a poll acts on, and which findings a dismissal drops. `src/diff.ts` reads the unified diff to find the lines a thread can sit on and to move an earlier finding's line to a newer head.
-- `src/forge/gitlab.ts` implements `Forge` over the GitLab REST API. `src/harness/` implements `Harness` for the three backends and the read-only source tools they share.
-- The hidden marker and the hidden findings line in the report note, the hidden fingerprint in each blocker thread, the hidden records in Heron's dismissal and denial replies, and the bot's emoji on each command comment are the only state Heron keeps. There is no database.
+- `src/forge/gitlab.ts` implements `Forge` over the GitLab REST API. `src/harness/` implements `Harness` for the three backends and the read-only source tools they share. `src/memory/hindsight.ts` implements `Memory` over Hindsight's HTTP API.
+- The hidden marker and the hidden findings line in the report note, the hidden fingerprint in each blocker thread, the hidden records in Heron's dismissal and denial replies, and the bot's emoji on each command comment are the only state Heron keeps in GitLab. The optional team memory lives in the operator's Hindsight server.
 
 Reference: [Configuration](docs/configuration.md), [Backends](docs/backends.md), [Security model](docs/security.md), [Design book](docs/brand/README.md).
 
@@ -163,6 +174,7 @@ Reference: [Configuration](docs/configuration.md), [Backends](docs/backends.md),
 - **GitLab only.** `forge.kind` accepts only `gitlab`.
 - **No automatic reviews.** Nothing reviews a merge request until someone runs `heron review`, for example from the [manual CI job](docs/gitlab-ci.md), or comments `@heron review`. A `heron watch` command is not implemented.
 - **Commands wait for the next poll.** A comment command runs when the scheduled `heron poll` next runs, up to its interval plus the time a runner takes to pick the job up. A comment older than `--since-minutes` when a poll first sees it is never run.
+- **Team memory is only as good as its recall.** Heron finds memories by the words and meaning of the change's title, gates and paths. A memory that shares neither with a change stays unread, and a bank holds whatever anyone with Hindsight access put in it, which is why sessions read it as untrusted data.
 - **A dismissal matches the wording.** A later review that words the dismissed blocker differently, beyond case, spacing and punctuation, or finds it in a renamed file, reports it again.
 - **Large diffs are not reviewed.** If GitLab caps, collapses, or is still preparing the diff, Heron stops with an error and posts nothing.
 - **Only blockers on the diff get a thread.** A blocker on a line outside the merge request diff stays in the note only. A thread stays where it was opened. When a later push changes that line, GitLab may show the thread as outdated, and Heron keeps updating it where it is.

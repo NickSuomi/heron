@@ -80,5 +80,6 @@ export const sampleReview: Review = {
   liveHead: null,
   dismissed: [],
   rereview: null,
-  subscription: null
+  subscription: null,
+  memory: null
 }

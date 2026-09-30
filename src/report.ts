@@ -6,6 +6,7 @@ import {
   Fingerprint,
   type LocatedFinding,
   type Marker,
+  type MemoryUse,
   PriorReview,
   type Review,
   type RulingKind,
@@ -266,6 +267,14 @@ const threadLine = (threads: ThreadReport): ReadonlyArray<string> => {
   return parts.length === 0 ? [] : [`Blocker threads on the diff: ${parts.join(", ")}.`]
 }
 
+/** One line on what the team memory gave the review; none when no team memory is configured. */
+const memoryLine = (memory: MemoryUse | null): ReadonlyArray<string> =>
+  memory === null
+    ? []
+    : memory.kind === "unavailable"
+    ? ["", `Team memory unavailable, so this review ran without it: ${inline(memory.reason)}.`]
+    : ["", `Team memory: ${count(memory.entries.length, "entry", "entries")} recalled for this change.`]
+
 const details = (title: string, body: ReadonlyArray<string>): string =>
   `<details>\n<summary>${title}</summary>\n\n${body.join("\n")}\n\n</details>`
 
@@ -343,7 +352,8 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
     matched.length === 0
       ? `No classification rule matched; the default lane ${code(lane.name)} applied.`
       : `Rules matched: ${matched.map((m) => `${code(m.rule)} (${count(m.paths.length, "path", "paths")})`).join(", ")}.`,
-    `Plan: ${review.plan.shape}, ${slotsOf(review.plan).length} sessions. Config digest ${code(review.configDigest.slice(0, 12))}.`
+    `Plan: ${review.plan.shape}, ${slotsOf(review.plan).length} sessions. Config digest ${code(review.configDigest.slice(0, 12))}.`,
+    ...memoryLine(review.memory)
   )
   const costs = sessions.map((s) => s.usage.costUsd).filter((c) => c !== null)
   const cost = costs.length === 0
@@ -463,7 +473,8 @@ export const HELP = [
   "- `@heron review`: review the merge request at its head, only the new commits when Heron safely can.",
   "- `@heron full review`: review the whole merge request again.",
   "- `@heron resolve`: resolve every open thread Heron started here.",
-  "- `@heron dismiss <reason>`: in a Heron blocker thread, dismiss that blocker so later reviews leave it out.",
+  "- `@heron dismiss <reason>`: in a Heron blocker thread, dismiss that blocker so later reviews leave it out. With a team memory, the reason is stored there too.",
+  "- `@heron learn <rule>`: store a rule in the team memory, which later reviews of this project read.",
   "- `@heron configuration`: show the active configuration.",
   "- `@heron help`: show this list.",
   "",
@@ -497,6 +508,7 @@ export const renderConfiguration = (config: Config): string => {
     `- Profiles: ${[...profiles.values()].map((p) => `${code(p.name)} runs ${code(p.model)} on ${code(p.harness)} (${config.harnesses[p.harness]?.kind ?? "unknown"}) at effort ${code(p.effort)}`).join("; ")}.`,
     `- Limits per session: ${limitText(config.limits.maxTurns, "turn")}, ${config.limits.sessionTimeoutSeconds === null ? "no time limit" : `${config.limits.sessionTimeoutSeconds} s`}.`,
     `- Poll: ${config.poll.concurrency} merge requests at once.`,
+    ...(config.memory === null ? [] : [`- Team memory: Hindsight bank ${code(config.memory.bank)}.`]),
     ""
   ].join("\n")
 }
@@ -518,3 +530,13 @@ export const renderResolveDone = (resolved: number, failed: number): string =>
   }\n`
 
 export const renderFailed = (command: string, reason: string): string => `Heron could not run ${code(command)}: ${inline(reason)}\n`
+
+export const LEARN_RULE = "Give a rule: `@heron learn <rule>`. The rule may go on over the next lines.\n"
+
+export const NO_MEMORY = "Heron has no team memory configured, so it stored nothing.\n"
+
+/** The reply to `@heron learn` and the extra reply to `@heron dismiss`: what went into the memory, or that nothing did. */
+export const renderStored = (kind: "rule" | "reason", bank: string, text: string, failure: string | null): string =>
+  failure === null
+    ? `Stored this ${kind} in the team memory ${code(bank)}, which later reviews read:\n\n${markdown(blocksOf(text)).replace(/^/gm, "> ")}\n`
+    : `Heron could not store the ${kind} in the team memory ${code(bank)}: ${inline(failure)}. Comment again to retry.\n`

@@ -9,6 +9,7 @@ import { type Config, configSource, type Env, type HarnessConfig, loadConfig } f
 import { type ThreadReport, type ThreadResult, UserId } from "./domain.ts"
 import { GitLabForge } from "./forge/gitlab.ts"
 import { harnessCredentials, HarnessLive, runMcpSource } from "./harness/index.ts"
+import { Hindsight } from "./memory/hindsight.ts"
 import { pollLineText, pollOnce } from "./poll.ts"
 import { ForgeError } from "./ports.ts"
 import { reviewOnce } from "./review.ts"
@@ -30,6 +31,9 @@ const describe = (config: Config): string => {
     `lanes: ${config.lanes.map((l) => `${l.name} (${l.shape}, ${l.gates.length} gates)`).join(", ")}; default ${config.defaultLane.name}`,
     `GITLAB_TOKEN: ${env["GITLAB_TOKEN"] ? "set" : "missing"}`,
     ...kinds.map(credential),
+    config.memory === null
+      ? "memory: not configured"
+      : `memory: Hindsight at ${config.memory.url}, bank ${config.memory.bank}; HERON_HINDSIGHT_API_KEY: ${env["HERON_HINDSIGHT_API_KEY"] ? "set" : "not set"}`,
     `digest: ${config.digest}`
   ].join("\n")
 }
@@ -63,7 +67,7 @@ const review = Command.make("review", {
       publish: !flags.dryRun,
       full: false
     }).pipe(
-      Effect.provide(Layer.mergeAll(GitLabForge.layer(config), HarnessLive(config, { env }))),
+      Effect.provide(Layer.mergeAll(GitLabForge.layer(config), HarnessLive(config, { env }), Hindsight.layer(config.memory))),
       Effect.provide(NodeHttpClient.layerUndici)
     )
     yield* Console.log(result.note.kind === "dry-run" ? result.body : `${result.review.verdict}: note ${result.note.note} ${result.note.kind}`)
@@ -83,7 +87,7 @@ const poll = Command.make("poll", {
   Effect.gen(function*() {
     const config = yield* load(flags.config)
     const lines = yield* pollOnce(config, { sinceMinutes: flags.sinceMinutes, dryRun: flags.dryRun }).pipe(
-      Effect.provide(Layer.mergeAll(GitLabForge.layer(config), HarnessLive(config, { env }))),
+      Effect.provide(Layer.mergeAll(GitLabForge.layer(config), HarnessLive(config, { env }), Hindsight.layer(config.memory))),
       Effect.provide(NodeHttpClient.layerUndici)
     )
     for (const line of lines) yield* Console.log(pollLineText(line))
