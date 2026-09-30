@@ -6,7 +6,12 @@ if (argv[0] === "mcp" && argv[1] === "list") {
   process.stdout.write(mcpList === "-" ? "[]\n" : readFileSync(mcpList, "utf8"))
 } else {
   const stdin = readFileSync(0, "utf8")
-  const files = Object.fromEntries(argv.filter((a) => a.startsWith("/") && existsSync(a) && statSync(a).isFile()).map((a) => [a, readFileSync(a, "utf8")]))
+  const isFile = (a) => a.startsWith("/") && existsSync(a) && statSync(a).isFile()
+  const files = Object.fromEntries(argv.filter(isFile).map((a) => [a, readFileSync(a, "utf8")]))
+  // A file the MCP server command names, inside a `-c` value or the MCP config, is read before the session dir is gone.
+  for (const text of [...argv, ...Object.values(files)]) {
+    for (const [, path] of text.matchAll(/"--discussions",\s*"([^"]+)"/g)) if (isFile(path)) files[path] = readFileSync(path, "utf8")
+  }
   // A hanging vendor starts a grandchild in its process group, the way a CLI starts its MCP server.
   const pids = code === "hang" ? [process.pid, spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" }).pid] : [process.pid]
   writeFileSync(capture, JSON.stringify({ argv, env: process.env, stdin, files, pids }))

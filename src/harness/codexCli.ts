@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { Effect } from "effect"
 import type { Env } from "../config.ts"
 import { HarnessError, type HarnessRequest, type HarnessResult } from "../ports.ts"
-import { type Launcher, MCP_SERVER_NAME, mcpSourceCommand } from "./mcpSource.ts"
+import { discussionsFile, type Launcher, MCP_SERVER_NAME, mcpSourceCommand } from "./mcpSource.ts"
 import { childEnv, clip, isRecord, num, redactor, runJsonLines, runProcess, str, tempDir } from "./process.ts"
 import { sourceToolNames } from "./sourceTools.ts"
 
@@ -186,8 +186,9 @@ export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) 
     yield* Effect.promise(async () => {
       await mkdir(cwd)
       await writeFile(schema, JSON.stringify(request.outputSchema))
+      await writeFile(discussionsFile(dir), JSON.stringify(request.discussions))
     })
-    const server = mcpSourceCommand(options.mcp, request.source)
+    const server = mcpSourceCommand(options.mcp, request.source, discussionsFile(dir))
     const env = childEnv(options.env, ALLOWED)
     const disabled = yield* operatorServers({ command: options.command, env, cwd })
     const run = yield* runJsonLines(

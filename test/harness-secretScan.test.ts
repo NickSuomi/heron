@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect, Exit, Scope } from "effect"
 import { runSourceTool, sourceTools, toolContext, type ToolContext } from "../src/harness/sourceTools.ts"
 import { makeRepo } from "./fixtures/harness/repo.ts"
+import { noDiscussions } from "./fixtures/harness/request.ts"
 
 // Fake keys, assembled at run time so this file holds no literal credential. Only the shape matches the AWS rule.
 const KEY_A = "AKIA" + "Z4ABCDEFGHIJKLMN"
@@ -17,7 +18,7 @@ const repo = makeRepo(() => ({
   "deep/nested/c.env": `first\nsecond\nAWS_KEY="${KEY_C}"\n`
 }))
 const scope = Effect.runSync(Scope.make())
-const ctx: ToolContext = Effect.runSync(Scope.provide(toolContext(repo.source), scope))
+const ctx: ToolContext = Effect.runSync(Scope.provide(toolContext(repo.source, noDiscussions), scope))
 afterAll(() => {
   Effect.runSync(Scope.close(scope, Exit.void))
   repo.cleanup()

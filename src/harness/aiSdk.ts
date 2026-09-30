@@ -53,7 +53,7 @@ const failure = (error: unknown): HarnessError => {
 export const aiSdk = (binding: AiSdkBinding) => (request: HarnessRequest) =>
   Effect.scoped(Effect.gen(function*() {
     // The language servers the tools start live exactly as long as this session.
-    const ctx = yield* toolContext(request.source)
+    const ctx = yield* toolContext(request.source, request.discussions)
     const providerOptions = binding.options(request.slot.profile.effort)
     if (typeof providerOptions === "string") return yield* new HarnessError({ kind: "vendor", detail: providerOptions })
     const result = yield* Effect.tryPromise({

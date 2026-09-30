@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { claudeCli, foldClaudeEvents } from "../src/harness/claudeCli.ts"
 import { type Captured, fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
-import { answerSchema, jobEnv, requestFor } from "./fixtures/harness/request.ts"
+import { answerSchema, jobEnv, noDiscussions, requestFor } from "./fixtures/harness/request.ts"
 
 const repo = makeRepo()
 afterAll(repo.cleanup)
@@ -100,11 +100,13 @@ describe("claude-cli harness", () => {
           heron: {
             type: "stdio",
             command: "/opt/node",
-            args: ["/opt/heron/dist/cli.js", "mcp-source", "--checkout", JSON.stringify(repo.source)],
+            args: ["/opt/heron/dist/cli.js", "mcp-source", "--checkout", JSON.stringify(repo.source), "--discussions", join(dir, "discussions.json")],
             env: {}
           }
         }
       })
+      // The tool server reads the discussions from the session's own directory; the model's Read rules never reach it.
+      expect(JSON.parse(files[join(dir, "discussions.json")]!)).toEqual(noDiscussions)
       expect(stdin).toBe("What number does a.ts export?")
       expect(Object.keys(env).filter((k) => !SHELL_VARS.includes(k)).sort()).toEqual([
         "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HOME", "HTTPS_PROXY", "MAX_MCP_OUTPUT_TOKENS", "MCP_TOOL_TIMEOUT", "PATH"

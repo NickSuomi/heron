@@ -73,7 +73,7 @@ describe("ai-sdk harness", () => {
       expect([first.tools?.map((t) => t.name), first.providerOptions, first.responseFormat?.type]).toEqual([
         [
           "grep", "list_files", "read_file", "rg", "ast_grep", "secret_scan", "dependency_scan", "rule_scan", "git_log", "git_show", "git_blame", "git_diff",
-          "definition", "references", "hover", "document_symbols", "workspace_symbols", "diagnostics"
+          "definition", "references", "hover", "document_symbols", "workspace_symbols", "diagnostics", "read_discussions"
         ],
         { openrouter: { reasoning: { effort: "low" } } },
         "json"

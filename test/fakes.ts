@@ -1,6 +1,6 @@
 import { Effect, Layer, Result } from "effect"
 import { type Config, decodeConfigFile, resolveConfig } from "../src/config.ts"
-import type { Change, DiffAnchor, DiscussionId, LabelTransition, LimitReading, LimitWindow, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
+import type { Change, CommentThread, DiffAnchor, LinkedIssue, DiscussionId, LabelTransition, LimitReading, LimitWindow, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
 import { Forge, ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
 import { parseFingerprint, parseMarker, parsePrior } from "../src/report.ts"
 
@@ -93,6 +93,7 @@ export interface ForgeState {
   base: Sha
   start: Sha
   changes: ReadonlyArray<Change>
+  issues: ReadonlyArray<LinkedIssue>
   labels: Array<string>
   notes: Map<number, string>
   nextNote: number
@@ -102,6 +103,8 @@ export interface ForgeState {
   deltaCalls: Array<readonly [Sha, Sha]>
   calls: number
   threads: Array<FakeThread>
+  /** The threads `discussions` lists, by `!` for the merge request or `project#iid` for an issue; a string is the forge's failure. */
+  comments: Record<string, ReadonlyArray<CommentThread> | string>
   /** Thread operations that fail with HTTP 500. */
   failing: Set<"findThreads" | "createThread" | "updateThreadNote" | "replyToThread" | "resolveThread">
 }
@@ -114,6 +117,7 @@ export const fakeForge = (
     base: sha("b"),
     start: sha("b"),
     changes: init.changes,
+    issues: [],
     labels: init.labels ?? [],
     notes: init.notes ?? new Map(),
     nextNote: 100,
@@ -122,6 +126,7 @@ export const fakeForge = (
     deltaCalls: [],
     calls: 0,
     threads: [],
+    comments: {},
     failing: new Set()
   }
   const call = <A>(f: () => A) => Effect.sync(() => (state.calls++, f()))
@@ -133,7 +138,8 @@ export const fakeForge = (
       call(() => ({
         ...snapshotAt(state.head, state.changes),
         revision: { base: state.base, start: state.start, head: state.head },
-        labels: [...state.labels]
+        labels: [...state.labels],
+        issues: state.issues
       })),
     live: () => call(() => ({ head: state.head, labels: [...state.labels] })),
     findReport: () =>
@@ -167,6 +173,11 @@ export const fakeForge = (
       threadCall("updateThreadNote", () => {
         if (thread(id).note !== note) throw new Error(`note ${note} is not the first note of ${id}`)
         thread(id).body = body
+      }),
+    discussions: (n) =>
+      Effect.suspend(() => {
+        const listed = state.comments[n.kind === "merge_request" ? "!" : `${n.project}#${n.iid}`] ?? []
+        return typeof listed === "string" ? Effect.fail(new ForgeError({ operation: "discussions", detail: listed })) : Effect.succeed(listed)
       }),
     replyToThread: (_, id, body) => threadCall("replyToThread", () => void thread(id).replies.push(body)),
     resolveThread: (_, id, resolved) => threadCall("resolveThread", () => void (thread(id).resolved = resolved)),

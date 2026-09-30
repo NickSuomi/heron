@@ -1,7 +1,9 @@
 import { Context, type Duration, type Effect, Schema, type Scope } from "effect"
 import type {
   Change,
+  CommentThread,
   DiffAnchor,
+  Discussions,
   DiscussionId,
   JsonSchema,
   LabelTransition,
@@ -56,6 +58,11 @@ export interface SourceCheckout {
   readonly trees: Readonly<Record<TreeRef, string>>
 }
 
+/** What a discussion list belongs to: the merge request under review, or an issue by its project path and iid. */
+export type Noteable =
+  | { readonly kind: "merge_request"; readonly ref: MrRef }
+  | { readonly kind: "issue"; readonly project: string; readonly iid: number }
+
 export interface ForgeShape {
   readonly snapshot: (ref: MrRef) => Effect.Effect<MrSnapshot, ForgeError | IncompleteSnapshot>
   readonly live: (ref: MrRef) => Effect.Effect<{ readonly head: Sha; readonly labels: ReadonlyArray<string> }, ForgeError>
@@ -71,6 +78,11 @@ export interface ForgeShape {
   readonly updateThreadNote: (ref: MrRef, thread: DiscussionId, note: NoteId, body: string) => Effect.Effect<void, ForgeError>
   readonly replyToThread: (ref: MrRef, thread: DiscussionId, body: string) => Effect.Effect<void, ForgeError>
   readonly resolveThread: (ref: MrRef, thread: DiscussionId, resolved: boolean) => Effect.Effect<void, ForgeError>
+  /**
+   * Every discussion on `noteable`, without system notes, internal notes, Heron's own report and blocker notes, and notes by
+   * `skipAuthors`. A thread left with no note is dropped.
+   */
+  readonly discussions: (noteable: Noteable) => Effect.Effect<ReadonlyArray<CommentThread>, ForgeError>
   /** The changes from `from` to `to`; null when `from` is not an ancestor of `to` or the forge cannot give the whole diff. */
   readonly delta: (ref: MrRef, from: Sha, to: Sha) => Effect.Effect<ReadonlyArray<Change> | null, ForgeError>
   readonly checkout: (ref: MrRef, revision: MrSnapshot["revision"]) => Effect.Effect<SourceCheckout, ForgeError, Scope.Scope>
@@ -84,6 +96,8 @@ export interface HarnessRequest {
   readonly instructions: string
   readonly prompt: string
   readonly source: SourceCheckout
+  /** The comment threads `read_discussions` serves, read by the parent once per review; the session never reaches the forge. */
+  readonly discussions: Discussions
   readonly outputSchema: JsonSchema
   /** Null means no turn limit; an operator opt-in only. */
   readonly maxTurns: number | null

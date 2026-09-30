@@ -15,7 +15,7 @@ Status: alpha. Version 0.0.0, not published to npm. Install from source.
 
 ## What is Heron?
 
-Heron reviews one merge request at its current head. Language models that you choose read the diff, the whole repository at the merge request head and at the target branch, the linked issues, and the failed CI jobs, then return findings. Heron turns the findings into a verdict, writes one report note on the merge request, opens a discussion on the diff line of each blocker, and sets a label for the verdict. When the merge request changes and you run Heron again, it updates the same note, and when it safely can, it reviews only the commits pushed since its last review.
+Heron reviews one merge request at its current head. Language models that you choose read the diff, the whole repository at the merge request head and at the target branch, the linked issues, the comments on the merge request and its linked issues, and the failed CI jobs, then return findings. Heron turns the findings into a verdict, writes one report note on the merge request, opens a discussion on the diff line of each blocker, and sets a label for the verdict. When the merge request changes and you run Heron again, it updates the same note, and when it safely can, it reviews only the commits pushed since its last review.
 
 The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUPERSEDED. The words are fixed so that scripts can match them.
 

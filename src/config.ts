@@ -51,6 +51,7 @@ export const ConfigFile = Schema.Struct({
     project: Text,
     botUserId: UserId
   }),
+  skipAuthors: Schema.optionalKey(Schema.Array(Text)),
   admission: Schema.optionalKey(Schema.Struct({ allowedTriggerUserIds: Schema.optionalKey(Schema.Array(UserId)) })),
   labels: Schema.optionalKey(Schema.Struct({
     inProgress: Schema.optionalKey(Text),
@@ -84,6 +85,8 @@ export interface Rule {
 
 export interface Config {
   readonly forge: ConfigFile["forge"]
+  /** Usernames whose notes `read_discussions` never serves, such as other bots. */
+  readonly skipAuthors: ReadonlyArray<string>
   readonly allowedTriggerUserIds: ReadonlyArray<UserId> | null
   readonly labels: LabelMap
   readonly harnesses: Readonly<Record<HarnessKey, HarnessConfig>>
@@ -283,6 +286,7 @@ export const resolveConfig = (
     const instructions = Object.fromEntries(instructionPaths(file).map((p) => [p, sha256(texts.get(p) ?? "")]))
     return {
       forge: file.forge,
+      skipAuthors: file.skipAuthors ?? [],
       allowedTriggerUserIds: file.admission?.allowedTriggerUserIds ?? null,
       labels,
       harnesses: file.harnesses,

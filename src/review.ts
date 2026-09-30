@@ -2,6 +2,8 @@ import { Clock, Data, Duration, Effect, Schema, Semaphore } from "effect"
 import type { Config } from "./config.ts"
 import {
   type Branch,
+  type Comments,
+  type Discussions,
   type Finding,
   type MrRef,
   type MrSnapshot,
@@ -36,7 +38,7 @@ import {
   threadActions,
   verdictOf
 } from "./policy.ts"
-import { Forge, Harness, type HarnessResult, type SourceCheckout } from "./ports.ts"
+import { Forge, Harness, type HarnessResult, type Noteable, type SourceCheckout } from "./ports.ts"
 import { earlierText, findingsText, instructionsFor, packetText } from "./prompt.ts"
 import { renderCleared, renderReport, renderThread } from "./report.ts"
 
@@ -85,6 +87,7 @@ const execute = Effect.fn("execute")(function*(
   plan: ReviewPlan,
   snapshot: MrSnapshot,
   source: SourceCheckout,
+  discussions: Discussions,
   rereview: Rereview | null
 ) {
   const harness = yield* Harness
@@ -116,6 +119,7 @@ const execute = Effect.fn("execute")(function*(
         instructions: instructionsFor(slot, config.policy),
         prompt,
         source,
+        discussions,
         outputSchema: outputJsonSchema(schema),
         maxTurns: config.limits.maxTurns,
         timeout: config.limits.sessionTimeoutSeconds === null ? null : Duration.seconds(config.limits.sessionTimeoutSeconds)
@@ -207,6 +211,34 @@ const execute = Effect.fn("execute")(function*(
   return { sessions, outcome, warnings: [...warnings] }
 })
 
+/** `group/app#12` as a project path and an issue iid; null when the reference names no issue. */
+const issueOf = (reference: string): Noteable | null => {
+  const at = reference.lastIndexOf("#")
+  const iid = Number(reference.slice(at + 1))
+  return at > 0 && Number.isInteger(iid) && iid > 0 ? { kind: "issue", project: reference.slice(0, at), iid } : null
+}
+
+/**
+ * The threads `read_discussions` serves, read once before any session: a session never reaches the forge, so the parent
+ * reads for it. Only the merge request and the issues the snapshot links are read, and a list the forge refuses says why
+ * instead of failing the review.
+ */
+const readDiscussions = Effect.fn("readDiscussions")(function*(snapshot: MrSnapshot) {
+  const forge = yield* Forge
+  const read = (noteable: Noteable | null): Effect.Effect<Comments> =>
+    noteable === null
+      ? Effect.succeed({ kind: "unavailable", reason: "the reference names no issue" })
+      : forge.discussions(noteable).pipe(
+        Effect.match({
+          onFailure: (e): Comments => ({ kind: "unavailable", reason: e.message }),
+          onSuccess: (threads): Comments => ({ kind: "read", threads })
+        })
+      )
+  const mergeRequest = yield* read({ kind: "merge_request", ref: snapshot.ref })
+  const issues = yield* Effect.forEach(snapshot.issues, (i) => Effect.map(read(issueOf(i.reference)), (c) => [i.reference, c] as const))
+  return { mergeRequest, issues: Object.fromEntries(issues) } satisfies Discussions
+})
+
 const applyThread = (ref: MrRef, revision: MrSnapshot["revision"], action: ThreadAction) =>
   Effect.gen(function*() {
     const forge = yield* Forge
@@ -274,7 +306,10 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const reviewed = Effect.gen(function*() {
     const limits = harness.limits
     const before = limits === undefined ? null : yield* limits
-    const done = yield* Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source, rereview)))
+    const discussions = yield* readDiscussions(snapshot)
+    const done = yield* Effect.scoped(
+      Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source, discussions, rereview))
+    )
     const after = limits === undefined ? null : yield* limits
     const subscription: SubscriptionUse | null = before === null || after === null ? null : { before, after, warnings: done.warnings }
     return { sessions: done.sessions, outcome: done.outcome, subscription }

@@ -1,9 +1,10 @@
-import { extname } from "node:path"
+import { readFileSync } from "node:fs"
+import { extname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
-import { Effect } from "effect"
-import type { Sha } from "../domain.ts"
+import { Effect, Result, Schema } from "effect"
+import { Discussions, type Sha } from "../domain.ts"
 import { type SourceCheckout, TREE_REFS } from "../ports.ts"
 import { runSourceTool, sourceTools, toolContext, type ToolContext } from "./sourceTools.ts"
 
@@ -36,6 +37,25 @@ export const parseMcpSourceArgs = (argv: ReadonlyArray<string>): SourceCheckout 
   }
 }
 
+/**
+ * `--discussions <file>`: the threads the parent read from the forge, as JSON in the session's private directory. A file,
+ * not an argument: it can be larger than one argument may be, and a process list would show an argument to other users.
+ */
+export const parseMcpDiscussions = (argv: ReadonlyArray<string>): Discussions => {
+  const i = argv.indexOf("--discussions")
+  const path = i < 0 ? undefined : argv[i + 1]
+  if (path === undefined) throw new Error("mcp-source: missing --discussions")
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"))
+  } catch {
+    throw new Error("mcp-source: --discussions is not a readable JSON file")
+  }
+  const decoded = Schema.decodeUnknownResult(Discussions)(parsed)
+  if (Result.isFailure(decoded)) throw new Error("mcp-source: --discussions does not hold discussions")
+  return decoded.success
+}
+
 export const mcpSourceServer = (ctx: ToolContext): McpServer => {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: "1.0.0" })
   for (const tool of sourceTools) {
@@ -57,7 +77,7 @@ export const mcpSourceServer = (ctx: ToolContext): McpServer => {
  */
 export const runMcpSource = (argv: ReadonlyArray<string>): Promise<void> =>
   Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-    const ctx = yield* toolContext(parseMcpSourceArgs(argv))
+    const ctx = yield* toolContext(parseMcpSourceArgs(argv), parseMcpDiscussions(argv))
     yield* Effect.promise(async () => {
       const server = mcpSourceServer(ctx)
       const transport = new StdioServerTransport()
@@ -84,7 +104,10 @@ export const heronCliEntry = (): string => {
 
 export const defaultMcpLauncher = (): Launcher => ({ command: process.execPath, args: [heronCliEntry(), "mcp-source"] })
 
-export const mcpSourceCommand = (launcher: Launcher, source: SourceCheckout): Launcher => ({
+/** Where a CLI harness writes the session's discussions for `heron mcp-source`, inside the session's private directory. */
+export const discussionsFile = (dir: string) => join(dir, "discussions.json")
+
+export const mcpSourceCommand = (launcher: Launcher, source: SourceCheckout, discussions: string): Launcher => ({
   command: launcher.command,
-  args: [...launcher.args, "--checkout", JSON.stringify(source)]
+  args: [...launcher.args, "--checkout", JSON.stringify(source), "--discussions", discussions]
 })

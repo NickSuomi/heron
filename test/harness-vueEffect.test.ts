@@ -3,11 +3,12 @@ import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect, Exit, Scope } from "effect"
 import { runSourceTool, sourceTools, toolContext, type ToolContext } from "../src/harness/sourceTools.ts"
 import { makeRepo } from "./fixtures/harness/repo.ts"
+import { noDiscussions } from "./fixtures/harness/request.ts"
 import { markerPath, storefrontFiles } from "./fixtures/harness/storefront.ts"
 
 const repo = makeRepo((root) => storefrontFiles(markerPath(root)))
 const scope = Effect.runSync(Scope.make())
-const ctx: ToolContext = Effect.runSync(Scope.provide(toolContext(repo.source), scope))
+const ctx: ToolContext = Effect.runSync(Scope.provide(toolContext(repo.source, noDiscussions), scope))
 afterAll(() => {
   Effect.runSync(Scope.close(scope, Exit.void))
   repo.cleanup()

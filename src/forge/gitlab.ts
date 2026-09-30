@@ -4,8 +4,8 @@ import { Config as EnvConfig, Duration, Effect, FileSystem, Layer, Redacted, Sch
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import type { Config } from "../config.ts"
-import { type Change, DiscussionId, type MrRef, type MrSnapshot, NoteId, Sha, type Thread } from "../domain.ts"
-import { Forge, ForgeError, type ForgeShape, IncompleteSnapshot, type SourceCheckout, TREE_REFS } from "../ports.ts"
+import { type Change, type CommentThread, DiscussionId, type MrRef, type MrSnapshot, NoteId, Sha, type Thread } from "../domain.ts"
+import { Forge, ForgeError, type ForgeShape, IncompleteSnapshot, type Noteable, type SourceCheckout, TREE_REFS } from "../ports.ts"
 import { parseFingerprint, parseMarker, parsePrior } from "../report.ts"
 import { fetchCommits, materialize, thaw } from "./git.ts"
 
@@ -67,6 +67,55 @@ const Note = Schema.Struct({ id: NoteId, body: Schema.String, system: Schema.Boo
 /** GitLab leaves `resolved` out of a note that cannot be resolved. */
 const DiscussionNote = Schema.Struct({ ...Note.fields, resolved: Schema.optionalKey(Schema.Boolean) })
 const Discussion = Schema.Struct({ id: DiscussionId, notes: Schema.Array(DiscussionNote) })
+/** A diff note's place on the diff; GitLab sends null for a line the note does not sit on. */
+const Position = Schema.Struct({
+  new_path: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  old_path: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  new_line: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  old_line: Schema.optionalKey(Schema.NullOr(Schema.Int))
+})
+/** A note as `read_discussions` needs it; `internal` and its older name `confidential` mark a note only members may see. */
+const CommentNote = Schema.Struct({
+  ...DiscussionNote.fields,
+  author: Schema.Struct({ id: Schema.Int, username: Schema.String }),
+  created_at: Schema.String,
+  resolvable: Schema.optionalKey(Schema.Boolean),
+  internal: Schema.optionalKey(Schema.Boolean),
+  confidential: Schema.optionalKey(Schema.Boolean),
+  position: Schema.optionalKey(Schema.NullOr(Position))
+})
+const CommentDiscussion = Schema.Struct({ id: Schema.String, notes: Schema.Array(CommentNote) })
+
+/**
+ * The notes of each discussion a review may read. Dropped: system notes, internal notes, notes by `skip`, the bot's report
+ * notes (its author and a marker, as `findReport` matches them), and the bot's notes in a thread it started with a
+ * fingerprint, which restate its own blocker; a person's reply in that thread stays. A thread is resolved when every note
+ * that can be resolved is.
+ */
+const commentThreads = (
+  discussions: ReadonlyArray<typeof CommentDiscussion.Type>,
+  me: number,
+  skip: ReadonlySet<string>
+): ReadonlyArray<CommentThread> =>
+  discussions.flatMap((d) => {
+    const first = d.notes[0]
+    if (first === undefined) return []
+    const heronThread = !first.system && first.author.id === me && parseFingerprint(first.body) !== null
+    const notes = d.notes.filter((n) =>
+      !n.system && n.internal !== true && n.confidential !== true && !skip.has(n.author.username) &&
+      !(n.author.id === me && (heronThread || parseMarker(n.body) !== null))
+    )
+    if (notes.length === 0) return []
+    const resolvable = d.notes.filter((n) => n.resolvable === true)
+    const position = first.position ?? null
+    return [{
+      id: d.id,
+      resolved: resolvable.length > 0 && resolvable.every((n) => n.resolved === true),
+      path: position === null ? null : position.new_path ?? position.old_path ?? null,
+      line: position === null ? null : position.new_line ?? position.old_line ?? null,
+      notes: notes.map((n) => ({ author: n.author.username, createdAt: n.created_at, body: n.body }))
+    }]
+  })
 
 type Method = "GET" | "POST" | "PUT"
 type Query = Readonly<Record<string, string | ReadonlyArray<string>>>
@@ -202,6 +251,9 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
 
   const projectPath = (ref: MrRef) => `/projects/${encodeURIComponent(ref.project)}`
   const mrPath = (ref: MrRef) => `${projectPath(ref)}/merge_requests/${ref.iid}`
+  const noteablePath = (n: Noteable) =>
+    n.kind === "merge_request" ? `${mrPath(n.ref)}/discussions` : `/projects/${encodeURIComponent(n.project)}/issues/${n.iid}/discussions`
+  const skipAuthors = new Set(config.skipAuthors)
 
   let identity: number | null = null
   const self = Effect.gen(function*() {
@@ -325,6 +377,14 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
             return fingerprint === null ? [] : [{ id: d.id, note: first.id, fingerprint, body: first.body, resolved: first.resolved === true }]
           })
           .sort((a, b) => a.note - b.note)
+      }),
+
+    // The merge request and issue discussions API: https://docs.gitlab.com/api/discussions/
+    discussions: (noteable) =>
+      Effect.gen(function*() {
+        const me = yield* self
+        const listed = yield* pages("discussions", noteablePath(noteable), CommentDiscussion)
+        return commentThreads(listed, me, skipAuthors)
       }),
 
     // A `text` position on an added line carries only `new_line`; on an unchanged line it carries both line numbers.

@@ -11,7 +11,7 @@ import { GitLabForge } from "../src/forge/gitlab.ts"
 import { Forge } from "../src/ports.ts"
 import type { DiscussionId, LocatedFinding, NoteId } from "../src/domain.ts"
 import { parseFingerprint, parsePrior, printMarker, renderReport, renderThread } from "../src/report.ts"
-import { configOf, sha } from "./fakes.ts"
+import { baseConfig, configOf, sha } from "./fakes.ts"
 import { sampleOutcome, sampleReview } from "./report-sample.ts"
 import { makeWork, sourceChanges } from "./fixtures/harness/repo.ts"
 
@@ -309,6 +309,78 @@ describe("GitLab forge", () => {
         { method: "GET", path: `${MR}/discussions`, query: { per_page: "100", page: "1" } },
         { method: "GET", path: `${MR}/discussions`, query: { per_page: "100", page: "2" } }
       ])
+    }))
+
+  /** A note as the discussions API lists it, with the fields `discussions` reads. */
+  const comment = (id: number, author: number, username: string, body: string, extra: Record<string, unknown> = {}) => ({
+    ...note(id, author, body),
+    author: { id: author, username },
+    created_at: `2026-09-0${(id % 9) + 1}T10:00:00.000Z`,
+    ...extra
+  })
+  const at = (id: number) => `2026-09-0${(id % 9) + 1}T10:00:00.000Z`
+  const onLine = { position: { base_sha: sha("a"), start_sha: sha("b"), head_sha: sha("c"), position_type: "text", old_path: "src/cart.ts", new_path: "src/cart.ts", old_line: null, new_line: 88 } }
+  const skipping = configOf({ ...baseConfig, skipAuthors: ["ci-bot"] })
+
+  it.effect("discussions leaves out system, internal and skipped notes, Heron's report and its blocker notes, across pages", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([
+        { body: { id: 1001, username: "heron-bot" } },
+        page([
+          discussion("cc01", [comment(1, 1001, "heron-bot", `${marker(7)}\nthe old report`)]),
+          discussion("cc02", [comment(2, 555, "jdoe", `${marker(7)}\na person quoting a marker`)]),
+          discussion("cc03", [
+            comment(3, 1001, "heron-bot", threadBody("Total is wrong"), { ...onLine, type: "DiffNote", resolvable: true, resolved: true }),
+            comment(4, 555, "jdoe", "Fixed in the next commit.", { type: "DiffNote", resolvable: true, resolved: true }),
+            comment(5, 1001, "heron-bot", "No longer a blocker at `cccccccc`.", { type: "DiffNote", resolvable: true, resolved: true })
+          ]),
+          discussion("cc04", [comment(6, 1001, "heron-bot", "added 2 commits", { system: true })]),
+          discussion("cc05", [comment(7, 556, "lead", "Security detail for members only.", { internal: true })]),
+          discussion("cc06", [comment(8, 556, "lead", "Older API name for the same flag.", { confidential: true })])
+        ], "2"),
+        page([
+          discussion("cc07", [comment(9, 700, "ci-bot", "Coverage went down 0.1%.")]),
+          discussion("cc08", [
+            comment(10, 555, "jdoe", "Should this round down?", { ...onLine, type: "DiffNote", resolvable: true, resolved: false }),
+            comment(11, 556, "lead", "Yes, see the spec.", { type: "DiffNote", resolvable: true, resolved: true }),
+            comment(12, 700, "ci-bot", "Pipeline passed.", { type: "DiffNote", resolvable: true, resolved: true })
+          ]),
+          discussion("cc09", [comment(13, 1001, "heron-bot", "An ordinary bot comment.")])
+        ], "")
+      ])
+      const threads = yield* Effect.gen(function*() {
+        const forge = yield* GitLabForge.make(skipping, Redacted.make(TOKEN))
+        return yield* forge.discussions({ kind: "merge_request", ref })
+      }).pipe(Effect.provide(Layer.merge(fake.layer, NodeServices.layer)))
+      expect(threads).toEqual([
+        { id: "cc02", resolved: false, path: null, line: null, notes: [{ author: "jdoe", createdAt: at(2), body: `${marker(7)}\na person quoting a marker` }] },
+        { id: "cc03", resolved: true, path: "src/cart.ts", line: 88, notes: [{ author: "jdoe", createdAt: at(4), body: "Fixed in the next commit." }] },
+        {
+          id: "cc08",
+          resolved: false,
+          path: "src/cart.ts",
+          line: 88,
+          notes: [{ author: "jdoe", createdAt: at(10), body: "Should this round down?" }, { author: "lead", createdAt: at(11), body: "Yes, see the spec." }]
+        },
+        { id: "cc09", resolved: false, path: null, line: null, notes: [{ author: "heron-bot", createdAt: at(13), body: "An ordinary bot comment." }] }
+      ])
+      expect(fake.sent.slice(1)).toEqual([
+        { method: "GET", path: `${MR}/discussions`, query: { per_page: "100", page: "1" } },
+        { method: "GET", path: `${MR}/discussions`, query: { per_page: "100", page: "2" } }
+      ])
+    }))
+
+  it.effect("discussions reads an issue in its own project and never calls an issue thread resolved", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([
+        { body: { id: 1001, username: "heron-bot" } },
+        page([discussion("dd01", [comment(20, 555, "jdoe", "Steps to reproduce: add two items.")])], "")
+      ])
+      const threads = yield* withForge(fake, (forge) => forge.discussions({ kind: "issue", project: "acme/storefront", iid: 12 }))
+      expect(threads).toEqual([
+        { id: "dd01", resolved: false, path: null, line: null, notes: [{ author: "jdoe", createdAt: at(20), body: "Steps to reproduce: add two items." }] }
+      ])
+      expect(fake.sent[1]).toEqual({ method: "GET", path: "/api/v4/projects/acme%2Fstorefront/issues/12/discussions", query: { per_page: "100", page: "1" } })
     }))
 
   it.effect("createThread posts a text position on the diff, with the old line only for an unchanged line", () =>

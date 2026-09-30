@@ -1,5 +1,5 @@
 import { Duration } from "effect"
-import type { GateName, HarnessKey, ProfileName, SessionId } from "../../../src/domain.ts"
+import type { Discussions, GateName, HarnessKey, ProfileName, SessionId } from "../../../src/domain.ts"
 import type { HarnessRequest, SourceCheckout } from "../../../src/ports.ts"
 
 export const answerSchema = {
@@ -8,6 +8,8 @@ export const answerSchema = {
   required: ["answer"],
   additionalProperties: false
 }
+
+export const noDiscussions: Discussions = { mergeRequest: { kind: "read", threads: [] }, issues: {} }
 
 export const requestFor = (
   harness: string,
@@ -24,6 +26,7 @@ export const requestFor = (
   instructions: "You review code.",
   prompt: "What number does a.ts export?",
   source,
+  discussions: noDiscussions,
   outputSchema: answerSchema,
   maxTurns,
   timeout

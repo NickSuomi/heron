@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect, Exit, Scope } from "effect"
 import { runSourceTool, sourceTools, toolContext, type ToolContext } from "../src/harness/sourceTools.ts"
 import { makeRepo } from "./fixtures/harness/repo.ts"
+import { noDiscussions } from "./fixtures/harness/request.ts"
 
 const lockfile = (name: string, version: string) =>
   JSON.stringify({
@@ -23,7 +24,7 @@ const repo = makeRepo(() => ({
 // A tracked file can still match a .gitignore in the checked-out tree; osv-scanner would then skip it.
 writeFileSync(`${repo.source.trees.source}/.gitignore`, "apps/web/package-lock.json\n")
 const scope = Effect.runSync(Scope.make())
-const ctx: ToolContext = Effect.runSync(Scope.provide(toolContext(repo.source), scope))
+const ctx: ToolContext = Effect.runSync(Scope.provide(toolContext(repo.source, noDiscussions), scope))
 afterAll(() => {
   Effect.runSync(Scope.close(scope, Exit.void))
   repo.cleanup()

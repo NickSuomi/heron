@@ -36,6 +36,11 @@ describe("config", () => {
     expect(config.lanes[0].shape === "single" && config.lanes[0].reviewer.model).toBe("model-x")
   })
 
+  it("reads skipAuthors as usernames, empty when absent, and refuses an empty name", () => {
+    expect([configOf().skipAuthors, configOf({ ...baseConfig, skipAuthors: ["ci-bot", "renovate"] }).skipAuthors]).toEqual([[], ["ci-bot", "renovate"]])
+    expect(errorOf({ ...baseConfig, skipAuthors: [""] })).toContain("skipAuthors")
+  })
+
   it("routes profiles without a harness to the backend, which HERON_BACKEND overrides", () => {
     const lane = configOf(baseConfig, { HERON_BACKEND: "beta" }).lanes[0]
     expect(lane.shape === "single" && lane.reviewer.harness).toBe("beta")

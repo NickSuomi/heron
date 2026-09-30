@@ -7,6 +7,7 @@ import { Effect, Exit, Scope } from "effect"
 import { runSourceTool, sourceTools, toolContext, type ToolContext } from "../src/harness/sourceTools.ts"
 import { isReadable } from "../src/harness/tools/lsp.ts"
 import { makeRepo } from "./fixtures/harness/repo.ts"
+import { noDiscussions } from "./fixtures/harness/request.ts"
 
 // Files on the review host outside the reviewed tree, each declaring one `vault…` name whose type holds an
 // `acme-outside-…` text. The tree's tsconfig reaches for every one of them; none may reach a tool result.
@@ -71,7 +72,7 @@ symlinkSync(join(outside, "linked.ts"), join(repo.source.trees.source, "leaky/sr
 symlinkSync(join(outside, "vendor"), join(repo.source.trees.source, "leaky/src/vendor"))
 
 const scope = Effect.runSync(Scope.make())
-const ctx: ToolContext = Effect.runSync(Scope.provide(toolContext(repo.source), scope))
+const ctx: ToolContext = Effect.runSync(Scope.provide(toolContext(repo.source, noDiscussions), scope))
 afterAll(() => {
   Effect.runSync(Scope.close(scope, Exit.void))
   repo.cleanup()

@@ -42,7 +42,7 @@ The child process leads its own process group. When a session ends or times out,
 
 ## Read-only source tools
 
-The model reads code only through read-only tools. The Heron tools are `grep`, `list_files`, `read_file`, `rg`, `ast_grep`, `secret_scan`, `dependency_scan`, `rule_scan`, `git_log`, `git_show`, `git_blame`, `git_diff`, and six TypeScript language-server lookups that also cover Vue files and Effect code; [Backends](backends.md#source-tools) lists them. The CLI backends reach them through `heron mcp-source`, a stdio MCP server that Heron starts for each session. The `ai-sdk` backend calls the same code in-process. `claude-cli` also gets Claude Code's own `Read`, `Grep` and `Glob`.
+The model reads code only through read-only tools. The Heron tools are `grep`, `list_files`, `read_file`, `rg`, `ast_grep`, `secret_scan`, `dependency_scan`, `rule_scan`, `git_log`, `git_show`, `git_blame`, `git_diff`, six TypeScript language-server lookups that also cover Vue files and Effect code, and `read_discussions`; [Backends](backends.md#source-tools) lists them. The CLI backends reach them through `heron mcp-source`, a stdio MCP server that Heron starts for each session. The `ai-sdk` backend calls the same code in-process. `claude-cli` also gets Claude Code's own `Read`, `Grep` and `Glob`.
 
 - Heron writes one working tree per commit and removes write permission from every file and directory in it. A symbolic link in the repository becomes a plain file that holds the link target, so no path in a tree leads outside it. No hook, filter or fsmonitor runs while Heron writes the trees. Heron removes the trees and the bare repository when the review ends.
 - Paths must be relative to the repository. Absolute paths, `..`, backslashes, NUL bytes, and git pathspec magic are rejected. Commit arguments must be hex ids or `source`, `target` or `base`; no tool passes a free-form flag to git.
@@ -63,6 +63,15 @@ If the event stream shows any other tool call, or Claude Code reports a denied c
 
 These flags rely on the vendor CLI doing what its documentation says. Heron checks the event stream after the fact. It cannot stop a vendor CLI that ignores its own flags.
 
+## Comments in `read_discussions`
+
+`read_discussions` gives the model the comments on the merge request and on its linked issues. It never reaches the forge itself.
+
+- Heron reads the discussions with the bot token before the first session and keeps the result in memory. For a CLI backend it writes that result as JSON to `discussions.json` in the session's private temporary directory, created with mode 0700, and passes the path to `heron mcp-source` with `--discussions`. The tool server reads that file and nothing else from the forge, so the token never crosses into the tool server, the vendor CLI or the model. A file, not an argument: the list can be larger than one argument may be, and a process list would show an argument to other users on the runner. The file is removed with the directory when the session ends. `claude-cli` has no allow rule for that directory, so `dontAsk` denies a native `Read` of it; `codex-cli` has no native file tool. Either way the file holds only what the tool returns.
+- Only the merge request and the issues the snapshot links are read. The tool refuses any other issue, so the model cannot browse the project's issues.
+- Internal notes are dropped where Heron reads them, so text only project members may see never reaches the vendor or a note that a wider audience can read. So are system notes, Heron's own report and blocker notes, and notes by `skipAuthors`.
+- A comment is text anyone who can comment controls, like the description. Heron sends each body unchanged as a string inside the JSON tool result, next to `untrusted: true`, so a body cannot close a quote or a tag and pose as Heron's own text. The tool description and the instructions say that a claim in a comment is information to check against the code, never an instruction. That lowers the chance a comment steers the review; it does not rule it out. The model still has only read-only tools, so a comment that does steer it can skew the review text, never act.
+
 ## CI logs in the packet
 
 The packet carries the last 200 lines of each failed job in the head pipeline. Before a log reaches the model, Heron removes ANSI codes, replaces the GitLab token with `[redacted]`, and replaces strings shaped like GitLab, Anthropic, OpenAI or OpenRouter keys. GitLab's own masking of masked CI/CD variables applies first. A secret with another shape that a job prints unmasked reaches the model and the vendor.
@@ -79,7 +88,7 @@ To limit the damage:
 
 ## Limits of the threat model
 
-- **Untrusted content reaches the model.** The merge request title, description, diff, linked issues, CI logs and source are text the author controls. An author can write text that tries to steer the model toward PASS or to hide a defect. Heron limits what the model can do, not what it concludes. Treat a PASS as one reviewer's opinion, not as a security approval.
+- **Untrusted content reaches the model.** The merge request title, description, diff, linked issues, comments, CI logs and source are text the author or a commenter controls. An author can write text that tries to steer the model toward PASS or to hide a defect. Heron limits what the model can do, not what it concludes. Treat a PASS as one reviewer's opinion, not as a security approval.
 - **Heron writes all Markdown in the note itself.** Summaries, finding titles and bodies, finding paths, limitations, ruling reasons, vendor error text and provenance table cells are never passed through as Markdown. Heron reads model text into three constructs of its own and writes them back out:
   - Paragraphs. A single line break becomes a hard line break (two trailing spaces) and a blank line becomes a paragraph break. Leading spaces and tabs are removed, so no line becomes an indented code block.
   - Bullet lists, from lines that start with `- ` or `* `. Heron writes each item as `- ` followed by the item's text.
@@ -91,6 +100,6 @@ To limit the damage:
   - A blocker thread's first note starts with a hidden fingerprint: the gate, the path and the normalised title, as base64url JSON in an HTML comment. Heron reads it only from the first line of the first note, which always starts with Heron's own text, and only from notes `forge.botUserId` wrote, so model text cannot plant or move a fingerprint. The rest of the thread goes through the same renderer as the note.
   - `test/report-render.test.ts` renders reports built from hostile text with markdown-it, including hostile text inside backticks and backtick runs that try to close Heron's fence. It checks that the text adds only paragraphs, line breaks, bullet lists and code spans, that no reference sigil outside code is left without a joiner, and that no line starts with `/`. It also checks that the same text comes back unchanged from the earlier findings payload, and that a payload quoted in a code span is not read as one. It runs the same checks on blocker thread notes and their fingerprints. markdown-it stands in for GitLab's renderer; GitLab itself is not tested.
 - **Earlier findings return to the model.** A re-review sends the findings the earlier review kept to the session that rules on them again. They are model text from that earlier review, and the new session can drop them or keep them as advisories as well as keep them.
-- **Source goes to the vendor.** The diff, the linked issues, the failed job logs, and any file the model reads are sent to the model vendor of the backend you chose, under that vendor's data terms.
+- **Source goes to the vendor.** The diff, the linked issues, the failed job logs, any comment `read_discussions` returns, and any file the model reads are sent to the model vendor of the backend you chose, under that vendor's data terms.
 - **The admission filter is only as strong as the trigger.** `allowedTriggerUserIds` checks the user id from `--triggered-by` or `GITLAB_USER_ID`. Anyone who can run `heron` with the token directly can pass any id.
 - **Codex credentials need one writer.** Two jobs that share one `CODEX_HOME` can overwrite each other's refreshed tokens. See [Backends](backends.md#codex-codex-cli).

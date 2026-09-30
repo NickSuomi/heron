@@ -33,6 +33,31 @@ describe("reviewOnce", () => {
       expect([error._tag, error.message, forge.state.calls]).toEqual(["NotAdmitted", "user 999 is not in admission.allowedTriggerUserIds", 0])
     }))
 
+  it.effect("gives every session the discussions of the merge request and of each linked issue, and says why one could not be read", () =>
+    Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+      const linked = (reference: string) => ({ reference, relation: "related" as const, title: "t", description: "", state: "opened", webUrl: "https://gitlab.example.com/x" })
+      forge.state.issues = [linked("acme/storefront#12"), linked("acme/payments#3")]
+      const thread = (id: string, body: string) => ({ id, resolved: false, path: null, line: null, notes: [{ author: "jdoe", createdAt: "2026-09-01T10:00:00.000Z", body }] })
+      forge.state.comments = {
+        "!": [thread("aa01", "Why not reuse the cart total?")],
+        "acme/storefront#12": [thread("bb01", "Reproduced on staging.")],
+        "acme/payments#3": "HTTP 403",
+        "acme/storefront#13": [thread("cc01", "An issue the merge request does not link.")]
+      }
+      const seen: Array<HarnessRequest> = []
+      const result = yield* run(forge, gated, { onRun: (r) => seen.push(r) })
+      expect(result.review.verdict).toBe("PASS")
+      const expected = {
+        mergeRequest: { kind: "read", threads: [thread("aa01", "Why not reuse the cart total?")] },
+        issues: {
+          "acme/storefront#12": { kind: "read", threads: [thread("bb01", "Reproduced on staging.")] },
+          "acme/payments#3": { kind: "unavailable", reason: "discussions: HTTP 403" }
+        }
+      }
+      expect(seen.map((r) => [r.slot.id, r.discussions])).toEqual(["gate.design", "gate.correctness", "supervisor"].map((id) => [id, expected]))
+    }))
+
   it.effect("publishes one PASS note and converges labels", () =>
     Effect.gen(function*() {
       const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")], labels: ["team::web", "review::blocked"] })

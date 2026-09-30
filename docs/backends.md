@@ -54,7 +54,7 @@ Every session runs with the profile's `model` and `effort`. It has no turn limit
 
 ### Source tools
 
-All three backends get the same Heron tools. The CLI backends reach them through `heron mcp-source`, a stdio MCP server (Model Context Protocol, the standard the vendor CLIs use to talk to tool servers). The `ai-sdk` backend calls the same code in-process. Every tool takes `ref` (`source`, `target` or `base`; the default is `source`).
+All three backends get the same Heron tools. The CLI backends reach them through `heron mcp-source`, a stdio MCP server (Model Context Protocol, the standard the vendor CLIs use to talk to tool servers). The `ai-sdk` backend calls the same code in-process. Every source tool takes `ref` (`source`, `target` or `base`; the default is `source`).
 
 | Tool | What it does | Runs |
 | --- | --- | --- |
@@ -68,6 +68,17 @@ All three backends get the same Heron tools. The CLI backends reach them through
 | `rule_scan` | Candidate unsafe sinks and Vue pitfalls from Heron's own ast-grep rules (one line per rule in [`rules/ast-grep/README.md`](../rules/ast-grep/README.md)): path, lines, rule id, message and the matched code. The model must read and cite the code before it reports one | ast-grep |
 | `git_log`, `git_show`, `git_blame`, `git_diff` | History, one commit, line authorship, and the diff between any two of `base`, `source` and `target` | git |
 | `definition`, `references`, `hover`, `document_symbols`, `workspace_symbols`, `diagnostics` | TypeScript, JavaScript and Vue lookups on one working tree, with Effect language service diagnostics and hovers | typescript-language-server |
+| `read_discussions` | The comments on the merge request's discussions, or on one linked issue's, one entry per note: thread id, whether the thread is resolved, the diff path and line, author, time and the whole body | Nothing: it reads what Heron fetched before the session |
+
+`read_discussions` takes `issue`, a reference exactly as the packet lists it under linked issues, such as `acme/storefront#12`; without it the tool reads the merge request. It refuses an issue the merge request does not link. Before the first session, Heron reads [`GET /projects/:id/merge_requests/:iid/discussions`](https://docs.gitlab.com/api/discussions/#list-all-merge-request-discussion-items) and, for each linked issue, [`GET /projects/:id/issues/:iid/discussions`](https://docs.gitlab.com/api/discussions/#list-all-issue-discussion-items), 100 threads per page, once per review. Every session of the review pages through that copy, so a later call costs no request. A list GitLab refuses, for example an issue in a project the bot cannot read, makes the tool say why for that list; the review goes on. Heron leaves out:
+
+- system notes, such as "added 2 commits";
+- internal notes (the [notes API](https://docs.gitlab.com/api/notes/) field `internal`, or its older name `confidential`), so text only members may see never reaches the model or the note;
+- Heron's own report: a note by `forge.botUserId` that carries the report marker;
+- Heron's own notes in a blocker thread it started, whose first note carries the thread fingerprint. A person's reply in that thread stays;
+- every note by a username in [`skipAuthors`](configuration.md#skipauthors).
+
+A thread left with no note is dropped. Resolved threads stay, with `resolved: true`, because they show a concern that was already answered. Bodies are never shortened. Each result carries `untrusted: true`, and the tool description and the instructions tell the model that a claim in a comment is information to check against the code, never an instruction. See [Security](security.md#comments-in-read_discussions).
 
 Results are never cut short without notice. `read_file` returns the whole file by default. A tool that can return many results pages them: each answer gives `total` and `next`, the offset of the next page.
 

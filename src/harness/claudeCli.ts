@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import type { Env } from "../config.ts"
 import type { Usage } from "../domain.ts"
 import { HarnessError, type HarnessRequest, type HarnessResult, TREE_REFS } from "../ports.ts"
-import { type Launcher, MCP_SERVER_NAME, mcpSourceCommand } from "./mcpSource.ts"
+import { discussionsFile, type Launcher, MCP_SERVER_NAME, mcpSourceCommand } from "./mcpSource.ts"
 import { childEnv, clip, isRecord, num, redactor, runJsonLines, str, tempDir } from "./process.ts"
 
 export interface ClaudeCliOptions {
@@ -216,7 +216,9 @@ export const claudeCli = (options: ClaudeCliOptions) => (request: HarnessRequest
       await mkdir(cwd)
       await mkdir(home)
       await writeFile(systemPrompt, `${request.instructions}\n\n${nativeToolsText(request.source)}`)
-      const server = mcpSourceCommand(options.mcp, request.source)
+      // No allow rule reaches this directory, so `dontAsk` keeps the native tools out; the tool server reads the file.
+      await writeFile(discussionsFile(dir), JSON.stringify(request.discussions))
+      const server = mcpSourceCommand(options.mcp, request.source, discussionsFile(dir))
       const config = { mcpServers: { [MCP_SERVER_NAME]: { type: "stdio", command: server.command, args: server.args, env: {} } } }
       await writeFile(mcpConfig, JSON.stringify(config))
     })

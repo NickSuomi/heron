@@ -33,6 +33,16 @@ Instruction file paths in the config are relative to the directory of the config
 | `project` | string | Project path (`group/app`) or numeric project id. |
 | `botUserId` | integer | The user id that `GITLAB_TOKEN` belongs to. Heron checks this before it reads or writes its report note and stops if the token belongs to another user. |
 
+### `skipAuthors`
+
+A list of GitLab usernames, optional, empty by default. `read_discussions` never returns a note one of them wrote, on the merge request or on a linked issue. Use it for bots whose comments are noise to a reviewer, such as a coverage or dependency bot. Heron always leaves out its own report and blocker notes, so the bot user needs no entry. See [Backends](backends.md#source-tools).
+
+```json
+"skipAuthors": ["coverage-bot", "renovate-bot"]
+```
+
+The list is part of the effective config, so changing it changes the [config digest](#config-digest).
+
 ### `admission`
 
 | Key | Type | Meaning |

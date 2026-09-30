@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { codexCli } from "../src/harness/codexCli.ts"
 import { type Captured, fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
-import { answerSchema, jobEnv, requestFor } from "./fixtures/harness/request.ts"
+import { answerSchema, jobEnv, noDiscussions, requestFor } from "./fixtures/harness/request.ts"
 
 const repo = makeRepo()
 afterAll(repo.cleanup)
@@ -43,6 +44,8 @@ describe("codex-cli harness", () => {
       const { argv, env, files, stdin } = captured()
       expect(argv.slice(0, 2)).toEqual(["exec", "--json"])
       expect(JSON.parse(files[argv[argv.indexOf("--output-schema") + 1]!]!)).toEqual(answerSchema)
+      const discussions = join(dirname(argv[argv.indexOf("--output-schema") + 1]!), "discussions.json")
+      expect(JSON.parse(files[discussions]!)).toEqual(noDiscussions)
       expect([argv[argv.indexOf("-m") + 1], argv[argv.indexOf("--sandbox") + 1]]).toEqual(["model-x", "read-only"])
       expect(argv).toEqual(expect.arrayContaining(["--skip-git-repo-check", "--ephemeral"]))
       expect(argv.at(-1)).toBe("-")
@@ -56,12 +59,12 @@ describe("codex-cli harness", () => {
         project_doc_max_bytes: "0",
         tool_output_token_limit: "1000000",
         "mcp_servers.heron.command": "\"/opt/node\"",
-        "mcp_servers.heron.args": JSON.stringify(["/opt/heron/dist/cli.js", "mcp-source", "--checkout", JSON.stringify(repo.source)]),
+        "mcp_servers.heron.args": JSON.stringify(["/opt/heron/dist/cli.js", "mcp-source", "--checkout", JSON.stringify(repo.source), "--discussions", discussions]),
         "mcp_servers.heron.required": "true",
         "mcp_servers.heron.tool_timeout_sec": "86400",
         "mcp_servers.heron.enabled_tools": JSON.stringify([
           "grep", "list_files", "read_file", "rg", "ast_grep", "secret_scan", "dependency_scan", "rule_scan", "git_log", "git_show", "git_blame", "git_diff",
-          "definition", "references", "hover", "document_symbols", "workspace_symbols", "diagnostics"
+          "definition", "references", "hover", "document_symbols", "workspace_symbols", "diagnostics", "read_discussions"
         ])
       })
       expect(stdin).toBe("You review code.\n\nWhat number does a.ts export?")
