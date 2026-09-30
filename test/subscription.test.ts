@@ -30,20 +30,28 @@ describe("the subscription reading", () => {
         return new Response(JSON.stringify(body), { status: 200 })
       }) as typeof fetch
       const windows = yield* readSubscription("sk-ant-oat-test", fetchUsage)
-      expect(windows?.map((w) => w.percent)).toEqual([25, 38])
+      expect("failure" in windows ? windows : windows.map((w) => w.percent)).toEqual([25, 38])
       expect([sent[0]![0], (sent[0]![1]?.headers as Record<string, string>)["authorization"]]).toEqual([
         "https://api.anthropic.com/api/oauth/usage",
         "Bearer sk-ant-oat-test"
       ])
     }))
 
-  it.effect("reads as missing, never as a failure, when the endpoint refuses, breaks or answers nonsense", () =>
+  it.effect("says why, never failing the review, when the endpoint refuses, breaks or answers nonsense", () =>
     Effect.gen(function*() {
+      const token = "sk-ant-oat-secret"
+      const refused = new Response(JSON.stringify({ error: { type: "permission_error", message: `scope user:profile is required for ${token}` } }), { status: 403 })
       const results = yield* Effect.all([
-        readSubscription("t", replying(new Response("rate limited", { status: 429 }))),
-        readSubscription("t", replying(new Error("network down"))),
-        readSubscription("t", replying(new Response("not json", { status: 200 })))
+        readSubscription(token, replying(refused)),
+        readSubscription(token, replying(new Response("rate limited", { status: 429 }))),
+        readSubscription(token, replying(new Error("network down"))),
+        readSubscription(token, replying(new Response("not json", { status: 200 })))
       ])
-      expect(results).toEqual([null, null, null])
+      expect(results).toEqual([
+        { failure: "HTTP 403: scope user:profile is required for [redacted]" },
+        { failure: "HTTP 429: rate limited" },
+        { failure: "network down" },
+        { failure: "the response had no usage windows" }
+      ])
     }))
 })

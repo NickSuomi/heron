@@ -5,7 +5,7 @@ import type {
   DiscussionId,
   JsonSchema,
   LabelTransition,
-  LimitWindow,
+  LimitReading,
   Marker,
   MrRef,
   MrSnapshot,
@@ -114,8 +114,8 @@ export class HarnessError extends Schema.TaggedError<HarnessError>()("HarnessErr
 
 export interface HarnessShape {
   readonly run: (request: HarnessRequest) => Effect.Effect<HarnessResult, HarnessError>
-  /** The subscription's usage windows now, or null when a reading fails. Absent when no harness runs on a subscription. */
-  readonly limits?: Effect.Effect<ReadonlyArray<LimitWindow> | null>
+  /** The subscription's usage windows now, or why they could not be read. Absent when no harness runs on a subscription. */
+  readonly limits?: Effect.Effect<LimitReading>
 }
 
 export class Harness extends Context.Service<Harness, HarnessShape>()("heron/Harness") {}

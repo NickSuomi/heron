@@ -232,8 +232,8 @@ const tokens = (n: number | null) => n === null ? "n/a" : n.toLocaleString("en-U
 const subscriptionLines = (s: SubscriptionUse | null): ReadonlyArray<string> => {
   if (s === null) return []
   const { after, before } = s
-  const share = before === null || after === null
-    ? ["Subscription share unknown: the usage reading failed."]
+  const share = "failure" in before || "failure" in after
+    ? [`Subscription share unknown: the usage reading failed (${inline("failure" in before ? before.failure : "failure" in after ? after.failure : "")}).`]
     : [
       `Subscription: ${
         after.flatMap((a) => {

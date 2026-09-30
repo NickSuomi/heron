@@ -283,11 +283,13 @@ export interface LimitWindow {
   readonly resetsAt: string | null
 }
 
+/** The subscription's usage windows at one moment, or why they could not be read. */
+export type LimitReading = ReadonlyArray<LimitWindow> | { readonly failure: string }
+
 /** The subscription's windows before and after a review, and the usage-limit warnings Claude Code gave during it. */
 export interface SubscriptionUse {
-  /** Null when the reading failed. */
-  readonly before: ReadonlyArray<LimitWindow> | null
-  readonly after: ReadonlyArray<LimitWindow> | null
+  readonly before: LimitReading
+  readonly after: LimitReading
   readonly warnings: ReadonlyArray<string>
 }
 

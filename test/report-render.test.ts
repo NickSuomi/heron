@@ -375,7 +375,9 @@ describe("report shape", () => {
       "Subscription: the five-hour window reset during the review (now 2%). An estimate: Claude reports whole percent, and other sessions on the account count too.",
       "Claude Code warned: \\@\u2060all \\/\u2060close."
     ])
-    expect(after(render({ before: null, after: [window(2, "x")], warnings: [] }))[0]).toBe("Subscription share unknown: the usage reading failed.")
+    expect(after(render({ before: { failure: "HTTP 403" }, after: [window(2, "x")], warnings: [] }))[0]).toBe(
+      "Subscription share unknown: the usage reading failed (HTTP 403)."
+    )
   })
 
   it("puts tool calls and vendor cost in one totals line", () => {

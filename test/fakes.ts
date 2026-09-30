@@ -1,6 +1,6 @@
 import { Effect, Layer, Result } from "effect"
 import { type Config, decodeConfigFile, resolveConfig } from "../src/config.ts"
-import type { Change, DiffAnchor, DiscussionId, LabelTransition, LimitWindow, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
+import type { Change, DiffAnchor, DiscussionId, LabelTransition, LimitReading, LimitWindow, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
 import { Forge, ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
 import { parseFingerprint, parseMarker, parsePrior } from "../src/report.ts"
 
@@ -208,7 +208,7 @@ export const fakeHarness = (
     slow?: Readonly<Record<string, number>>
     onRun?: (r: HarnessRequest) => void
     /** Successive subscription readings; each `limits` call takes the next. */
-    limits?: ReadonlyArray<ReadonlyArray<LimitWindow> | null>
+    limits?: ReadonlyArray<LimitReading>
     /** A usage-limit warning each session reports. */
     limitWarning?: string
   } = {}
@@ -241,7 +241,7 @@ export const fakeHarness = (
           ...(options.limitWarning === undefined ? {} : { limitWarning: options.limitWarning })
         }
       }),
-    ...(options.limits === undefined ? {} : { limits: Effect.sync(() => readings.shift() ?? null) })
+    ...(options.limits === undefined ? {} : { limits: Effect.sync((): LimitReading => readings.shift() ?? { failure: "no scripted reading" }) })
   })
   return { layer, seen, peak }
 }

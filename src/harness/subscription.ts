@@ -1,5 +1,5 @@
 import { Duration, Effect } from "effect"
-import type { LimitWindow } from "../domain.ts"
+import type { LimitReading, LimitWindow } from "../domain.ts"
 
 /**
  * The plan-usage endpoint Claude Code's own `/usage` reads. Anthropic does not document it, so a reading is best effort:
@@ -22,17 +22,33 @@ export const parseUsage = (body: unknown): ReadonlyArray<LimitWindow> | null => 
   return found.length === 0 ? null : found
 }
 
-export const readSubscription = (token: string, fetchUsage: typeof fetch = fetch): Effect.Effect<ReadonlyArray<LimitWindow> | null> =>
+/** Why a response carried no windows: its status and the error message Anthropic gave, without the token. */
+const refusal = async (response: Response, token: string): Promise<string> => {
+  const text = await response.text().catch(() => "")
+  let message = text
+  try {
+    const body: unknown = JSON.parse(text)
+    const error = isRecord(body) && isRecord(body["error"]) ? body["error"]["message"] : undefined
+    if (typeof error === "string") message = error
+  } catch {
+    // Not JSON: keep the text.
+  }
+  const clean = message.split(token).join("[redacted]").replace(/\s+/g, " ").trim().slice(0, 200)
+  return `HTTP ${response.status}${clean === "" ? "" : `: ${clean}`}`
+}
+
+export const readSubscription = (token: string, fetchUsage: typeof fetch = fetch): Effect.Effect<LimitReading> =>
   Effect.tryPromise({
-    try: async (signal) => {
+    try: async (signal): Promise<LimitReading> => {
       const response = await fetchUsage(USAGE_URL, {
         headers: { authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20", accept: "application/json" },
         signal
       })
-      return response.ok ? parseUsage(await response.json()) : null
+      if (!response.ok) return { failure: await refusal(response, token) }
+      return parseUsage(await response.json().catch(() => null)) ?? { failure: "the response had no usage windows" }
     },
-    catch: () => null
+    catch: (e): LimitReading => ({ failure: e instanceof Error ? e.message.split(token).join("[redacted]") : "the request failed" })
   }).pipe(
-    Effect.timeoutOrElse({ duration: Duration.seconds(30), orElse: () => Effect.succeed(null) }),
-    Effect.orElseSucceed(() => null)
+    Effect.timeoutOrElse({ duration: Duration.seconds(30), orElse: () => Effect.succeed<LimitReading>({ failure: "no answer within 30 s" }) }),
+    Effect.catch((reading) => Effect.succeed(reading))
   )

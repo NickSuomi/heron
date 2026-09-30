@@ -272,10 +272,11 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const harness = yield* Harness
   // The subscription's windows around the sessions, so the report can show the review's share next to its cost.
   const reviewed = Effect.gen(function*() {
-    const before = harness.limits === undefined ? null : yield* harness.limits
+    const limits = harness.limits
+    const before = limits === undefined ? null : yield* limits
     const done = yield* Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) => execute(config, plan, snapshot, source, rereview)))
-    const after = harness.limits === undefined ? null : yield* harness.limits
-    const subscription: SubscriptionUse | null = harness.limits === undefined ? null : { before, after, warnings: done.warnings }
+    const after = limits === undefined ? null : yield* limits
+    const subscription: SubscriptionUse | null = before === null || after === null ? null : { before, after, warnings: done.warnings }
     return { sessions: done.sessions, outcome: done.outcome, subscription }
   })
   if (!request.publish) {
