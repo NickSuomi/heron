@@ -15,7 +15,7 @@ const run = (
   answers: Record<string, Script>,
   options: { publish?: boolean; triggeredBy?: UserId | null; onRun?: (r: HarnessRequest) => void; slow?: Record<string, number> } = {}
 ) =>
-  reviewOnce(config, { ref, triggeredBy: options.triggeredBy === undefined ? trigger : options.triggeredBy, publish: options.publish ?? true }).pipe(
+  reviewOnce(config, { ref, triggeredBy: options.triggeredBy === undefined ? trigger : options.triggeredBy, publish: options.publish ?? true, full: false }).pipe(
     Effect.provide(Layer.mergeAll(forge.layer, fakeHarness(answers, { ...(options.onRun ? { onRun: options.onRun } : {}), ...(options.slow ? { slow: options.slow } : {}) }).layer))
   )
 
@@ -151,7 +151,7 @@ describe("reviewOnce", () => {
         "b2.supervisor": keepAll({ added: [] }),
         "judge": keepAll()
       })
-      const result = yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: true }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
+      const result = yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: true, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
       expect(result.review.verdict).toBe("PASS")
       const access = (r: (typeof seen)[number]) =>
         `${r.slot.id}:${r.source.commits.source === sha("a") && r.source.commits.target === sha("b") ? "checkout" : "none"}:${r.maxTurns}:${r.timeout}`
@@ -280,7 +280,7 @@ describe("reviewOnce", () => {
         { window: "weekly" as const, percent: weekly, resetsAt: "2026-10-03T12:00:00Z" }
       ]
       const harness = fakeHarness(gated, { limits: [at(25, 38), at(28, 39)], limitWarning: "five_hour limit allowed_warning" })
-      const result = yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+      const result = yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
       expect(result.review.subscription).toEqual({ before: at(25, 38), after: at(28, 39), warnings: ["five_hour limit allowed_warning"] })
       const lines = result.body.split("\n")
       expect(lines[lines.findIndex((l) => l.startsWith("Totals:")) + 2]).toBe(
@@ -307,7 +307,7 @@ describe("reviewOnce", () => {
         "b2.supervisor": keepAll({ added: [] }),
         "judge": keepAll()
       }, { delay: 20 })
-      yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
+      yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
       expect(Object.fromEntries(peak)).toEqual({ alpha: 2, beta: 1 })
     }))
 })

@@ -49,6 +49,8 @@ The list is part of the effective config, so changing it changes the [config dig
 | --- | --- | --- |
 | `allowedTriggerUserIds` | integer array, optional | When set, `heron review` runs only if the triggering user is in the list. The triggering user comes from `--triggered-by`, else from `GITLAB_USER_ID`. If neither is present, the review is refused. When the key is absent, anyone who can start Heron can trigger a review. |
 
+`heron poll` acts only on [comment commands](../README.md#comment-commands) whose author is in `allowedTriggerUserIds`, and refuses to start when the key is absent, because anyone who can comment on a merge request could then spend the model credential.
+
 ### `labels`
 
 All four keys are optional. A missing key means Heron does not manage that label.
@@ -122,6 +124,14 @@ A review session has no turn limit and no time limit by default. The model reads
 | `maxTurns` | none | Turn limit per session. `codex-cli` has no turn flag and ignores it. |
 | `sessionTimeoutSeconds` | none | Wall-clock limit per session, in seconds. |
 
+### `poll`
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `concurrency` | 2 | How many merge requests `heron poll` handles at once. Commands on one merge request always run one at a time, in the order they were written. |
+
+Each merge request's review keeps to each harness's `concurrency`, but two reviews that run at once each do, so the sessions on one harness can reach `poll.concurrency` times its `concurrency`.
+
 ## Config digest
 
 The digest is a SHA-256 over the effective config and the content of every instruction file. Heron writes it into the hidden marker of the report note and shows the first 12 characters in the report. A change to an instruction file changes the digest. The next run after a digest change reviews the whole change, not only the newer commits.
@@ -152,6 +162,7 @@ Variables with the config key `none` are read directly and are not part of the c
 | `HERON_LABEL_BLOCKED` | `labels.blocked` | string | Label for a BLOCKED verdict. |
 | `HERON_MAX_TURNS` | `limits.maxTurns` | int | Optional turn limit per session. Unset means no limit. |
 | `HERON_SESSION_TIMEOUT_SECONDS` | `limits.sessionTimeoutSeconds` | int | Optional wall-clock limit per session, in seconds. Unset means no limit. |
+| `HERON_POLL_CONCURRENCY` | `poll.concurrency` | int | Merge requests heron poll handles at once. Default 2. |
 | `HERON_PROFILE_*_HARNESS` | `profiles.*.harness` | string | Harness key of one profile. |
 | `HERON_PROFILE_*_MODEL` | `profiles.*.model` | string | Model of one profile. |
 | `HERON_PROFILE_*_EFFORT` | `profiles.*.effort` | string | Reasoning effort of one profile. |

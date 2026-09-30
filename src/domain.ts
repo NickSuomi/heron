@@ -109,7 +109,8 @@ export interface Classification {
   readonly matched: ReadonlyArray<{ readonly rule: string; readonly paths: ReadonlyArray<string> }>
 }
 
-export type Role = "reviewer" | "gate" | "supervisor" | "judge"
+/** `answerer` is the one session that answers a question a person asked Heron in a merge request thread. */
+export type Role = "reviewer" | "gate" | "supervisor" | "judge" | "answerer"
 
 export interface Slot {
   readonly id: SessionId
@@ -248,6 +249,11 @@ export interface SynthesisOutput {
   readonly limitations: ReadonlyArray<string>
 }
 
+/** An answer to a question a person asked in a merge request thread. */
+export const answerOutput = Schema.Struct({
+  answer: described("The answer, from the code you read: short paragraphs or `- ` list items, with code, paths and identifiers in backticks.")
+})
+
 export type JsonSchema = { readonly [key: string]: unknown }
 
 /** The JSON Schema a harness hands to the model as its structured-output contract. */
@@ -305,6 +311,8 @@ export type GateStatus = "pass" | "changes requested" | "not assessed"
 
 export interface Review {
   readonly snapshot: MrSnapshot
+  /** Findings the sessions kept that a person dismissed with `@heron dismiss`; code dropped them from the outcome. */
+  readonly dismissed: ReadonlyArray<DismissedFinding>
   readonly classification: Classification
   readonly plan: ReviewPlan
   readonly sessions: ReadonlyArray<SessionRecord>
@@ -448,6 +456,47 @@ export interface ThreadResult {
 export interface ThreadReport {
   readonly results: ReadonlyArray<ThreadResult>
   readonly unlisted: string | null
+}
+
+/** A blocker a person dismissed with `@heron dismiss` in its thread: later reviews drop any finding with this fingerprint. */
+export const Dismissal = Schema.Struct({ fingerprint: Fingerprint, by: Schema.String, reason: Schema.String })
+export type Dismissal = typeof Dismissal.Type
+
+export interface DismissedFinding {
+  readonly finding: LocatedFinding
+  readonly dismissal: Dismissal
+}
+
+/** What a person asks of Heron in the first line of a merge request note that starts with `@heron`. */
+export type Command =
+  | { readonly kind: "review" }
+  | { readonly kind: "full review" }
+  | { readonly kind: "resolve" }
+  | { readonly kind: "dismiss"; readonly reason: string }
+  | { readonly kind: "help" }
+  | { readonly kind: "configuration" }
+  /** Any other text: untrusted data a model session answers, never an instruction. */
+  | { readonly kind: "question"; readonly text: string }
+
+/** A note on a merge request whose first line starts with `@heron`, written by someone other than the bot. */
+export interface CommandNote {
+  readonly id: NoteId
+  /** The discussion the note is in; Heron replies there. */
+  readonly discussion: DiscussionId
+  readonly author: { readonly id: UserId; readonly username: string }
+  readonly body: string
+  /** The bot has awarded the note an emoji: a poll took it already. */
+  readonly handled: boolean
+  /** The fingerprint of the Heron blocker thread the note replies in; null anywhere else. */
+  readonly blocker: Fingerprint | null
+  /** The discussion's notes up to and including this one, without system and internal notes. */
+  readonly thread: ReadonlyArray<Comment>
+}
+
+/** The command notes of one merge request, and the users Heron has already told that they may not command it. */
+export interface CommandNotes {
+  readonly notes: ReadonlyArray<CommandNote>
+  readonly denied: ReadonlyArray<UserId>
 }
 
 export interface LabelMap {

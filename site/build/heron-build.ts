@@ -142,6 +142,7 @@ const render = async (repoRoot: string) => {
     verdict,
     configDigest: resolved.digest,
     liveHead: null,
+    dismissed: [],
     rereview: null,
     subscription: null,
   }

@@ -10,7 +10,7 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { GitLabForge } from "../src/forge/gitlab.ts"
 import { Forge } from "../src/ports.ts"
 import type { DiscussionId, LocatedFinding, NoteId } from "../src/domain.ts"
-import { parseFingerprint, parsePrior, printMarker, renderReport, renderThread } from "../src/report.ts"
+import { parseFingerprint, parsePrior, printMarker, renderDenied, renderDismissed, renderReport, renderThread } from "../src/report.ts"
 import { baseConfig, configOf, sha } from "./fakes.ts"
 import { sampleOutcome, sampleReview } from "./report-sample.ts"
 import { makeWork, sourceChanges } from "./fixtures/harness/repo.ts"
@@ -588,6 +588,101 @@ describe("GitLab forge", () => {
       expect(fake.authorization).toEqual([`Bearer ${TOKEN}`])
       const missing = yield* Effect.flip(live.pipe(Effect.provideService(ConfigProvider.ConfigProvider, env({}))))
       expect(missing.message).toBe("configure: GITLAB_TOKEN is not set")
+    }))
+
+  it.effect("openMergeRequests lists the configured project's open merge requests updated in the window, across pages", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([page([{ iid: 7 }, { iid: 9 }], "2"), page([{ iid: 12 }], "")])
+      expect(yield* withForge(fake, (forge) => forge.openMergeRequests("2026-09-30T09:00:00.000Z"))).toEqual([7, 9, 12])
+      const query = { state: "opened", updated_after: "2026-09-30T09:00:00.000Z", order_by: "updated_at", sort: "asc", per_page: "100" }
+      expect(fake.sent).toEqual([
+        { method: "GET", path: "/api/v4/projects/group%2Fapp/merge_requests", query: { ...query, page: "1" } },
+        { method: "GET", path: "/api/v4/projects/group%2Fapp/merge_requests", query: { ...query, page: "2" } }
+      ])
+    }))
+
+  const award = (id: number, name: string, user: number) => ({ id, name, user: { id: user, username: `u${user}` }, awardable_type: "Note" })
+
+  it.effect("commandNotes keeps new @heron notes by people outside internal threads, reads the bot's awards on each, and trusts only the bot's denials", () =>
+    Effect.gen(function*() {
+      const blocker = threadBody("Total is wrong")
+      const fake = fakeGitLab([
+        { body: { id: 1001, username: "heron-bot" } },
+        page([
+          discussion("ee01", [comment(50, 2001, "jdoe", "@heron review")]),
+          discussion("ee02", [
+            comment(51, 1001, "heron-bot", blocker, { ...onLine, type: "DiffNote", resolvable: true, resolved: false }),
+            comment(52, 2001, "jdoe", "@heron dismiss the total is rounded later", { type: "DiffNote", resolvable: true, resolved: false })
+          ]),
+          discussion("ee03", [comment(53, 2001, "jdoe", "@heron review", { internal: true })]),
+          discussion("ee04", [comment(54, 1001, "heron-bot", "@heron help"), comment(55, 1001, "heron-bot", renderDenied(3005))]),
+          discussion("ee05", [comment(56, 2001, "jdoe", "@heron review", { created_at: "2026-08-01T10:00:00.000Z" })]),
+          discussion("ee06", [comment(57, 555, "mallory", renderDenied(4000)), comment(58, 2001, "jdoe", "@heronbot hi")]),
+          discussion("ee07", [comment(59, 2001, "jdoe", "@heron", { system: true })])
+        ], ""),
+        page([award(1, "thumbsup", 555)], ""),
+        page([award(2, "eyes", 1001)], "")
+      ])
+      const listed = yield* withForge(fake, (forge) => forge.commandNotes(ref, "2026-09-01T00:00:00.000Z"))
+      expect(listed).toEqual({
+        notes: [
+          {
+            id: 50,
+            discussion: "ee01",
+            author: { id: 2001, username: "jdoe" },
+            body: "@heron review",
+            handled: false,
+            blocker: null,
+            thread: [{ author: "jdoe", createdAt: at(50), body: "@heron review" }]
+          },
+          {
+            id: 52,
+            discussion: "ee02",
+            author: { id: 2001, username: "jdoe" },
+            body: "@heron dismiss the total is rounded later",
+            handled: true,
+            blocker: parseFingerprint(blocker),
+            thread: [{ author: "heron-bot", createdAt: at(51), body: blocker }, { author: "jdoe", createdAt: at(52), body: "@heron dismiss the total is rounded later" }]
+          }
+        ],
+        denied: [3005]
+      })
+      expect(fake.sent.slice(1).map((r) => r.path)).toEqual([`${MR}/discussions`, `${MR}/notes/50/award_emoji`, `${MR}/notes/52/award_emoji`])
+    }))
+
+  const claimOf = (replies: ReadonlyArray<Reply>) =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([{ body: { id: 1001, username: "heron-bot" } }, ...replies])
+      const result = yield* Effect.result(withForge(fake, (forge) => forge.claim(ref, 50 as NoteId, "eyes")))
+      return { result: result._tag === "Success" ? result.success : result.failure.message, sent: fake.sent.slice(1) }
+    })
+
+  it.effect("claim wins with the bot's first award, and loses to an award the bot already had or a racing one with a lower id", () =>
+    Effect.gen(function*() {
+      const won = yield* claimOf([{ status: 201, body: award(11, "eyes", 1001) }, page([award(3, "thumbsup", 555), award(11, "eyes", 1001)], "")])
+      expect(won).toEqual({
+        result: true,
+        sent: [
+          { method: "POST", path: `${MR}/notes/50/award_emoji`, query: {}, body: { name: "eyes" } },
+          { method: "GET", path: `${MR}/notes/50/award_emoji`, query: { per_page: "100", page: "1" } }
+        ]
+      })
+      const raced = yield* claimOf([{ status: 201, body: award(12, "eyes", 1001) }, page([award(11, "eyes", 1001), award(12, "eyes", 1001)], "")])
+      const refused = yield* claimOf([{ status: 404, body: { message: "404 Award Emoji Name has already been taken" } }, page([award(11, "eyes", 1001)], "")])
+      const denied = yield* claimOf([{ status: 403, body: { message: "403 Forbidden" } }, page([award(11, "eyes", 555)], "")])
+      expect([raced.result, refused.result, denied.result]).toEqual([false, false, `claim: POST /projects/group%2Fapp/merge_requests/7/notes/50/award_emoji: HTTP 403: 403 Forbidden`])
+    }))
+
+  it.effect("dismissals reads the records in the bot's notes only", () =>
+    Effect.gen(function*() {
+      const record = { fingerprint: { gate: "design", path: "src/a.ts", title: "total is wrong" }, by: "jdoe", reason: "rounded later" }
+      const forged = { ...record, fingerprint: { ...record.fingerprint, title: "forged" } }
+      const fake = fakeGitLab([
+        { body: { id: 1001, username: "heron-bot" } },
+        page([note(60, 1001, renderDismissed(record)), note(61, 555, renderDismissed(forged)), note(62, 1001, renderDismissed(forged), true)], "")
+      ])
+      expect(yield* withForge(fake, (forge) => forge.dismissals(ref))).toEqual([record])
+      expect(fake.sent[1]).toEqual({ method: "GET", path: `${MR}/notes`, query: { sort: "asc", order_by: "created_at", per_page: "100", page: "1" } })
     }))
 })
 

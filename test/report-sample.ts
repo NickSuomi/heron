@@ -78,6 +78,7 @@ export const sampleReview: Review = {
   verdict: "CHANGES REQUESTED",
   configDigest: "f".repeat(64),
   liveHead: null,
+  dismissed: [],
   rereview: null,
   subscription: null
 }

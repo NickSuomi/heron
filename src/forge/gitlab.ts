@@ -4,9 +4,21 @@ import { Config as EnvConfig, Duration, Effect, FileSystem, Layer, Redacted, Sch
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import type { Config } from "../config.ts"
-import { type Change, type CommentThread, DiscussionId, type MrRef, type MrSnapshot, NoteId, Sha, type Thread } from "../domain.ts"
+import {
+  type Change,
+  type CommandNote,
+  type CommentThread,
+  DiscussionId,
+  type MrRef,
+  type MrSnapshot,
+  NoteId,
+  Sha,
+  type Thread,
+  UserId
+} from "../domain.ts"
+import { parseCommand } from "../policy.ts"
 import { Forge, ForgeError, type ForgeShape, IncompleteSnapshot, type Noteable, type SourceCheckout, TREE_REFS } from "../ports.ts"
-import { parseFingerprint, parseMarker, parsePrior } from "../report.ts"
+import { parseDenied, parseDismissal, parseFingerprint, parseMarker, parsePrior } from "../report.ts"
 import { fetchCommits, materialize, thaw } from "./git.ts"
 
 const User = Schema.Struct({ id: Schema.Int })
@@ -92,6 +104,13 @@ const CommentNote = Schema.Struct({
   position: Schema.optionalKey(Schema.NullOr(Position))
 })
 const CommentDiscussion = Schema.Struct({ id: Schema.String, notes: Schema.Array(CommentNote) })
+/** A discussion as `heron poll` reads it: Heron replies to a command in the discussion it is in. */
+const CommandDiscussion = Schema.Struct({
+  id: DiscussionId,
+  notes: Schema.Array(Schema.Struct({ ...CommentNote.fields, author: Schema.Struct({ id: UserId, username: Schema.String }) }))
+})
+const isUserId = Schema.is(UserId)
+const Award = Schema.Struct({ id: Schema.Int, name: Schema.String, user: Schema.Struct({ id: Schema.Int }) })
 
 /**
  * The notes of each discussion a review may read. Dropped: system notes, internal notes, notes by `skip`, the bot's report
@@ -461,6 +480,77 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
           yield* materialize(gitDir, commits[tree], trees[tree], join(workDir, `${tree}.index`)).pipe(provide)
         }
         return { gitDir, commits, trees } satisfies SourceCheckout
+      }),
+
+    // The project is the configured one; nothing a note says reaches this list. https://docs.gitlab.com/api/merge_requests/#list-project-merge-requests
+    openMergeRequests: (updatedAfter) =>
+      Effect.map(
+        pages("openMergeRequests", `/projects/${encodeURIComponent(config.forge.project)}/merge_requests`, Schema.Struct({ iid: Schema.Int }), {
+          state: "opened",
+          updated_after: updatedAfter,
+          order_by: "updated_at",
+          sort: "asc"
+        }),
+        (mrs) => mrs.map((mr) => mr.iid)
+      ),
+
+    // Discussions give each note the discussion to reply in; each command note's award emoji say whether the bot took it.
+    // https://docs.gitlab.com/api/discussions/#list-project-merge-request-discussion-items
+    // https://docs.gitlab.com/api/emoji_reactions/#list-all-emoji-reactions-for-a-comment
+    commandNotes: (ref, createdAfter) =>
+      Effect.gen(function*() {
+        const me = yield* self
+        const since = Date.parse(createdAfter)
+        const listed = yield* pages("commandNotes", `${mrPath(ref)}/discussions`, CommandDiscussion)
+        const denied = listed.flatMap((d) =>
+          d.notes.flatMap((n) => {
+            const user = n.system || n.author.id !== me ? null : parseDenied(n.body)
+            return isUserId(user) ? [user] : []
+          })
+        )
+        const notes: Array<CommandNote> = []
+        for (const d of listed) {
+          const first = d.notes[0]
+          if (first === undefined) continue
+          const blocker = !first.system && first.author.id === me ? parseFingerprint(first.body) : null
+          const readable = d.notes.filter((n) => !n.system && n.internal !== true && n.confidential !== true)
+          for (const n of readable) {
+            if (n.author.id === me || Date.parse(n.created_at) < since || parseCommand(n.body) === null) continue
+            const awards = yield* pages("commandNotes", `${mrPath(ref)}/notes/${n.id}/award_emoji`, Award)
+            notes.push({
+              id: n.id,
+              discussion: d.id,
+              author: n.author,
+              body: n.body,
+              handled: awards.some((a) => a.user.id === me),
+              blocker: n.id === first.id ? null : blocker,
+              thread: readable.slice(0, readable.indexOf(n) + 1).map((t) => ({ author: t.author.username, createdAt: t.created_at, body: t.body }))
+            })
+          }
+        }
+        return { notes, denied }
+      }),
+
+    // https://docs.gitlab.com/api/emoji_reactions/#add-an-emoji-reaction-to-a-comment
+    claim: (ref, note, emoji) =>
+      Effect.gen(function*() {
+        const me = yield* self
+        const path = `${mrPath(ref)}/notes/${note}/award_emoji`
+        const awarded = yield* Effect.result(call("claim", "POST", path, Award, { body: { name: emoji } }))
+        // Read back, so a refused duplicate and two awards a race let through both leave exactly one winner: the lowest id.
+        const mine = (yield* pages("claim", path, Award)).filter((a) => a.user.id === me && a.name === emoji).map((a) => a.id)
+        if (awarded._tag === "Failure") return mine.length > 0 ? false : yield* awarded.failure
+        return Math.min(...mine) === awarded.success.id
+      }),
+
+    dismissals: (ref) =>
+      Effect.gen(function*() {
+        const me = yield* self
+        const notes = yield* pages("dismissals", `${mrPath(ref)}/notes`, Note, { sort: "asc", order_by: "created_at" })
+        return notes.filter((n) => !n.system && n.author.id === me).flatMap((n) => {
+          const d = parseDismissal(n.body)
+          return d === null ? [] : [d]
+        })
       })
   }
   return forge

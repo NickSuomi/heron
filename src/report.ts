@@ -1,5 +1,7 @@
 import { Schema } from "effect"
+import type { Config } from "./config.ts"
 import {
+  Dismissal,
   type Finding,
   Fingerprint,
   type LocatedFinding,
@@ -320,6 +322,16 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
       )
     }
     if (rest.length > 0) checks.push("", "Summary, continued:", "", markdown(rest))
+    if (review.dismissed.length > 0) {
+      checks.push(
+        "",
+        "Dismissed in their threads, so the verdict leaves them out:",
+        "",
+        ...review.dismissed.map(({ dismissal, finding }) =>
+          `- ${code(finding.gate)} ${inline(finding.title)} in ${code(finding.location.path)}, by ${code(dismissal.by)}: ${inline(dismissal.reason)}`
+        )
+      )
+    }
     const limitations = [...new Set(outcome.limitations)]
     if (limitations.length > 0) checks.push("", "Not checked:", "", ...limitations.map((l) => `- ${inline(l)}`))
   }
@@ -406,3 +418,103 @@ export const renderThread = (review: Review, f: LocatedFinding, suggest: boolean
 
 /** Heron's reply in a thread whose blocker the review at `head` no longer keeps. */
 export const renderCleared = (head: Sha): string => `No longer a blocker at ${code(short(head))}.\n`
+
+/** A GitLab username as a mention; a name outside GitLab's username characters is shown as code, which mentions no one. */
+const mention = (username: string): string => /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(username) ? `@${username}` : code(username)
+
+/*
+ * Heron's replies to commands end with a hidden record where a later poll or review needs one, as the report note ends with
+ * its earlier findings: an HTML comment on the last line, read only from notes the bot wrote. Every reply starts and ends
+ * with Heron's own text, and user or model text reaches it only through the renderer above, so no one else can write it.
+ */
+const printDismissal = (d: Dismissal): string => `<!-- heron:dismissed v1 ${Buffer.from(JSON.stringify(d)).toString("base64url")} -->`
+const dismissalPattern = /\n<!-- heron:dismissed v1 ([A-Za-z0-9_-]+) -->\n$/
+const decodeDismissal = Schema.decodeUnknownOption(Schema.fromJsonString(Dismissal), { onExcessProperty: "error" })
+
+export const parseDismissal = (body: string): Dismissal | null => {
+  const m = dismissalPattern.exec(body)
+  if (m === null) return null
+  const decoded = decodeDismissal(Buffer.from(m[1]!, "base64url").toString("utf8"))
+  return decoded._tag === "Some" ? decoded.value : null
+}
+
+const deniedPattern = /\n<!-- heron:denied v1 user=(\d+) -->\n$/
+
+/** The user a denial reply told that they may not command Heron; null for any other note. */
+export const parseDenied = (body: string): number | null => {
+  const m = deniedPattern.exec(body)
+  return m === null ? null : Number(m[1])
+}
+
+/** Said once per user and merge request; the record lets later polls stay silent. */
+export const renderDenied = (user: number): string => `Only maintainers can run Heron.\n\n<!-- heron:denied v1 user=${user} -->\n`
+
+/** The reply in a blocker thread that a person dismissed; its record makes later reviews drop the finding. */
+export const renderDismissed = (d: Dismissal): string =>
+  `Dismissed by ${mention(d.by)}: ${inline(d.reason)}\n\nLater reviews leave this finding out and list it under REVIEW CHECKS.\n${printDismissal(d)}\n`
+
+export const DISMISS_WHERE = "`@heron dismiss <reason>` works only as a reply in a Heron blocker thread, the discussion Heron opens on the diff for each blocker.\n"
+
+export const DISMISS_REASON = "Give a reason: `@heron dismiss <reason>`, in the first line of the reply.\n"
+
+export const HELP = [
+  "Heron answers these commands in the first line of a comment on this merge request:",
+  "",
+  "- `@heron review`: review the merge request at its head, only the new commits when Heron safely can.",
+  "- `@heron full review`: review the whole merge request again.",
+  "- `@heron resolve`: resolve every open thread Heron started here.",
+  "- `@heron dismiss <reason>`: in a Heron blocker thread, dismiss that blocker so later reviews leave it out.",
+  "- `@heron configuration`: show the active configuration.",
+  "- `@heron help`: show this list.",
+  "",
+  "Anything else after `@heron` is a question. Heron answers it in the same thread from the code at the head. Only the users in the allow list can run Heron; a poll picks commands up within minutes and marks each one it takes with :eyes:.",
+  ""
+].join("\n")
+
+const limitText = (n: number | null, unit: string) => n === null ? `no ${unit} limit` : `${n} ${unit}${n === 1 ? "" : "s"}`
+
+/** The config a poll runs with, from the resolved config only; nothing comes from the environment. */
+export const renderConfiguration = (config: Config): string => {
+  const profiles = new Map(
+    config.lanes.flatMap((l) => {
+      switch (l.shape) {
+        case "single":
+          return [l.reviewer]
+        case "gated":
+          return [l.branch.gate, l.branch.supervisor]
+        case "dual":
+          return [...l.branches.flatMap((b) => [b.gate, b.supervisor]), l.judge]
+      }
+    }).map((p) => [p.name, p])
+  )
+  const lanes = config.lanes.map((l) => `${code(l.name)} (${l.shape}: ${l.gates.map((g) => code(g.name)).join(", ")})`)
+  const rules = config.rules.map((r) => `${code(r.id)} (${r.when} of ${r.paths.map(code).join(", ")}) selects ${code(r.lane.name)}`)
+  return [
+    `Heron's active configuration, digest ${code(config.digest.slice(0, 12))}:`,
+    "",
+    `- Lanes, least to most strict: ${lanes.join(", ")}. Default ${code(config.defaultLane.name)}.`,
+    `- Rules: ${rules.length === 0 ? "none" : rules.join("; ")}.`,
+    `- Profiles: ${[...profiles.values()].map((p) => `${code(p.name)} runs ${code(p.model)} on ${code(p.harness)} (${config.harnesses[p.harness]?.kind ?? "unknown"}) at effort ${code(p.effort)}`).join("; ")}.`,
+    `- Limits per session: ${limitText(config.limits.maxTurns, "turn")}, ${config.limits.sessionTimeoutSeconds === null ? "no time limit" : `${config.limits.sessionTimeoutSeconds} s`}.`,
+    `- Poll: ${config.poll.concurrency} merge requests at once.`,
+    ""
+  ].join("\n")
+}
+
+/** The answer to a question, as model text through the renderer, then Heron's own last line. */
+export const renderAnswer = (head: Sha, answer: string): string => {
+  const body = markdown(blocksOf(answer))
+  return `${body === "" ? "Heron has no answer." : body}\n\nHeron's answer from the code at ${code(short(head))}. Heron reads the code and runs nothing.\n`
+}
+
+export const renderReviewed = (verdict: Verdict, head: Sha, report: string | null): string =>
+  `Review of ${code(short(head))} finished: ${verdict}.${report === null ? "" : ` [Report](${report})`}\n`
+
+export const renderResolvedThread = (by: string): string => `Resolved at the request of ${mention(by)}.\n`
+
+export const renderResolveDone = (resolved: number, failed: number): string =>
+  `${resolved === 0 && failed === 0 ? "No open Heron thread to resolve." : `Resolved ${count(resolved, "Heron thread", "Heron threads")}.`}${
+    failed === 0 ? "" : ` ${count(failed, "thread", "threads")} could not be resolved.`
+  }\n`
+
+export const renderFailed = (command: string, reason: string): string => `Heron could not run ${code(command)}: ${inline(reason)}\n`

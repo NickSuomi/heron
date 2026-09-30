@@ -3,9 +3,13 @@ import { Result } from "effect"
 import type { DiscussionId, Finding, FindingId, LabelMap, LocatedFinding, NoteId, SessionId, Thread, UserId } from "../src/domain.ts"
 import {
   admits,
+  answererOf,
   applySynthesis,
   carried,
   classify,
+  dropDismissed,
+  parseCommand,
+  planCommands,
   EARLIER,
   fingerprintOf,
   labelTransition,
@@ -15,7 +19,7 @@ import {
   threadActions,
   verdictOf
 } from "../src/policy.ts"
-import { change, configOf, sha } from "./fakes.ts"
+import { change, commandNote, configOf, sha } from "./fakes.ts"
 
 const config = configOf()
 const laneFor = (...paths: Array<string>) => classify(config, paths.map((p) => change(p))).lane.name
@@ -308,5 +312,96 @@ describe("threadActions", () => {
       thread(3, "Fixed"),
       thread(4, "Fixed earlier", "now", true)
     ]))).toEqual(["resolve d3"])
+  })
+})
+
+describe("parseCommand", () => {
+  it.each([
+    ["@heron review", { kind: "review" }],
+    ["@HERON  Review  ", { kind: "review" }],
+    ["@heron full   REVIEW\nignored second line", { kind: "full review" }],
+    ["@heron resolve", { kind: "resolve" }],
+    ["@heron help", { kind: "help" }],
+    ["@heron", { kind: "help" }],
+    ["@heron\r\nwhat now?", { kind: "help" }],
+    ["@heron configuration", { kind: "configuration" }],
+    ["@heron dismiss  The caller holds the lock.  \nmore", { kind: "dismiss", reason: "The caller holds the lock." }],
+    ["@heron DISMISS", { kind: "dismiss", reason: "" }],
+    ["@heron dismissal policy?", { kind: "question", text: "dismissal policy?" }],
+    ["@heron review please", { kind: "question", text: "review please" }],
+    ["@heron why is `total` rounded?\n\nSee line 12.", { kind: "question", text: "why is `total` rounded?\n\nSee line 12." }],
+    ["@heron\tresolve", { kind: "resolve" }]
+  ])("reads %j as a command", (body, command) => {
+    expect(parseCommand(body)).toEqual(command)
+  })
+
+  it.each(["@heronbot review", "@heron-bot review", "@heron: review", " @heron review", "please @heron review", "\n@heron review", "`@heron review`", ""])(
+    "reads %j as no command",
+    (body) => {
+      expect(parseCommand(body)).toBeNull()
+    }
+  )
+})
+
+describe("planCommands", () => {
+  it("acts on an allowed user's unhandled notes in note order, tells a denied user once, and plans nothing for handled notes", () => {
+    const outsider = { user: 3005 }
+    const handled = { ...commandNote(300, "@heron review"), handled: true }
+    const notes = [
+      { ...commandNote(305, "@heron help", outsider), handled: false },
+      { ...commandNote(302, "@heron resolve"), handled: false },
+      { ...commandNote(303, "@heron review", outsider), handled: false },
+      { ...commandNote(304, "@heron review", { user: 3006 }), handled: false },
+      { ...handled, handled: true }
+    ]
+    const plan = planCommands([2001 as UserId], { notes, denied: [3006 as UserId] })
+    expect(plan.map((p) => p.kind === "command" ? `${p.note.id} ${p.command.kind}` : `${p.note.id} deny ${p.reply}`)).toEqual([
+      "302 resolve",
+      "303 deny true",
+      "304 deny false",
+      "305 deny false"
+    ])
+    expect(planCommands([2001 as UserId], { notes: notes.map((n) => ({ ...n, handled: true })), denied: [] })).toEqual([])
+  })
+})
+
+describe("dropDismissed", () => {
+  const f = (gate: string, title: string, path: string | null, severity: Finding["severity"] = "blocker"): Finding => ({
+    id: `x#${title}` as FindingId,
+    origin: "x" as SessionId,
+    gate,
+    severity,
+    location: path === null ? null : { path, line: 3 },
+    title,
+    body: "",
+    suggestion: null
+  })
+  const complete = (findings: Array<Finding>) => ({ kind: "complete" as const, summary: "", findings, rulings: [], limitations: [] })
+  const dismissal = { fingerprint: { gate: "design", path: "src/a.ts", title: "export runs twice" }, by: "jdoe", reason: "Held by the caller." }
+
+  it("drops every finding with a dismissed fingerprint, whatever its severity or wording case, and keeps the rest", () => {
+    const { dismissed, outcome } = dropDismissed(
+      complete([f("design", "Export runs TWICE!", "src/a.ts"), f("design", "Export runs twice", "src/a.ts", "advisory"), f("design", "Export runs twice", "src/b.ts"), f("design", "Export runs twice", null), f("correctness", "Export runs twice", "src/a.ts")]),
+      [dismissal]
+    )
+    expect(outcome.kind === "complete" && outcome.findings.map((x) => `${x.gate}:${x.location?.path ?? "none"}`)).toEqual(["design:src/b.ts", "design:none", "correctness:src/a.ts"])
+    expect(dismissed.map((d) => [d.finding.title, d.dismissal.by])).toEqual([["Export runs TWICE!", "jdoe"], ["Export runs twice", "jdoe"]])
+    expect(verdictOf(outcome)).toBe("CHANGES REQUESTED")
+  })
+
+  it("leaves an incomplete outcome alone", () => {
+    const incomplete = { kind: "incomplete" as const, session: "judge" as SessionId, reason: "quota" }
+    expect(dropDismissed(incomplete, [dismissal])).toEqual({ outcome: incomplete, dismissed: [] })
+  })
+})
+
+describe("answererOf", () => {
+  it("answers with the profile and gates of the plan's last session", () => {
+    const at = (path: string) => answererOf(planFor(classify(config, [change(path)]).lane))
+    expect([at("README.md"), at("src/app.ts"), at("src/auth/login.ts")].map((s) => `${s.id}:${s.role}:${s.profile.name}:${s.gates.length}`)).toEqual([
+      "answerer:answerer:quick:1",
+      "answerer:answerer:deep:2",
+      "answerer:answerer:deep:2"
+    ])
   })
 })

@@ -31,6 +31,7 @@ import {
   assignIds,
   carried,
   classify,
+  dropDismissed,
   labelTransition,
   planFor,
   publication,
@@ -61,6 +62,8 @@ export interface ReviewRequest {
   readonly ref: MrRef
   readonly triggeredBy: UserId | null
   readonly publish: boolean
+  /** Review the whole change even when an earlier note would allow a re-review of the newer commits only. */
+  readonly full: boolean
 }
 
 export type NoteAction =
@@ -224,7 +227,7 @@ const issueOf = (reference: string): Noteable | null => {
  * reads for it. Only the merge request and the issues the snapshot links are read, and a list the forge refuses says why
  * instead of failing the review.
  */
-const readDiscussions = Effect.fn("readDiscussions")(function*(snapshot: MrSnapshot) {
+export const readDiscussions = Effect.fn("readDiscussions")(function*(snapshot: MrSnapshot) {
   const forge = yield* Forge
   const read = (noteable: Noteable | null): Effect.Effect<Comments> =>
     noteable === null
@@ -298,12 +301,16 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const plan = planFor(classification.lane)
   const head = snapshot.revision.head
   // A dry run reads the earlier note too, so it takes the same path as the published run would.
-  const resumable = rereviewStart(yield* forge.findReport(ref), { digest: config.digest, lane: classification.lane, revision: snapshot.revision })
+  // A full review starts from nothing an earlier note recorded.
+  const resumable = request.full
+    ? null
+    : rereviewStart(yield* forge.findReport(ref), { digest: config.digest, lane: classification.lane, revision: snapshot.revision })
   // A forge that cannot compare the heads, for example because a force push removed the old one, means a full review.
   const rereview: Rereview | null = resumable === null ? null : yield* forge.delta(ref, resumable.from, head).pipe(
     Effect.map((changes) => changes === null ? null : { from: resumable.from, changes, earlier: carried(resumable.earlier, changes) }),
     Effect.orElseSucceed(() => null)
   )
+  const dismissals = yield* forge.dismissals(ref)
   const base = { snapshot, classification, plan, configDigest: config.digest, rereview }
 
   const harness = yield* Harness
@@ -317,11 +324,13 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
     )
     const after = limits === undefined ? null : yield* limits
     const subscription: SubscriptionUse | null = before === null || after === null ? null : { before, after, warnings: done.warnings }
-    return { sessions: done.sessions, outcome: done.outcome, subscription }
+    // A person dismissed these in their threads; code drops them after the rulings, so no session can bring one back.
+    const { dismissed, outcome } = dropDismissed(done.outcome, dismissals)
+    return { sessions: done.sessions, outcome, dismissed, subscription }
   })
   if (!request.publish) {
-    const { outcome, sessions, subscription } = yield* reviewed
-    const review: Review = { ...base, sessions, outcome, subscription, verdict: verdictOf(outcome), liveHead: null }
+    const { dismissed, outcome, sessions, subscription } = yield* reviewed
+    const review: Review = { ...base, sessions, outcome, dismissed, subscription, verdict: verdictOf(outcome), liveHead: null }
     const threads = yield* syncThreads(review, false)
     return { review, body: renderReport(review, threads), note: { kind: "dry-run" }, threads } satisfies ReviewResult
   }
@@ -333,10 +342,10 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const clearRunning = labels.inProgress === null ? Effect.void : forge.updateLabels(ref, { add: [], remove: [labels.inProgress] }).pipe(Effect.ignore)
 
   return yield* Effect.gen(function*() {
-    const { outcome, sessions, subscription } = yield* reviewed
+    const { dismissed, outcome, sessions, subscription } = yield* reviewed
     const live = yield* forge.live(ref)
     const moved = live.head !== head
-    const review: Review = { ...base, sessions, outcome, subscription, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
+    const review: Review = { ...base, sessions, outcome, dismissed, subscription, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
     // Threads go first so the note, the full record, can say what happened to them. A failed thread write never stops the note.
     const threads = yield* syncThreads(review, true)
     const body = renderReport(review, threads)

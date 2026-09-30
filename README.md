@@ -25,7 +25,7 @@ The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUP
 - Code decides the verdict, not the model. Any blocker finding means CHANGES REQUESTED. A session that fails, times out, or returns malformed output means BLOCKED, never PASS.
 - Review depth follows the change. Path rules in the config pick a lane, for example one reviewer for a docs change, gates with a supervisor for most changes, or two independent branches and a judge for sensitive paths.
 - Models only read, but they can read everything. Every session searches the whole repository at the source branch, the target branch and their merge base with ripgrep, structural search, a gitleaks secret scan, an offline osv-scanner check of the lockfiles, and a scan with Heron's own ast-grep rules for unsafe sinks and Vue pitfalls, whose results the model must confirm by reading the code, TypeScript language-server lookups that also read Vue files and Effect code, and git history. No session has a turn, time or result cap unless you set one. No session can run commands or change files.
-- Heron does not approve or merge. It writes one note, keeps one diff discussion per blocker, and sets labels.
+- Heron does not approve or merge. It writes one note, keeps one diff discussion per blocker, replies to [comment commands](#comment-commands), and sets labels.
 
 ## How it works
 
@@ -69,6 +69,30 @@ When the head has moved since Heron's last report, Heron reviews only the commit
 Otherwise Heron reviews the whole change, as it does at an unchanged head.
 
 In a re-review, the packet holds the changes since the earlier head and lists every path the merge request changes. Each session can still read the whole repository at all three commits. Before the findings the earlier review kept go on, Heron moves each one to the reviewed head through the diff between the two heads: the path follows a rename, and a line moves by the lines the hunks above it added and removed. A line the newer commits removed or rewrote, or a file they deleted, has no position at the new head, so the finding keeps its path and loses its line. The findings, with ids `earlier#1`, `earlier#2` and so on, go to the session that rules last: the supervisor in a gated lane, the judge in a dual lane, or the reviewer in a single lane. That session rules `keep`, `keep as advisory` or `drop` on each one with a reason, shown in the rulings table. For a finding without a line, a `keep` decision can give the line where the defect is now; until a ruling does, the note links the file with no line and says the line changed. Code derives the verdict from the kept findings and their final severity, as in a full review, and the next note records each carried finding at that final severity. The report adds one line, for example ``Re-review of `1a2b3c4d..5e6f7a8b`: 2 of 3 earlier findings carried.`` A carried blocker keeps its thread. A dry run reads the earlier note and takes the same path without writing anything.
+
+### Comment commands
+
+People on the allow list can run Heron from a comment on the merge request. A comment is a command when its first line starts with `@heron`, then a space and one of these words, in any case:
+
+| Command | What Heron does |
+| --- | --- |
+| `@heron review` | Reviews the merge request as `heron review` does: only the new commits when a [re-review](#re-reviews) is safe. It replies with the verdict and a link to the report. |
+| `@heron full review` | Reviews the whole merge request, even when a re-review would be safe. |
+| `@heron resolve` | Resolves every open thread Heron started on the merge request, with a reply naming who asked. |
+| `@heron dismiss`, then a reason | Only as a reply in a Heron blocker thread. Records that the blocker is dismissed, with the reason and who dismissed it, replies with `Dismissed by`, the person and the reason, and resolves the thread. Later reviews leave that finding out of the verdict and list it under REVIEW CHECKS. |
+| `@heron configuration` | Replies with the lanes, rules, profiles, limits and config digest. |
+| `@heron help` | Replies with this list. `@heron` alone does the same. |
+| `@heron`, then any other text | A question. One model session reads the merge request as a review does, with the thread, and answers in the same thread. |
+
+GitLab starts no pipeline for a comment, so a scheduled pipeline runs `heron poll` every few minutes. It looks at the project's open merge requests updated in the last 60 minutes (`--since-minutes`) and at the `@heron` comments written in that window. It adds the `eyes` emoji to a comment before it acts on it, then posts the result in the comment's thread. A comment the bot has put any emoji on is done, so a second poll, or two polls that overlap, never act on it twice. A command that fails keeps its emoji and gets a reply that says why; comment again to retry it.
+
+Commands on one merge request run one at a time, in the order they were written. `poll.concurrency` sets how many merge requests Heron handles at once.
+
+Only users in `admission.allowedTriggerUserIds` can run a command, and `heron poll` refuses to start without that list. Anyone else gets one reply per merge request, "Only maintainers can run Heron."; Heron marks their later comments with the `no_entry_sign` emoji and says nothing more.
+
+A dismissal is a hidden record in Heron's reply in the blocker thread. Heron reads it only from notes the bot wrote, and it matches the finding by the thread's fingerprint: the gate, the path and the normalised title. Heron drops a dismissed finding in code after the rulings, so no model session can bring it back.
+
+`heron poll --dry-run` prints the actions it would take and writes nothing, not even an emoji. See [Run Heron from GitLab CI](docs/gitlab-ci.md#answer-comment-commands) for the scheduled job.
 
 ## Quick start
 
@@ -121,15 +145,15 @@ This command was not run while this README was checked, because it needs a GitLa
 
 ## Integrations
 
-- **GitLab CI.** [Run Heron from GitLab CI](docs/gitlab-ci.md) gives a manual merge request job that takes all configuration from CI/CD variables and admits only listed users.
+- **GitLab CI.** [Run Heron from GitLab CI](docs/gitlab-ci.md) gives a manual merge request job that takes all configuration from CI/CD variables and admits only listed users, and a scheduled job that answers [comment commands](#comment-commands).
 - **Model backends.** [Backends](docs/backends.md) covers `ai-sdk` (OpenRouter with an API key), `claude-cli` (your Claude Code CLI), and `codex-cli` (your Codex CLI), with the vendor terms for each.
 
 ## Architecture
 
-- `src/review.ts` holds `reviewOnce`, the one review pipeline. It talks to GitLab and to the models through two ports defined in `src/ports.ts`: `Forge` and `Harness`.
-- `src/policy.ts` holds the decisions as plain functions: admission, lane choice, the session plan, the verdict, label changes, whether to create, update, or skip the note, and what to do with each blocker thread. `src/diff.ts` reads the unified diff to find the lines a thread can sit on and to move an earlier finding's line to a newer head.
+- `src/review.ts` holds `reviewOnce`, the one review pipeline. It talks to GitLab and to the models through two ports defined in `src/ports.ts`: `Forge` and `Harness`. `src/poll.ts` holds `pollOnce`, which finds `@heron` comments, claims each one and runs it, calling `reviewOnce` for a review.
+- `src/policy.ts` holds the decisions as plain functions: admission, lane choice, the session plan, the verdict, label changes, whether to create, update, or skip the note, what to do with each blocker thread, how to read a comment command, which comments a poll acts on, and which findings a dismissal drops. `src/diff.ts` reads the unified diff to find the lines a thread can sit on and to move an earlier finding's line to a newer head.
 - `src/forge/gitlab.ts` implements `Forge` over the GitLab REST API. `src/harness/` implements `Harness` for the three backends and the read-only source tools they share.
-- The hidden marker and the hidden findings line in the report note, and the hidden fingerprint in each blocker thread, are the only state Heron keeps. There is no database.
+- The hidden marker and the hidden findings line in the report note, the hidden fingerprint in each blocker thread, the hidden records in Heron's dismissal and denial replies, and the bot's emoji on each command comment are the only state Heron keeps. There is no database.
 
 Reference: [Configuration](docs/configuration.md), [Backends](docs/backends.md), [Security model](docs/security.md), [Design book](docs/brand/README.md).
 
@@ -137,7 +161,9 @@ Reference: [Configuration](docs/configuration.md), [Backends](docs/backends.md),
 
 - **Not on npm.** Install from source and run `pnpm heron` or `node src/cli.ts`.
 - **GitLab only.** `forge.kind` accepts only `gitlab`.
-- **No watcher.** Nothing reviews a merge request until someone runs `heron review`, for example from the [manual CI job](docs/gitlab-ci.md). A `heron watch` command is not implemented.
+- **No automatic reviews.** Nothing reviews a merge request until someone runs `heron review`, for example from the [manual CI job](docs/gitlab-ci.md), or comments `@heron review`. A `heron watch` command is not implemented.
+- **Commands wait for the next poll.** A comment command runs when the scheduled `heron poll` next runs, up to its interval plus the time a runner takes to pick the job up. A comment older than `--since-minutes` when a poll first sees it is never run.
+- **A dismissal matches the wording.** A later review that words the dismissed blocker differently, beyond case, spacing and punctuation, or finds it in a renamed file, reports it again.
 - **Large diffs are not reviewed.** If GitLab caps, collapses, or is still preparing the diff, Heron stops with an error and posts nothing.
 - **Only blockers on the diff get a thread.** A blocker on a line outside the merge request diff stays in the note only. A thread stays where it was opened. When a later push changes that line, GitLab may show the thread as outdated, and Heron keeps updating it where it is.
 - **A changed title or a renamed file is a new thread.** When a later review words a blocker differently, beyond case, spacing and punctuation, or a re-review moves it to a renamed file, Heron resolves the old thread as fixed and opens a new one where the diff can hold it.

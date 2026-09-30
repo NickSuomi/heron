@@ -1,10 +1,12 @@
 import { Context, type Duration, type Effect, Schema, type Scope } from "effect"
 import type {
   Change,
+  CommandNotes,
   CommentThread,
   DiffAnchor,
   Discussions,
   DiscussionId,
+  Dismissal,
   JsonSchema,
   LabelTransition,
   LimitReading,
@@ -86,6 +88,20 @@ export interface ForgeShape {
   /** The changes from `from` to `to`; null when `from` is not an ancestor of `to` or the forge cannot give the whole diff. */
   readonly delta: (ref: MrRef, from: Sha, to: Sha) => Effect.Effect<ReadonlyArray<Change> | null, ForgeError>
   readonly checkout: (ref: MrRef, revision: MrSnapshot["revision"]) => Effect.Effect<SourceCheckout, ForgeError, Scope.Scope>
+  /** The iids of the configured project's open merge requests updated at or after `updatedAfter`, an ISO 8601 time. */
+  readonly openMergeRequests: (updatedAfter: string) => Effect.Effect<ReadonlyArray<number>, ForgeError>
+  /**
+   * The notes created at or after `createdAfter` whose first line starts with `@heron`, by anyone but the configured bot,
+   * outside internal notes, with whether the bot has awarded each an emoji; and the users the bot's replies say it denied.
+   */
+  readonly commandNotes: (ref: MrRef, createdAfter: string) => Effect.Effect<CommandNotes, ForgeError>
+  /**
+   * Awards `emoji` to a note as the bot. True only when this call's award is the bot's first `emoji` on the note, so of two
+   * polls racing on one note exactly one wins; false when the bot had awarded it already.
+   */
+  readonly claim: (ref: MrRef, note: NoteId, emoji: string) => Effect.Effect<boolean, ForgeError>
+  /** The dismissals recorded in the configured bot's notes on the merge request, oldest first. */
+  readonly dismissals: (ref: MrRef) => Effect.Effect<ReadonlyArray<Dismissal>, ForgeError>
 }
 
 export class Forge extends Context.Service<Forge, ForgeShape>()("heron/Forge") {}

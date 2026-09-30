@@ -9,6 +9,7 @@ import { type Config, configSource, type Env, type HarnessConfig, loadConfig } f
 import { type ThreadReport, type ThreadResult, UserId } from "./domain.ts"
 import { GitLabForge } from "./forge/gitlab.ts"
 import { harnessCredentials, HarnessLive, runMcpSource } from "./harness/index.ts"
+import { pollLineText, pollOnce } from "./poll.ts"
 import { ForgeError } from "./ports.ts"
 import { reviewOnce } from "./review.ts"
 
@@ -59,7 +60,8 @@ const review = Command.make("review", {
     const result = yield* reviewOnce(config, {
       ref: { project: config.forge.project, iid: flags.mr },
       triggeredBy: yield* triggeredBy(flags.triggeredBy),
-      publish: !flags.dryRun
+      publish: !flags.dryRun,
+      full: false
     }).pipe(
       Effect.provide(Layer.mergeAll(GitLabForge.layer(config), HarnessLive(config, { env }))),
       Effect.provide(NodeHttpClient.layerUndici)
@@ -73,6 +75,23 @@ const review = Command.make("review", {
     }
   })).pipe(Command.withDescription("Review one merge request at its current head"))
 
+const poll = Command.make("poll", {
+  sinceMinutes: Flag.Int("since-minutes").pipe(Flag.withDefault(60), Flag.withDescription("Look at merge requests and notes from this many minutes back")),
+  dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false), Flag.withDescription("List the planned actions; write nothing, not even an emoji")),
+  config: configFlag
+}, (flags) =>
+  Effect.gen(function*() {
+    const config = yield* load(flags.config)
+    const lines = yield* pollOnce(config, { sinceMinutes: flags.sinceMinutes, dryRun: flags.dryRun }).pipe(
+      Effect.provide(Layer.mergeAll(GitLabForge.layer(config), HarnessLive(config, { env }))),
+      Effect.provide(NodeHttpClient.layerUndici)
+    )
+    for (const line of lines) yield* Console.log(pollLineText(line))
+    // Every action ran; a failed one still fails the job, so the operator sees it.
+    const failed = lines.filter((l) => l.failed).length
+    if (failed > 0) return yield* new ForgeError({ operation: "poll", detail: `${failed} of ${lines.length} actions failed` })
+  })).pipe(Command.withDescription("Act on new @heron commands in the configured project's merge requests"))
+
 const check = Command.make("check", { config: configFlag }, (flags) =>
   load(flags.config).pipe(Effect.flatMap((config) => Console.log(describe(config))))).pipe(
     Command.withDescription("Validate the config and print it with its digest; no network")
@@ -83,6 +102,7 @@ const configCommand = Command.make("config").pipe(Command.withSubcommands([check
 const heron = Command.make("heron").pipe(
   Command.withSubcommands([
     review,
+    poll,
     configCommand
   ])
 )

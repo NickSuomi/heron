@@ -36,6 +36,15 @@ describe("config", () => {
     expect(config.lanes[0].shape === "single" && config.lanes[0].reviewer.model).toBe("model-x")
   })
 
+  it("handles two merge requests at once in a poll unless poll.concurrency or HERON_POLL_CONCURRENCY says otherwise, and refuses zero", () => {
+    expect([
+      configOf().poll.concurrency,
+      configOf({ ...baseConfig, poll: { concurrency: 4 } }).poll.concurrency,
+      configOf({ ...baseConfig, poll: { concurrency: 4 } }, { HERON_POLL_CONCURRENCY: "1" }).poll.concurrency
+    ]).toEqual([2, 4, 1])
+    expect(errorOf({ ...baseConfig, poll: { concurrency: 0 } })).toContain("poll")
+  })
+
   it("reads skipAuthors as usernames, empty when absent, and refuses an empty name", () => {
     expect([configOf().skipAuthors, configOf({ ...baseConfig, skipAuthors: ["ci-bot", "renovate"] }).skipAuthors]).toEqual([[], ["ci-bot", "renovate"]])
     expect(errorOf({ ...baseConfig, skipAuthors: [""] })).toContain("skipAuthors")

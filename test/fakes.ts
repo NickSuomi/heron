@@ -1,8 +1,23 @@
 import { Effect, Layer, Result } from "effect"
 import { type Config, decodeConfigFile, resolveConfig } from "../src/config.ts"
-import type { Change, CommentThread, DiffAnchor, LinkedIssue, DiscussionId, LabelTransition, LimitReading, LimitWindow, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
+import type {
+  Change,
+  Comment,
+  CommentThread,
+  DiffAnchor,
+  DiscussionId,
+  Fingerprint,
+  LabelTransition,
+  LimitReading,
+  LinkedIssue,
+  MrSnapshot,
+  NoteId,
+  Sha,
+  Usage,
+  UserId
+} from "../src/domain.ts"
 import { Forge, ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
-import { parseFingerprint, parseMarker, parsePrior } from "../src/report.ts"
+import { parseDenied, parseDismissal, parseFingerprint, parseMarker, parsePrior } from "../src/report.ts"
 
 export const sha = (c: string) => c.repeat(40) as Sha
 
@@ -107,8 +122,49 @@ export interface ForgeState {
   /** The threads `discussions` lists, by `!` for the merge request or `project#iid` for an issue; a string is the forge's failure. */
   comments: Record<string, ReadonlyArray<CommentThread> | string>
   /** Thread operations that fail with HTTP 500. */
-  failing: Set<"findThreads" | "createThread" | "updateThreadNote" | "replyToThread" | "resolveThread">
+  failing: Set<"findThreads" | "createThread" | "updateThreadNote" | "replyToThread" | "resolveThread" | "commandNotes" | "claim">
+  /** What `openMergeRequests` lists. */
+  openIids: ReadonlyArray<number>
+  /** Notes that start with `@heron`, on the merge request `iid`, with the emoji awarded to each. */
+  commandNotes: Array<FakeNote>
+  /** Every reply the bot posted, in order, with the merge request it went to. */
+  posted: Array<{ readonly iid: number; readonly discussion: DiscussionId; readonly body: string }>
+  /** Discussions without a Heron fingerprint that the bot resolved. */
+  resolvedDiscussions: Array<DiscussionId>
+  /** Wait this long in each reply, so a test can watch how many run at once. */
+  replyDelay: number
+  replying: { now: number; peak: number; perIid: Map<number, number>; peakPerIid: Map<number, number> }
 }
+
+export const BOT = 1001
+
+/** A note that starts with `@heron`, as the forge lists it for `heron poll`. */
+export interface FakeNote {
+  readonly iid: number
+  readonly id: NoteId
+  readonly discussion: DiscussionId
+  readonly author: { readonly id: UserId; readonly username: string }
+  readonly body: string
+  readonly blocker: Fingerprint | null
+  readonly thread: ReadonlyArray<Comment>
+  readonly awards: Array<{ readonly id: number; readonly name: string; readonly user: number }>
+}
+
+/** A command note by `user`, in its own discussion unless `discussion` names one, as the first note of that discussion. */
+export const commandNote = (
+  id: number,
+  body: string,
+  options: { user?: number; username?: string; iid?: number; discussion?: string; blocker?: Fingerprint | null } = {}
+): FakeNote => ({
+  iid: options.iid ?? 7,
+  id: id as NoteId,
+  discussion: (options.discussion ?? `c${id}`) as DiscussionId,
+  author: { id: (options.user ?? 2001) as UserId, username: options.username ?? "jdoe" },
+  body,
+  blocker: options.blocker ?? null,
+  thread: [{ author: options.username ?? "jdoe", createdAt: "2026-09-30T10:00:00.000Z", body }],
+  awards: []
+})
 
 export const fakeForge = (
   init: { head: Sha; changes: ReadonlyArray<Change>; labels?: Array<string>; notes?: Map<number, string>; failCreateNote?: boolean }
@@ -128,8 +184,15 @@ export const fakeForge = (
     calls: 0,
     threads: [],
     comments: {},
-    failing: new Set()
+    failing: new Set(),
+    openIids: [7],
+    commandNotes: [],
+    posted: [],
+    resolvedDiscussions: [],
+    replyDelay: 0,
+    replying: { now: 0, peak: 0, perIid: new Map(), peakPerIid: new Map() }
   }
+  let nextAward = 1
   const call = <A>(f: () => A) => Effect.sync(() => (state.calls++, f()))
   const threadCall = <A>(operation: ForgeState["failing"] extends Set<infer O> ? O : never, f: () => A) =>
     state.failing.has(operation) ? Effect.fail(new ForgeError({ operation, detail: "HTTP 500" })) : call(f)
@@ -181,8 +244,60 @@ export const fakeForge = (
         const listed = state.comments[n.kind === "merge_request" ? "!" : `${n.project}#${n.iid}`] ?? []
         return typeof listed === "string" ? Effect.fail(new ForgeError({ operation: "discussions", detail: listed })) : Effect.succeed(listed)
       }),
-    replyToThread: (_, id, body) => threadCall("replyToThread", () => void thread(id).replies.push(body)),
-    resolveThread: (_, id, resolved) => threadCall("resolveThread", () => void (thread(id).resolved = resolved)),
+    replyToThread: (ref, id, body) =>
+      Effect.gen(function*() {
+        const r = state.replying
+        r.now++
+        r.peak = Math.max(r.peak, r.now)
+        r.perIid.set(ref.iid, (r.perIid.get(ref.iid) ?? 0) + 1)
+        r.peakPerIid.set(ref.iid, Math.max(r.peakPerIid.get(ref.iid) ?? 0, r.perIid.get(ref.iid)!))
+        if (state.replyDelay > 0) yield* Effect.sleep(state.replyDelay)
+        r.now--
+        r.perIid.set(ref.iid, r.perIid.get(ref.iid)! - 1)
+        return yield* threadCall("replyToThread", () => {
+          state.threads.find((t) => t.id === id)?.replies.push(body)
+          state.posted.push({ iid: ref.iid, discussion: id, body })
+        })
+      }),
+    resolveThread: (_, id, resolved) =>
+      threadCall("resolveThread", () => {
+        const t = state.threads.find((x) => x.id === id)
+        if (t === undefined) state.resolvedDiscussions.push(id)
+        else t.resolved = resolved
+      }),
+    openMergeRequests: () => call(() => state.openIids),
+    // Yields after reading, so polls run side by side both read the notes before either claims one.
+    commandNotes: (ref) =>
+      Effect.tap(threadCall("commandNotes", () => ({
+        notes: state.commandNotes.filter((n) => n.iid === ref.iid).map(({ author, awards, blocker, body, discussion, id, thread }) => ({
+          id,
+          discussion,
+          author,
+          body,
+          handled: awards.some((a) => a.user === BOT),
+          blocker,
+          thread
+        })),
+        denied: state.posted.filter((p) => p.iid === ref.iid).flatMap((p) => {
+          const user = parseDenied(p.body)
+          return user === null ? [] : [user as UserId]
+        })
+      })), () => Effect.yieldNow),
+    // As GitLab does: a second award of the same emoji by the same user is refused.
+    claim: (_, note, emoji) =>
+      threadCall("claim", () => {
+        const n = state.commandNotes.find((x) => x.id === note)!
+        if (n.awards.some((a) => a.user === BOT && a.name === emoji)) return false
+        n.awards.push({ id: nextAward++, name: emoji, user: BOT })
+        return true
+      }),
+    dismissals: () =>
+      call(() =>
+        state.posted.flatMap((p) => {
+          const d = parseDismissal(p.body)
+          return d === null ? [] : [d]
+        })
+      ),
     delta: (_, from, to) =>
       Effect.flatMap(call(() => (state.deltaCalls.push([from, to]), state.delta(from, to))), (d) => d instanceof ForgeError ? Effect.fail(d) : Effect.succeed(d)),
     updateLabels: (_, t) =>

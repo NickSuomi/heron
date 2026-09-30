@@ -72,7 +72,8 @@ export const ConfigFile = Schema.Struct({
     paths: Schema.NonEmptyArray(Text)
   }))),
   policy: Schema.optionalKey(Schema.Struct({ instructions: Schema.Array(Text) })),
-  limits: Schema.optionalKey(Schema.Struct({ maxTurns: Schema.optionalKey(Positive), sessionTimeoutSeconds: Schema.optionalKey(Positive) }))
+  limits: Schema.optionalKey(Schema.Struct({ maxTurns: Schema.optionalKey(Positive), sessionTimeoutSeconds: Schema.optionalKey(Positive) })),
+  poll: Schema.optionalKey(Schema.Struct({ concurrency: Schema.optionalKey(Positive) }))
 })
 export type ConfigFile = typeof ConfigFile.Type
 
@@ -97,6 +98,8 @@ export interface Config {
   readonly policy: ReadonlyArray<string>
   /** Both null unless the operator opts in: a review session has no turn or time limit by default. */
   readonly limits: { readonly maxTurns: number | null; readonly sessionTimeoutSeconds: number | null }
+  /** How many merge requests `heron poll` handles at once; commands on one merge request always run one at a time. */
+  readonly poll: { readonly concurrency: number }
   /** The file after env overrides, as decoded; printed by `config check`. */
   readonly effective: ConfigFile
   readonly digest: string
@@ -127,6 +130,7 @@ export const envVars: ReadonlyArray<EnvVar> = [
   { name: "HERON_LABEL_BLOCKED", target: ["labels", "blocked"], kind: "string", description: "Label for a BLOCKED verdict." },
   { name: "HERON_MAX_TURNS", target: ["limits", "maxTurns"], kind: "int", description: "Optional turn limit per session. Unset means no limit." },
   { name: "HERON_SESSION_TIMEOUT_SECONDS", target: ["limits", "sessionTimeoutSeconds"], kind: "int", description: "Optional wall-clock limit per session, in seconds. Unset means no limit." },
+  { name: "HERON_POLL_CONCURRENCY", target: ["poll", "concurrency"], kind: "int", description: "Merge requests heron poll handles at once. Default 2." },
   { name: "HERON_PROFILE_*_HARNESS", target: ["profiles", "*", "harness"], kind: "string", description: "Harness key of one profile." },
   { name: "HERON_PROFILE_*_MODEL", target: ["profiles", "*", "model"], kind: "string", description: "Model of one profile." },
   { name: "HERON_PROFILE_*_EFFORT", target: ["profiles", "*", "effort"], kind: "string", description: "Reasoning effort of one profile." },
@@ -295,6 +299,7 @@ export const resolveConfig = (
       rules,
       policy,
       limits: { maxTurns: file.limits?.maxTurns ?? null, sessionTimeoutSeconds: file.limits?.sessionTimeoutSeconds ?? null },
+      poll: { concurrency: file.poll?.concurrency ?? 2 },
       effective: file,
       digest: sha256(canonical({ config: file, instructions }))
     }

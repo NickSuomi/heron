@@ -7,6 +7,10 @@ import {
   type BranchSpec,
   type Change,
   type Classification,
+  type Command,
+  type CommandNote,
+  type DismissedFinding,
+  type Dismissal,
   type Finding,
   type FindingId,
   type Fingerprint,
@@ -283,4 +287,75 @@ export const threadActions = (head: Sha, drafts: ReadonlyArray<ThreadDraft>, thr
     if (!thread.resolved && !kept.has(keyOf(thread.fingerprint))) actions.push({ kind: "resolve", thread })
   }
   return actions
+}
+
+/** Dismissed findings leave the outcome before the verdict is taken, so a dismissed blocker never blocks again. */
+export const dropDismissed = (
+  outcome: Outcome,
+  dismissals: ReadonlyArray<Dismissal>
+): { readonly outcome: Outcome; readonly dismissed: ReadonlyArray<DismissedFinding> } => {
+  if (outcome.kind === "incomplete" || dismissals.length === 0) return { outcome, dismissed: [] }
+  const byKey = new Map<string, Dismissal>()
+  for (const d of dismissals) if (!byKey.has(keyOf(d.fingerprint))) byKey.set(keyOf(d.fingerprint), d)
+  const dismissed: Array<DismissedFinding> = []
+  const findings = outcome.findings.filter((f) => {
+    const dismissal = f.location === null ? undefined : byKey.get(keyOf(fingerprintOf(f as LocatedFinding)))
+    if (dismissal === undefined) return true
+    dismissed.push({ finding: f as LocatedFinding, dismissal })
+    return false
+  })
+  return { outcome: { ...outcome, findings }, dismissed }
+}
+
+/** The last session of the plan, which reads the most: it answers a question with the same profile and gates. */
+export const answererOf = (plan: ReviewPlan): Slot => {
+  const last = slotsOf(plan).at(-1)!
+  return { ...last, id: sessionId(["answerer"]), role: "answerer" }
+}
+
+/**
+ * The command in a note's first line: `@heron`, whitespace, then a fixed verb in any case. The mention must open the note
+ * and stand alone, so `@heronbot` is no command. Anything that is not a verb is a question, with the rest of the note.
+ */
+export const parseCommand = (body: string): Command | null => {
+  const [first = "", ...rest] = body.replace(/\r\n?/g, "\n").split("\n")
+  const m = /^@heron(?:[ \t]+(.*))?$/i.exec(first)
+  if (m === null) return null
+  const text = (m[1] ?? "").trim()
+  const verb = text.toLowerCase().replace(/\s+/g, " ")
+  switch (verb) {
+    case "":
+    case "help":
+      return { kind: "help" }
+    case "review":
+    case "full review":
+    case "resolve":
+    case "configuration":
+      return { kind: verb }
+  }
+  const dismiss = /^dismiss(?:\s+(.*))?$/i.exec(text)
+  if (dismiss !== null) return { kind: "dismiss", reason: (dismiss[1] ?? "").trim() }
+  return { kind: "question", text: [text, ...rest].join("\n").trim() }
+}
+
+export type PlannedCommand =
+  | { readonly kind: "command"; readonly note: CommandNote; readonly command: Command }
+  /** `reply` is true for the first note a user outside the allow list writes on the merge request, false after that. */
+  | { readonly kind: "deny"; readonly note: CommandNote; readonly reply: boolean }
+
+/**
+ * The notes a poll acts on, in note order. A handled note is skipped. A user outside the allow list is told once per merge
+ * request, which `denied` records from Heron's earlier replies; every later note of theirs is only marked.
+ * Computed from the notes as they are, so a second poll over the same notes plans nothing.
+ */
+export const planCommands = (allowed: ReadonlyArray<UserId>, source: { readonly notes: ReadonlyArray<CommandNote>; readonly denied: ReadonlyArray<UserId> }): ReadonlyArray<PlannedCommand> => {
+  const told = new Set<UserId>(source.denied)
+  return [...source.notes].sort((a, b) => a.id - b.id).flatMap((note): ReadonlyArray<PlannedCommand> => {
+    const command = parseCommand(note.body)
+    if (note.handled || command === null) return []
+    if (allowed.includes(note.author.id)) return [{ kind: "command", note, command }]
+    const reply = !told.has(note.author.id)
+    told.add(note.author.id)
+    return [{ kind: "deny", note, reply }]
+  })
 }
