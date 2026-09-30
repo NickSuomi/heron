@@ -4,9 +4,9 @@ import { Config as EnvConfig, Duration, Effect, FileSystem, Layer, Redacted, Sch
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import type { Config } from "../config.ts"
-import { type Change, type MrRef, type MrSnapshot, NoteId, Sha } from "../domain.ts"
+import { type Change, DiscussionId, type MrRef, type MrSnapshot, NoteId, Sha, type Thread } from "../domain.ts"
 import { Forge, ForgeError, type ForgeShape, IncompleteSnapshot, type SourceCheckout, TREE_REFS } from "../ports.ts"
-import { parseMarker, parsePrior } from "../report.ts"
+import { parseFingerprint, parseMarker, parsePrior } from "../report.ts"
 import { fetchCommits, materialize, thaw } from "./git.ts"
 
 const User = Schema.Struct({ id: Schema.Int })
@@ -64,6 +64,9 @@ const Diff = Schema.Struct({
 const Commit = Schema.Struct({ id: Sha })
 const Compare = Schema.Struct({ compare_timeout: Schema.Boolean, diffs: Schema.Array(Diff) })
 const Note = Schema.Struct({ id: NoteId, body: Schema.String, system: Schema.Boolean, author: Schema.Struct({ id: Schema.Int }) })
+/** GitLab leaves `resolved` out of a note that cannot be resolved. */
+const DiscussionNote = Schema.Struct({ ...Note.fields, resolved: Schema.optionalKey(Schema.Boolean) })
+const Discussion = Schema.Struct({ id: DiscussionId, notes: Schema.Array(DiscussionNote) })
 
 type Method = "GET" | "POST" | "PUT"
 type Query = Readonly<Record<string, string | ReadonlyArray<string>>>
@@ -308,6 +311,51 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
         if (remove.length > 0) body["remove_labels"] = remove.join(",")
         yield* call("updateLabels", "PUT", mrPath(ref), Schema.Unknown, { body })
       }),
+
+    // The merge request discussions API: https://docs.gitlab.com/api/discussions/#merge-requests
+    findThreads: (ref) =>
+      Effect.gen(function*() {
+        const me = yield* self
+        const discussions = yield* pages("findThreads", `${mrPath(ref)}/discussions`, Discussion)
+        return discussions
+          .flatMap((d): ReadonlyArray<Thread> => {
+            const first = d.notes[0]
+            if (first === undefined || first.system || first.author.id !== me) return []
+            const fingerprint = parseFingerprint(first.body)
+            return fingerprint === null ? [] : [{ id: d.id, note: first.id, fingerprint, body: first.body, resolved: first.resolved === true }]
+          })
+          .sort((a, b) => a.note - b.note)
+      }),
+
+    // A `text` position on an added line carries only `new_line`; on an unchanged line it carries both line numbers.
+    createThread: (ref, revision, anchor, body) =>
+      Effect.map(
+        call("createThread", "POST", `${mrPath(ref)}/discussions`, Discussion, {
+          body: {
+            body,
+            position: {
+              position_type: "text",
+              base_sha: revision.base,
+              start_sha: revision.start,
+              head_sha: revision.head,
+              old_path: anchor.oldPath,
+              new_path: anchor.newPath,
+              new_line: anchor.newLine,
+              ...(anchor.oldLine === null ? {} : { old_line: anchor.oldLine })
+            }
+          }
+        }),
+        (d) => d.id
+      ),
+
+    updateThreadNote: (ref, thread, note, body) =>
+      Effect.asVoid(call("updateThreadNote", "PUT", `${mrPath(ref)}/discussions/${thread}/notes/${note}`, DiscussionNote, { body: { body } })),
+
+    replyToThread: (ref, thread, body) =>
+      Effect.asVoid(call("replyToThread", "POST", `${mrPath(ref)}/discussions/${thread}/notes`, DiscussionNote, { body: { body } })),
+
+    resolveThread: (ref, thread, resolved) =>
+      Effect.asVoid(call("resolveThread", "PUT", `${mrPath(ref)}/discussions/${thread}`, Discussion, { query: { resolved: String(resolved) } })),
 
     delta: (ref, from, to) =>
       Effect.gen(function*() {

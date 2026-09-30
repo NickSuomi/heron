@@ -1,10 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import type { UserId } from "../src/domain.ts"
+import type { DiscussionId, NoteId, UserId } from "../src/domain.ts"
 import { ForgeError, HarnessError, type HarnessRequest } from "../src/ports.ts"
 import { parseMarker, parsePrior } from "../src/report.ts"
 import { reviewOnce } from "../src/review.ts"
-import { change, configOf, fakeForge, fakeHarness, finding, keepAll, promptIds, reviewOut, type Script, sha } from "./fakes.ts"
+import { addedFile, change, configOf, fakeForge, fakeHarness, finding, keepAll, promptIds, reviewOut, type Script, sha } from "./fakes.ts"
 
 const config = configOf()
 const ref = { project: "group/app", iid: 7 }
@@ -470,5 +470,132 @@ describe("re-review", () => {
       const forge = yield* reviewedThenPushed({ ...gated, "gate.design": () => new HarnessError({ kind: "quota", detail: "limit reached" }) })
       const result = yield* run(forge, gated)
       expect([parseMarker(forge.state.notes.get(100)!)?.verdict, result.review.rereview, forge.state.deltaCalls]).toEqual(["PASS", null, []])
+    }))
+})
+
+describe("blocker threads", () => {
+  const blocking = (title = "Export runs twice"): Record<string, Script> => ({
+    ...gated,
+    "gate.design": () => reviewOut([finding("design", "blocker", title)])
+  })
+  const onDiff = () => fakeForge({ head: sha("a"), changes: [addedFile("src/app.ts")] })
+  const report = (forge: ReturnType<typeof fakeForge>) => [...forge.state.notes.values()].find((b) => parseMarker(b) !== null)!
+  const threadKinds = (result: { threads: { results: ReadonlyArray<{ action: { kind: string }; failure: string | null }> } }) =>
+    result.threads.results.map((r) => r.failure === null ? r.action.kind : `${r.action.kind} failed: ${r.failure}`)
+
+  it.effect("opens a thread on a blocker's diff line, and none for an advisory or a blocker off the diff", () =>
+    Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [addedFile("src/app.ts"), change("src/lib.ts")] })
+      const result = yield* run(forge, {
+        ...gated,
+        "gate.design": () => reviewOut([finding("design", "blocker", "Export runs twice"), { ...finding("design", "blocker", "Off the diff"), location: { path: "src/lib.ts", line: 3 } }])
+      })
+      expect(forge.state.threads.map((t) => [t.anchor, t.head, t.body.split("\n")[1]])).toEqual([[
+        { oldPath: "src/app.ts", newPath: "src/app.ts", newLine: 3, oldLine: null },
+        sha("a"),
+        "**Heron blocker** `design` Export runs twice ([src\\/\u2060app\\.\u2060ts\\:\u20603](https://gitlab.example.com/group/app/-/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/app.ts#L3))"
+      ]])
+      expect(threadKinds(result)).toEqual(["create"])
+      expect(report(forge)).toContain("\n\nBlocker threads on the diff: 1 opened.\n\n")
+      expect(report(forge)).toContain("Off the diff")
+    }))
+
+  it.effect("updates the same thread at a new head, resolves it with a reply once the blocker is gone, and then does nothing", () =>
+    Effect.gen(function*() {
+      const forge = onDiff()
+      yield* run(forge, blocking())
+      forge.state.head = sha("c")
+      const updated = yield* run(forge, blocking("export runs TWICE"))
+      expect([threadKinds(updated), forge.state.threads.length, forge.state.threads[0]!.body]).toEqual([
+        ["update"],
+        1,
+        expect.stringContaining("Kept by the review of `cccccccc`.")
+      ])
+      forge.state.head = sha("e")
+      const fixed = yield* run(forge, gated)
+      expect([threadKinds(fixed), forge.state.threads[0]!.replies, forge.state.threads[0]!.resolved]).toEqual([["resolve"], ["No longer a blocker at `eeeeeeee`.\n"], true])
+      expect(report(forge)).toContain("Blocker threads on the diff: 1 resolved.")
+      const again = yield* run(forge, gated)
+      expect([threadKinds(again), forge.state.threads[0]!.replies.length, report(forge).includes("Blocker threads")]).toEqual([[], 1, false])
+    }))
+
+  it.effect("reopens a thread a person resolved when the blocker is back, and writes nothing more at the same head", () =>
+    Effect.gen(function*() {
+      const forge = onDiff()
+      yield* run(forge, blocking())
+      forge.state.threads[0]!.resolved = true
+      const body = forge.state.threads[0]!.body
+      const result = yield* run(forge, blocking())
+      expect([threadKinds(result), forge.state.threads[0]!.resolved, forge.state.threads[0]!.body]).toEqual([["reopen"], false, body])
+      expect(threadKinds(yield* run(forge, blocking()))).toEqual([])
+    }))
+
+  it.effect("never touches a discussion another user started, even one that copies Heron's fingerprint", () =>
+    Effect.gen(function*() {
+      const forge = onDiff()
+      yield* run(forge, blocking())
+      const copy = { ...forge.state.threads[0]!, id: "e1" as DiscussionId, note: 900 as NoteId, byBot: false, replies: [] }
+      forge.state.threads = [copy]
+      const result = yield* run(forge, gated)
+      expect([threadKinds(result), copy.resolved, copy.replies]).toEqual([[], false, []])
+    }))
+
+  it.effect("leaves threads alone on a BLOCKED and a SUPERSEDED review", () =>
+    Effect.gen(function*() {
+      const forge = onDiff()
+      yield* run(forge, blocking())
+      const blocked = yield* run(forge, { ...gated, "gate.design": () => new HarnessError({ kind: "quota", detail: "limit reached" }) })
+      const superseded = yield* run(forge, gated, {
+        onRun: (r) => {
+          if (r.slot.role === "supervisor") forge.state.head = sha("c")
+        }
+      })
+      expect([blocked.review.verdict, threadKinds(blocked), superseded.review.verdict, threadKinds(superseded)]).toEqual(["BLOCKED", [], "SUPERSEDED", []])
+      expect([forge.state.threads.length, forge.state.threads[0]!.resolved, forge.state.threads[0]!.replies]).toEqual([1, false, []])
+    }))
+
+  it.effect("plans the thread actions on a dry run and writes none", () =>
+    Effect.gen(function*() {
+      const forge = onDiff()
+      yield* run(forge, blocking("Export runs twice"))
+      const result = yield* run(forge, blocking("Button stays enabled"), { publish: false })
+      expect([result.note, threadKinds(result), forge.state.threads.length, forge.state.threads[0]!.resolved]).toEqual([
+        { kind: "dry-run" },
+        ["create", "resolve"],
+        1,
+        false
+      ])
+      expect(result.body).toContain("Blocker threads on the diff: 1 opened, 1 resolved.")
+    }))
+
+  it.effect("publishes the note and the labels when a thread write fails, and says so in the note", () =>
+    Effect.gen(function*() {
+      const forge = onDiff()
+      forge.state.failing.add("createThread")
+      const result = yield* run(forge, blocking())
+      expect([threadKinds(result), result.note, forge.state.labels]).toEqual([
+        ["create failed: createThread: HTTP 500"],
+        { kind: "created", note: 100 },
+        ["review::changes requested"]
+      ])
+      expect(report(forge)).toContain("Blocker threads on the diff: 1 failed, to be retried by the next review.")
+      forge.state.failing = new Set(["findThreads"])
+      const unlisted = yield* run(forge, blocking())
+      expect([unlisted.threads, unlisted.note]).toEqual([{ results: [], unlisted: "findThreads: HTTP 500" }, { kind: "updated", note: 100 }])
+      forge.state.failing.clear()
+      expect(threadKinds(yield* run(forge, blocking()))).toEqual(["create"])
+    }))
+
+  it.effect("keeps the thread of a blocker a re-review carries", () =>
+    Effect.gen(function*() {
+      const forge = yield* reviewedThenPushed(blocking(), [addedFile("src/app.ts")])
+      const result = yield* run(forge, gated)
+      expect(result.review.rereview?.from).toBe(sha("a"))
+      expect(result.review.outcome.kind === "complete" && result.review.outcome.findings.map((f) => f.id)).toEqual(["gate.correctness#1", "earlier#1", "earlier#2"])
+      expect([threadKinds(result), forge.state.threads.length, forge.state.threads[0]!.body]).toEqual([
+        ["update"],
+        1,
+        expect.stringContaining("Kept by the review of `cccccccc`.")
+      ])
     }))
 })

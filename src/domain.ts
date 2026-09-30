@@ -146,6 +146,8 @@ export interface Finding extends ModelFinding {
   readonly origin: SessionId
 }
 
+export type LocatedFinding = Finding & { readonly location: NonNullable<Finding["location"]> }
+
 const Line = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 
 const described = (description: string) => Schema.String.annotate({ description })
@@ -318,6 +320,58 @@ export interface Marker {
   readonly head: Sha
   readonly configDigest: string
   readonly verdict: Verdict
+}
+
+/** GitLab's id of a discussion on a merge request, a hex string. */
+export const DiscussionId = Schema.String.check(Schema.isPattern(/^[0-9a-f]+$/)).pipe(Schema.brand("DiscussionId"))
+export type DiscussionId = typeof DiscussionId.Type
+
+/** What finds a blocker's thread again on a later run: the gate, the path, and the title in lower case with only letters and digits. */
+export const Fingerprint = Schema.Struct({ gate: Schema.String, path: Schema.String, title: Schema.String })
+export type Fingerprint = typeof Fingerprint.Type
+
+/** A line of the merge request diff a discussion can sit on: an added line (`oldLine` null) or an unchanged line inside a hunk. */
+export interface DiffAnchor {
+  readonly oldPath: string
+  readonly newPath: string
+  readonly newLine: number
+  readonly oldLine: number | null
+}
+
+/** A discussion whose first note the configured bot wrote with a fingerprint. */
+export interface Thread {
+  readonly id: DiscussionId
+  /** The first note, which holds the fingerprint and the blocker. */
+  readonly note: NoteId
+  readonly fingerprint: Fingerprint
+  readonly body: string
+  readonly resolved: boolean
+}
+
+/** A blocker with a location, as a thread would show it, and where on the diff it could start one. */
+export interface ThreadDraft {
+  readonly finding: LocatedFinding
+  readonly body: string
+  readonly anchor: DiffAnchor | null
+}
+
+export type ThreadAction =
+  | { readonly kind: "create"; readonly finding: LocatedFinding; readonly anchor: DiffAnchor; readonly body: string }
+  | { readonly kind: "update"; readonly finding: LocatedFinding; readonly thread: Thread; readonly body: string }
+  /** `body` is null when the first note already says what the review says. */
+  | { readonly kind: "reopen"; readonly finding: LocatedFinding; readonly thread: Thread; readonly body: string | null }
+  | { readonly kind: "resolve"; readonly thread: Thread }
+
+export interface ThreadResult {
+  readonly action: ThreadAction
+  /** Why the forge refused the write; null when it succeeded or nothing was written. */
+  readonly failure: string | null
+}
+
+/** What a review did to its blocker threads. `unlisted` holds why Heron could not read them, which leaves them alone. */
+export interface ThreadReport {
+  readonly results: ReadonlyArray<ThreadResult>
+  readonly unlisted: string | null
 }
 
 export interface LabelMap {

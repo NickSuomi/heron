@@ -220,7 +220,7 @@ const noteNode = (x: number, wave: number): FlowNode => ({
         ["Labels", `${view.labels.pass}, ${view.labels.changesRequested}, ${view.labels.blocked}; ${view.labels.inProgress} while it runs`],
       ],
     }),
-    ["Never", "Heron does not start inline discussion threads, approve, or merge."],
+    ["Never", "Heron does not approve or merge. Beyond the note, it keeps one diff discussion per blocker."],
     ["Source", "README.md, How it works and Why Heron?"],
   ],
 })

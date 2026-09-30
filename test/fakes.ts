@@ -1,8 +1,8 @@
 import { Effect, Layer, Result } from "effect"
 import { type Config, decodeConfigFile, resolveConfig } from "../src/config.ts"
-import type { Change, LabelTransition, LimitWindow, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
+import type { Change, DiffAnchor, DiscussionId, LabelTransition, LimitWindow, MrSnapshot, NoteId, Sha, Usage } from "../src/domain.ts"
 import { Forge, ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
-import { parseMarker, parsePrior } from "../src/report.ts"
+import { parseFingerprint, parseMarker, parsePrior } from "../src/report.ts"
 
 export const sha = (c: string) => c.repeat(40) as Sha
 
@@ -51,6 +51,14 @@ export const change = (path: string, status: Change["status"] = "modified", oldP
   diff: `@@ -1 +1 @@\n-old\n+new`
 })
 
+/** A change whose diff adds lines 1 to `added` of `path`, as a new file. */
+export const addedFile = (path: string, added = 5): Change => ({
+  path,
+  oldPath: null,
+  status: "added",
+  diff: `@@ -0,0 +1,${added} @@\n${Array.from({ length: added }, (_, i) => `+line ${i + 1}`).join("\n")}\n`
+})
+
 export const snapshotAt = (head: Sha, changes: ReadonlyArray<Change>): MrSnapshot => ({
   ref: { project: "group/app", iid: 7 },
   title: "Add a feature",
@@ -67,6 +75,19 @@ export const snapshotAt = (head: Sha, changes: ReadonlyArray<Change>): MrSnapsho
   pipeline: null
 })
 
+/** A discussion on the merge request: the first note, the replies after it, and where it sits on the diff. */
+export interface FakeThread {
+  readonly id: DiscussionId
+  readonly note: NoteId
+  body: string
+  resolved: boolean
+  /** False for a discussion a person started. */
+  readonly byBot: boolean
+  readonly anchor: DiffAnchor | null
+  readonly head: Sha | null
+  readonly replies: Array<string>
+}
+
 export interface ForgeState {
   head: Sha
   base: Sha
@@ -80,6 +101,9 @@ export interface ForgeState {
   delta: (from: Sha, to: Sha) => ReadonlyArray<Change> | null | ForgeError
   deltaCalls: Array<readonly [Sha, Sha]>
   calls: number
+  threads: Array<FakeThread>
+  /** Thread operations that fail with HTTP 500. */
+  failing: Set<"findThreads" | "createThread" | "updateThreadNote" | "replyToThread" | "resolveThread">
 }
 
 export const fakeForge = (
@@ -96,9 +120,14 @@ export const fakeForge = (
     labelWrites: [],
     delta: () => null,
     deltaCalls: [],
-    calls: 0
+    calls: 0,
+    threads: [],
+    failing: new Set()
   }
   const call = <A>(f: () => A) => Effect.sync(() => (state.calls++, f()))
+  const threadCall = <A>(operation: ForgeState["failing"] extends Set<infer O> ? O : never, f: () => A) =>
+    state.failing.has(operation) ? Effect.fail(new ForgeError({ operation, detail: "HTTP 500" })) : call(f)
+  const thread = (id: DiscussionId) => state.threads.find((t) => t.id === id)!
   const layer = Layer.succeed(Forge)({
     snapshot: () =>
       call(() => ({
@@ -121,6 +150,26 @@ export const fakeForge = (
         ? Effect.fail(new ForgeError({ operation: "createNote", detail: "HTTP 500" }))
         : call(() => (state.notes.set(state.nextNote, body), state.nextNote++ as NoteId)),
     updateNote: (_, note, body) => call(() => void state.notes.set(note, body)),
+    findThreads: () =>
+      threadCall("findThreads", () =>
+        state.threads.flatMap((t) => {
+          const fingerprint = t.byBot ? parseFingerprint(t.body) : null
+          return fingerprint === null ? [] : [{ id: t.id, note: t.note, fingerprint, body: t.body, resolved: t.resolved }]
+        })),
+    createThread: (_, revision, anchor, body) =>
+      threadCall("createThread", () => {
+        const note = state.nextNote++ as NoteId
+        const id = `d${note}` as DiscussionId
+        state.threads.push({ id, note, body, resolved: false, byBot: true, anchor, head: revision.head, replies: [] })
+        return id
+      }),
+    updateThreadNote: (_, id, note, body) =>
+      threadCall("updateThreadNote", () => {
+        if (thread(id).note !== note) throw new Error(`note ${note} is not the first note of ${id}`)
+        thread(id).body = body
+      }),
+    replyToThread: (_, id, body) => threadCall("replyToThread", () => void thread(id).replies.push(body)),
+    resolveThread: (_, id, resolved) => threadCall("resolveThread", () => void (thread(id).resolved = resolved)),
     delta: (_, from, to) =>
       Effect.flatMap(call(() => (state.deltaCalls.push([from, to]), state.delta(from, to))), (d) => d instanceof ForgeError ? Effect.fail(d) : Effect.succeed(d)),
     updateLabels: (_, t) =>

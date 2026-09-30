@@ -6,9 +6,10 @@ import { Console, Effect, Layer, Option, Schema } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 import pkg from "../package.json" with { type: "json" }
 import { type Config, configSource, type Env, type HarnessConfig, loadConfig } from "./config.ts"
-import { UserId } from "./domain.ts"
+import { type ThreadReport, type ThreadResult, UserId } from "./domain.ts"
 import { GitLabForge } from "./forge/gitlab.ts"
 import { harnessCredentials, HarnessLive, runMcpSource } from "./harness/index.ts"
+import { ForgeError } from "./ports.ts"
 import { reviewOnce } from "./review.ts"
 
 const env: Env = process.env
@@ -37,6 +38,16 @@ const triggeredBy = (flag: Option.Option<number>) => {
   return raw === null ? Effect.succeed(null) : Schema.decodeUnknownEffect(UserId)(raw)
 }
 
+const threadLine = (planned: boolean) => ({ action, failure }: ThreadResult): string => {
+  const where = action.kind === "resolve"
+    ? `${action.thread.fingerprint.path} (${action.thread.fingerprint.gate})`
+    : `${action.finding.location.path}:${action.finding.location.line} (${action.finding.gate})`
+  return `${planned ? "planned " : ""}thread ${action.kind} ${where}${failure === null ? "" : ` failed: ${failure}`}`
+}
+
+const threadLines = (threads: ThreadReport, planned: boolean): ReadonlyArray<string> =>
+  threads.unlisted === null ? threads.results.map(threadLine(planned)) : [`threads not listed: ${threads.unlisted}`]
+
 const review = Command.make("review", {
   mr: Flag.Int("mr").pipe(Flag.withDescription("Merge request IID")),
   dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false), Flag.withDescription("Print the report; publish nothing and leave labels alone")),
@@ -54,6 +65,12 @@ const review = Command.make("review", {
       Effect.provide(NodeHttpClient.layerUndici)
     )
     yield* Console.log(result.note.kind === "dry-run" ? result.body : `${result.review.verdict}: note ${result.note.note} ${result.note.kind}`)
+    for (const line of threadLines(result.threads, result.note.kind === "dry-run")) yield* Console.log(line)
+    // The note and labels are published; a failed thread write still fails the job, so the operator sees it.
+    const failed = result.threads.results.filter((r) => r.failure !== null).length
+    if (failed > 0 || result.threads.unlisted !== null) {
+      return yield* new ForgeError({ operation: "threads", detail: result.threads.unlisted ?? `${failed} thread writes failed` })
+    }
   })).pipe(Command.withDescription("Review one merge request at its current head"))
 
 const check = Command.make("check", { config: configFlag }, (flags) =>

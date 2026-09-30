@@ -1,7 +1,19 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Result } from "effect"
-import type { Finding, FindingId, LabelMap, NoteId, SessionId, UserId } from "../src/domain.ts"
-import { admits, applySynthesis, classify, labelTransition, planFor, publication, slotsOf, verdictOf } from "../src/policy.ts"
+import type { DiscussionId, Finding, FindingId, LabelMap, LocatedFinding, NoteId, SessionId, Thread, UserId } from "../src/domain.ts"
+import {
+  admits,
+  applySynthesis,
+  classify,
+  EARLIER,
+  fingerprintOf,
+  labelTransition,
+  planFor,
+  publication,
+  slotsOf,
+  threadActions,
+  verdictOf
+} from "../src/policy.ts"
 import { change, configOf, sha } from "./fakes.ts"
 
 const config = configOf()
@@ -165,5 +177,66 @@ describe("admits", () => {
   it("admits anyone without a list, and only listed users with one", () => {
     const u = (n: number) => n as UserId
     expect([admits(null, null), admits([u(1)], u(1)), admits([u(1)], u(2)), admits([u(1)], null)]).toEqual([true, true, false, false])
+  })
+})
+
+describe("threadActions", () => {
+  const blocker = (title: string, origin = "supervisor"): LocatedFinding => ({
+    id: `${origin}#1` as FindingId,
+    origin: origin as SessionId,
+    gate: "correctness",
+    severity: "blocker",
+    location: { path: "src/a.ts", line: 4 },
+    title,
+    body: ""
+  })
+  const anchor = { oldPath: "src/a.ts", newPath: "src/a.ts", newLine: 4, oldLine: null }
+  const draft = (finding: LocatedFinding, body = "now", onDiff = true) => ({ finding, body, anchor: onDiff ? anchor : null })
+  const thread = (n: number, title: string, body = "now", resolved = false): Thread => ({
+    id: `d${n}` as DiscussionId,
+    note: n as NoteId,
+    fingerprint: fingerprintOf(blocker(title)),
+    body,
+    resolved
+  })
+  const kinds = (actions: ReturnType<typeof threadActions>) =>
+    actions.map((a) => a.kind === "resolve" ? `resolve ${a.thread.id}` : a.kind === "create" ? `create ${a.finding.title}` : `${a.kind} ${a.thread.id} ${a.body}`)
+
+  it("finds a thread again by gate, path and a title that differs only in case, spacing and punctuation", () => {
+    expect(fingerprintOf(blocker("  Export: button   stays ENABLED!"))).toEqual({ gate: "correctness", path: "src/a.ts", title: "export button stays enabled" })
+    expect(kinds(threadActions([draft(blocker("Export button stays enabled."), "later")], [thread(1, "export: button stays enabled")]))).toEqual([
+      "update d1 later"
+    ])
+  })
+
+  it("opens a thread only for a blocker on a diff line that this run found, once per fingerprint", () => {
+    expect(kinds(threadActions([
+      draft(blocker("On the diff")),
+      draft(blocker("On the diff"), "a duplicate"),
+      draft(blocker("Off the diff"), "now", false),
+      draft(blocker("Carried from the earlier review", EARLIER))
+    ], []))).toEqual(["create On the diff"])
+  })
+
+  it("updates an open thread only when its text changed, and reopens a resolved one", () => {
+    expect(kinds(threadActions([draft(blocker("Same")), draft(blocker("Changed"), "new"), draft(blocker("Resolved")), draft(blocker("Resolved, changed"), "new")], [
+      thread(1, "Same"),
+      thread(2, "Changed", "old"),
+      thread(3, "Resolved", "now\n", true),
+      thread(4, "Resolved, changed", "old", true)
+    ]))).toEqual(["update d2 new", "reopen d3 null", "reopen d4 new"])
+  })
+
+  it("keeps the thread of a carried earlier blocker, even off the diff", () => {
+    expect(kinds(threadActions([draft(blocker("Carried", EARLIER), "later", false)], [thread(1, "Carried")]))).toEqual(["update d1 later"])
+  })
+
+  it("resolves every open thread whose blocker is gone and leaves resolved ones and duplicates of a kept one alone", () => {
+    expect(kinds(threadActions([draft(blocker("Kept"))], [
+      thread(1, "Kept"),
+      thread(2, "Kept", "a second thread"),
+      thread(3, "Fixed"),
+      thread(4, "Fixed earlier", "now", true)
+    ]))).toEqual(["resolve d3"])
   })
 })

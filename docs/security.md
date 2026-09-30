@@ -2,7 +2,7 @@
 
 This page describes what Heron protects, how, and what it does not protect against. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
-Heron reads a merge request, lets a model read the repository at the merge request head, the target branch tip and their merge base, and writes one note and some labels. It never pushes, approves, or merges. The GitLab token is the most powerful secret it holds, so most of the design keeps that token away from the model and the vendor tools.
+Heron reads a merge request, lets a model read the repository at the merge request head, the target branch tip and their merge base, and writes one note, one diff discussion per blocker, and some labels. It never pushes, approves, or merges. The GitLab token is the most powerful secret it holds, so most of the design keeps that token away from the model and the vendor tools.
 
 ## Threat model
 
@@ -23,7 +23,7 @@ The confinement does not reduce what the model can read in the repository. Every
 - API calls send it as a bearer token to `<forge.url>/api/v4` only.
 - To fetch the reviewed commits, Heron runs `git fetch` for the head, the target branch tip and the merge base, with their history, into a new bare repository in a temporary directory. The token travels to git as an `http.<origin>/.extraHeader` setting in the child's environment. It is never on the command line or in a file. Git sends it only to URLs under the GitLab origin from `forge.url`, so a clone URL that points elsewhere never receives it. Credential helpers and terminal prompts are turned off.
 - Error messages from the API and from git have the token replaced with `[redacted]` before Heron prints them.
-- Before it looks for or edits its report note, Heron checks that the token belongs to `forge.botUserId` and stops if it does not. It reads the marker and the earlier findings only from notes that user wrote, so a note another user posts cannot start a [re-review](../README.md#re-reviews) or plant findings.
+- Before it looks for or edits its report note, Heron checks that the token belongs to `forge.botUserId` and stops if it does not. It reads the marker and the earlier findings only from notes that user wrote, so a note another user posts cannot start a [re-review](../README.md#re-reviews) or plant findings. It edits, replies to, resolves or reopens only discussions whose first note that user wrote with a thread fingerprint, so a person's discussion, even one that copies a fingerprint, is never touched.
 - No backend process receives the token, because the backend environment is built from an allowlist that does not include it.
 
 ## Backend environment allowlist
@@ -72,7 +72,7 @@ In a merge request pipeline, anyone who can push a branch can change `.gitlab-ci
 
 To limit the damage:
 
-- Give the bot token the smallest reach you can: a project access token on the one project, with the lowest role that can comment and set labels.
+- Give the bot token the smallest reach you can: a project access token on the one project, with the Developer role. That is the lowest role that can comment, set labels, and [resolve or reopen a thread](https://docs.gitlab.com/api/discussions/#resolve-a-merge-request-thread) on a merge request the bot did not author.
 - Use a backend credential with a spending limit.
 - If developers are not trusted with these secrets, run Heron from a separate project that only maintainers can edit, and pass the merge request number to its pipeline.
 
@@ -87,7 +87,8 @@ To limit the damage:
   - Table cells and link labels get only the escaped form, because a code span there could not hold a `|` or `]`.
   - The cost: URLs the model quotes show as unlinked text, and text copied from outside code spans carries the invisible joiners. Heron does not trust the model's Markdown, because three earlier attempts to mirror GitLab's parsing of it disagreed with GitLab and let mentions, references or HTML through. Heron only decides where a code span starts and ends by its own rule and then writes a fence that the content cannot close.
   - A finished review ends the note with the findings it kept, as base64url JSON inside an HTML comment. The base64url alphabet has no `>` or other Markdown character, so model text inside the payload cannot close the comment or render. Heron reads the payload only from the note's last line. Model text reaches the note source unescaped only inside a code span, which never holds a line break and is always followed by Heron's own text, so model text cannot write that line. Heron decodes the payload against a strict schema and treats anything else as no earlier findings, which means a full review.
-  - `test/report-render.test.ts` renders reports built from hostile text with markdown-it, including hostile text inside backticks and backtick runs that try to close Heron's fence. It checks that the text adds only paragraphs, line breaks, bullet lists and code spans, that no reference sigil outside code is left without a joiner, and that no line starts with `/`. It also checks that the same text comes back unchanged from the earlier findings payload, and that a payload quoted in a code span is not read as one. markdown-it stands in for GitLab's renderer; GitLab itself is not tested.
+  - A blocker thread's first note starts with a hidden fingerprint: the gate, the path and the normalised title, as base64url JSON in an HTML comment. Heron reads it only from the first line of the first note, which always starts with Heron's own text, and only from notes `forge.botUserId` wrote, so model text cannot plant or move a fingerprint. The rest of the thread goes through the same renderer as the note.
+  - `test/report-render.test.ts` renders reports built from hostile text with markdown-it, including hostile text inside backticks and backtick runs that try to close Heron's fence. It checks that the text adds only paragraphs, line breaks, bullet lists and code spans, that no reference sigil outside code is left without a joiner, and that no line starts with `/`. It also checks that the same text comes back unchanged from the earlier findings payload, and that a payload quoted in a code span is not read as one. It runs the same checks on blocker thread notes and their fingerprints. markdown-it stands in for GitLab's renderer; GitLab itself is not tested.
 - **Earlier findings return to the model.** A re-review sends the findings the earlier review kept to the session that rules on them again. They are model text from that earlier review, and the new session can drop them or keep them as advisories as well as keep them.
 - **Source goes to the vendor.** The diff, the linked issues, the failed job logs, and any file the model reads are sent to the model vendor of the backend you chose, under that vendor's data terms.
 - **The admission filter is only as strong as the trigger.** `allowedTriggerUserIds` checks the user id from `--triggered-by` or `GITLAB_USER_ID`. Anyone who can run `heron` with the token directly can pass any id.

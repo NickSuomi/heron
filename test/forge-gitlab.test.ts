@@ -9,7 +9,8 @@ import { TestClock } from "effect/testing"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { GitLabForge } from "../src/forge/gitlab.ts"
 import { Forge } from "../src/ports.ts"
-import { parsePrior, printMarker, renderReport } from "../src/report.ts"
+import type { DiscussionId, LocatedFinding, NoteId } from "../src/domain.ts"
+import { parseFingerprint, parsePrior, printMarker, renderReport, renderThread } from "../src/report.ts"
 import { configOf, sha } from "./fakes.ts"
 import { sampleOutcome, sampleReview } from "./report-sample.ts"
 import { makeWork, sourceChanges } from "./fixtures/harness/repo.ts"
@@ -274,6 +275,84 @@ describe("GitLab forge", () => {
       const [ours, theirs] = yield* withForge(fake, (forge) => Effect.all([forge.findReport(ref), forge.findReport(ref)]))
       expect([ours?.id, ours?.prior, theirs]).toEqual([4, parsePrior(body), null])
       expect(ours?.prior?.findings.length).toBe(sampleOutcome.findings.length)
+    }))
+
+  const threadBody = (title: string) => renderThread(sampleReview, { ...(sampleOutcome.findings[0] as LocatedFinding), title })
+  const discussion = (id: string, notes: ReadonlyArray<unknown>) => ({ id, individual_note: false, notes })
+  const diffNote = (id: number, author: number, body: string, resolved?: boolean) => ({
+    ...note(id, author, body),
+    type: "DiffNote",
+    ...(resolved === undefined ? {} : { resolvable: true, resolved })
+  })
+
+  it.effect("findThreads keeps the discussions whose first note the bot wrote with a fingerprint, across pages", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([
+        { body: { id: 1001, username: "heron-bot" } },
+        page([
+          discussion("aa01", [diffNote(20, 1001, threadBody("Second"), true), diffNote(21, 555, "a reply", true)]),
+          discussion("aa02", [diffNote(22, 555, threadBody("Copied by a person"), false)]),
+          discussion("aa03", [diffNote(23, 1001, "an ordinary bot comment", false)])
+        ], "2"),
+        page([
+          discussion("aa04", [diffNote(10, 1001, threadBody("First"), false), diffNote(11, 1001, "No longer a blocker at `cccccccc`.", false)]),
+          discussion("aa05", [{ ...note(12, 1001, threadBody("System"), true) }]),
+          discussion("aa06", [])
+        ], "")
+      ])
+      const threads = yield* withForge(fake, (forge) => forge.findThreads(ref))
+      expect(threads).toEqual([
+        { id: "aa04", note: 10, fingerprint: parseFingerprint(threadBody("First")), body: threadBody("First"), resolved: false },
+        { id: "aa01", note: 20, fingerprint: parseFingerprint(threadBody("Second")), body: threadBody("Second"), resolved: true }
+      ])
+      expect(fake.sent.slice(1)).toEqual([
+        { method: "GET", path: `${MR}/discussions`, query: { per_page: "100", page: "1" } },
+        { method: "GET", path: `${MR}/discussions`, query: { per_page: "100", page: "2" } }
+      ])
+    }))
+
+  it.effect("createThread posts a text position on the diff, with the old line only for an unchanged line", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([
+        { status: 201, body: discussion("bb01", [diffNote(30, 1001, "x", false)]) },
+        { status: 201, body: discussion("bb02", [diffNote(31, 1001, "y", false)]) }
+      ])
+      const revision = { base: sha("a"), start: sha("b"), head: sha("c") }
+      const ids = yield* withForge(fake, (forge) =>
+        Effect.all([
+          forge.createThread(ref, revision, { oldPath: "src/old.ts", newPath: "src/new.ts", newLine: 4, oldLine: null }, "x"),
+          forge.createThread(ref, revision, { oldPath: "src/a.ts", newPath: "src/a.ts", newLine: 9, oldLine: 7 }, "y")
+        ]))
+      const position = { position_type: "text", base_sha: sha("a"), start_sha: sha("b"), head_sha: sha("c") }
+      expect(ids).toEqual(["bb01", "bb02"])
+      expect(fake.sent).toEqual([
+        { method: "POST", path: `${MR}/discussions`, query: {}, body: { body: "x", position: { ...position, old_path: "src/old.ts", new_path: "src/new.ts", new_line: 4 } } },
+        { method: "POST", path: `${MR}/discussions`, query: {}, body: { body: "y", position: { ...position, old_path: "src/a.ts", new_path: "src/a.ts", new_line: 9, old_line: 7 } } }
+      ])
+    }))
+
+  it.effect("updateThreadNote puts the first note's body, replyToThread posts a note, resolveThread puts the state", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([
+        { body: diffNote(30, 1001, "v2", false) },
+        { status: 201, body: diffNote(31, 1001, "No longer a blocker at `cccccccc`.", false) },
+        { body: discussion("bb01", [diffNote(30, 1001, "v2", true)]) },
+        { body: discussion("bb01", [diffNote(30, 1001, "v2", false)]) }
+      ])
+      const id = "bb01" as DiscussionId
+      yield* withForge(fake, (forge) =>
+        Effect.all([
+          forge.updateThreadNote(ref, id, 30 as NoteId, "v2"),
+          forge.replyToThread(ref, id, "No longer a blocker at `cccccccc`."),
+          forge.resolveThread(ref, id, true),
+          forge.resolveThread(ref, id, false)
+        ]))
+      expect(fake.sent).toEqual([
+        { method: "PUT", path: `${MR}/discussions/bb01/notes/30`, query: {}, body: { body: "v2" } },
+        { method: "POST", path: `${MR}/discussions/bb01/notes`, query: {}, body: { body: "No longer a blocker at `cccccccc`." } },
+        { method: "PUT", path: `${MR}/discussions/bb01`, query: { resolved: "true" } },
+        { method: "PUT", path: `${MR}/discussions/bb01`, query: { resolved: "false" } }
+      ])
     }))
 
   const REPO = "/api/v4/projects/group%2Fapp/repository"

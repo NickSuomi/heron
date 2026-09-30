@@ -1,5 +1,21 @@
 import { Context, type Duration, type Effect, Schema, type Scope } from "effect"
-import type { Change, JsonSchema, LabelTransition, LimitWindow, Marker, MrRef, MrSnapshot, NoteId, PriorReview, Sha, Slot, Usage } from "./domain.ts"
+import type {
+  Change,
+  DiffAnchor,
+  DiscussionId,
+  JsonSchema,
+  LabelTransition,
+  LimitWindow,
+  Marker,
+  MrRef,
+  MrSnapshot,
+  NoteId,
+  PriorReview,
+  Sha,
+  Slot,
+  Thread,
+  Usage
+} from "./domain.ts"
 
 export class ForgeError extends Schema.TaggedError<ForgeError>()("ForgeError", {
   operation: Schema.String,
@@ -48,6 +64,13 @@ export interface ForgeShape {
   readonly createNote: (ref: MrRef, body: string) => Effect.Effect<NoteId, ForgeError>
   readonly updateNote: (ref: MrRef, note: NoteId, body: string) => Effect.Effect<void, ForgeError>
   readonly updateLabels: (ref: MrRef, transition: LabelTransition) => Effect.Effect<void, ForgeError>
+  /** The discussions whose first note the configured bot wrote with a fingerprint, lowest first note id first. */
+  readonly findThreads: (ref: MrRef) => Effect.Effect<ReadonlyArray<Thread>, ForgeError>
+  /** Starts a discussion on one line of the merge request diff at `revision`. */
+  readonly createThread: (ref: MrRef, revision: MrSnapshot["revision"], anchor: DiffAnchor, body: string) => Effect.Effect<DiscussionId, ForgeError>
+  readonly updateThreadNote: (ref: MrRef, thread: DiscussionId, note: NoteId, body: string) => Effect.Effect<void, ForgeError>
+  readonly replyToThread: (ref: MrRef, thread: DiscussionId, body: string) => Effect.Effect<void, ForgeError>
+  readonly resolveThread: (ref: MrRef, thread: DiscussionId, resolved: boolean) => Effect.Effect<void, ForgeError>
   /** The changes from `from` to `to`; null when `from` is not an ancestor of `to` or the forge cannot give the whole diff. */
   readonly delta: (ref: MrRef, from: Sha, to: Sha) => Effect.Effect<ReadonlyArray<Change> | null, ForgeError>
   readonly checkout: (ref: MrRef, revision: MrSnapshot["revision"]) => Effect.Effect<SourceCheckout, ForgeError, Scope.Scope>

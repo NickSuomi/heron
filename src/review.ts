@@ -17,13 +17,28 @@ import {
   type Slot,
   type SubscriptionUse,
   synthesisOutput,
+  type ThreadAction,
+  type ThreadReport,
   type Usage,
   type UserId
 } from "./domain.ts"
-import { admits, applySynthesis, assignIds, classify, labelTransition, planFor, publication, rereviewStart, verdictOf } from "./policy.ts"
+import { anchorAt } from "./diff.ts"
+import {
+  admits,
+  applySynthesis,
+  assignIds,
+  classify,
+  labelTransition,
+  planFor,
+  publication,
+  rereviewStart,
+  threadable,
+  threadActions,
+  verdictOf
+} from "./policy.ts"
 import { Forge, Harness, type HarnessResult, type SourceCheckout } from "./ports.ts"
 import { earlierText, findingsText, instructionsFor, packetText } from "./prompt.ts"
-import { renderReport } from "./report.ts"
+import { renderCleared, renderReport, renderThread } from "./report.ts"
 
 export class NotAdmitted extends Schema.TaggedError<NotAdmitted>()("NotAdmitted", {
   triggeredBy: Schema.NullOr(Schema.Number)
@@ -53,6 +68,8 @@ export interface ReviewResult {
   readonly review: Review
   readonly body: string
   readonly note: NoteAction
+  /** On a dry run, the thread writes a published run would make, none of them made. */
+  readonly threads: ThreadReport
 }
 
 interface BranchResult {
@@ -190,6 +207,48 @@ const execute = Effect.fn("execute")(function*(
   return { sessions, outcome, warnings: [...warnings] }
 })
 
+const applyThread = (ref: MrRef, revision: MrSnapshot["revision"], action: ThreadAction) =>
+  Effect.gen(function*() {
+    const forge = yield* Forge
+    switch (action.kind) {
+      case "create":
+        return yield* Effect.asVoid(forge.createThread(ref, revision, action.anchor, action.body))
+      case "update":
+        return yield* forge.updateThreadNote(ref, action.thread.id, action.thread.note, action.body)
+      case "reopen":
+        if (action.body !== null) yield* forge.updateThreadNote(ref, action.thread.id, action.thread.note, action.body)
+        return yield* forge.resolveThread(ref, action.thread.id, false)
+      case "resolve":
+        yield* forge.replyToThread(ref, action.thread.id, renderCleared(revision.head))
+        return yield* forge.resolveThread(ref, action.thread.id, true)
+    }
+  })
+
+/**
+ * The blocker threads of a review whose verdict describes the reviewed head; a BLOCKED or SUPERSEDED review leaves them
+ * alone. Each write that fails is recorded and the rest still run: the note reports it and the next review retries it.
+ */
+const syncThreads = Effect.fn("syncThreads")(function*(review: Review, write: boolean) {
+  const { outcome, snapshot } = review
+  if (outcome.kind !== "complete" || review.verdict === "SUPERSEDED") return { results: [], unlisted: null } satisfies ThreadReport
+  const forge = yield* Forge
+  const listed = yield* Effect.result(forge.findThreads(snapshot.ref))
+  if (listed._tag === "Failure") return { results: [], unlisted: listed.failure.message } satisfies ThreadReport
+  const drafts = outcome.findings.filter(threadable).map((finding) => ({
+    finding,
+    body: renderThread(review, finding),
+    anchor: anchorAt(snapshot.changes, finding.location)
+  }))
+  const actions = threadActions(drafts, listed.success)
+  const results = yield* Effect.forEach(actions, (action) =>
+    write
+      ? applyThread(snapshot.ref, snapshot.revision, action).pipe(
+        Effect.match({ onFailure: (e) => ({ action, failure: e.message }), onSuccess: () => ({ action, failure: null }) })
+      )
+      : Effect.succeed({ action, failure: null }))
+  return { results, unlisted: null } satisfies ThreadReport
+})
+
 /** The one review pipeline; the CLI and the watcher both call it. */
 export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, request: ReviewRequest) {
   if (!admits(config.allowedTriggerUserIds, request.triggeredBy)) {
@@ -222,7 +281,8 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   if (!request.publish) {
     const { outcome, sessions, subscription } = yield* reviewed
     const review: Review = { ...base, sessions, outcome, subscription, verdict: verdictOf(outcome), liveHead: null }
-    return { review, body: renderReport(review), note: { kind: "dry-run" } } satisfies ReviewResult
+    const threads = yield* syncThreads(review, false)
+    return { review, body: renderReport(review, threads), note: { kind: "dry-run" }, threads } satisfies ReviewResult
   }
 
   const labels = config.labels
@@ -236,7 +296,9 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
     const live = yield* forge.live(ref)
     const moved = live.head !== head
     const review: Review = { ...base, sessions, outcome, subscription, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
-    const body = renderReport(review)
+    // Threads go first so the note, the full record, can say what happened to them. A failed thread write never stops the note.
+    const threads = yield* syncThreads(review, true)
+    const body = renderReport(review, threads)
     const existing = yield* forge.findReport(ref)
     const plan = publication(existing, review.verdict, live.head)
     const note: NoteAction = plan.kind === "create"
@@ -248,6 +310,6 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
       ? { add: [], remove: labels.inProgress !== null && live.labels.includes(labels.inProgress) ? [labels.inProgress] : [] }
       : labelTransition(labels, { kind: "done", verdict: review.verdict }, live.labels)
     if (end.add.length + end.remove.length > 0) yield* forge.updateLabels(ref, end)
-    return { review, body, note } satisfies ReviewResult
+    return { review, body, note, threads } satisfies ReviewResult
   }).pipe(Effect.onError(() => clearRunning))
 })

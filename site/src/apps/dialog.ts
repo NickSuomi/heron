@@ -113,7 +113,7 @@ const copy = (model: Model): Copy => {
         ],
         details: [
           "Nothing reviews a merge request until someone runs heron review, for example from the manual CI job.",
-          "Heron does not start inline discussion threads, approve, or merge.",
+          "Heron does not approve or merge. Beyond the note, it keeps one diff discussion per blocker.",
         ],
         button: "OK",
       }

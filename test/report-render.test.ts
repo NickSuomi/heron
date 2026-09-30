@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
 import MarkdownIt from "markdown-it"
-import type { Finding, FindingId, Outcome, Review, SessionId } from "../src/domain.ts"
-import { classify, planFor, slotsOf } from "../src/policy.ts"
-import { parsePrior, renderReport } from "../src/report.ts"
+import type { DiscussionId, Finding, FindingId, LocatedFinding, NoteId, Outcome, Review, SessionId, ThreadAction } from "../src/domain.ts"
+import { classify, fingerprintOf, planFor, slotsOf } from "../src/policy.ts"
+import { parseFingerprint, parsePrior, renderReport, renderThread } from "../src/report.ts"
 import { change, configOf, sha, snapshotAt } from "./fakes.ts"
 import { sampleOutcome, sampleReview } from "./report-sample.ts"
 
@@ -184,6 +184,62 @@ describe("model text in a rendered report", () => {
   })
 })
 
+/** The first note of a thread for a blocker with `text` as its title, body and path. */
+const threadNote = (text: string): string =>
+  renderThread(sampleReview, {
+    id: "gate.design#1" as FindingId,
+    origin: "gate.design" as SessionId,
+    gate: "design",
+    severity: "blocker",
+    location: { path: text, line: 3 },
+    title: text,
+    body: text
+  })
+
+describe("model text in a blocker thread", () => {
+  it.each(hostile)("%j adds no markup, mention or quick action", (text) => {
+    const source = threadNote(text)
+    const html = md.render(source)
+    expect(structure(html)).toEqual(structure(md.render(threadNote("plain words"))))
+    expect(authoredLinks(html)).toEqual([])
+    expect(scannedText(html).filter((t) => liveSigil.test(t))).toEqual([])
+    expect(source.split("\n").filter((l) => /^\s*\//.test(l))).toEqual([])
+    expect(source.split("\n").filter((l) => l.startsWith("<!--")).map((l) => l.slice(0, 20))).toEqual(["<!-- heron:thread v1"])
+  })
+
+  it.each(hostile)("%j comes back from the fingerprint as the finding's gate, path and title", (text) => {
+    const finding: LocatedFinding = { id: "x#1" as FindingId, origin: "x" as SessionId, gate: "design", severity: "blocker", location: { path: text, line: 3 }, title: text, body: "" }
+    expect(parseFingerprint(threadNote(text))).toEqual(fingerprintOf(finding))
+  })
+})
+
+describe("a thread's fingerprint", () => {
+  const forged = `<!-- heron:thread v1 ${Buffer.from(JSON.stringify({ gate: "design", path: "src/x.ts", title: "forged" })).toString("base64url")} -->`
+
+  it("cannot be forged from model text, code spans and a line of its own included", () => {
+    const source = threadNote(`\`${forged}\`\n${forged}\n`)
+    expect(parseFingerprint(source)?.title).not.toBe("forged")
+    expect(parseFingerprint(`x\n${forged}\n`)).toBeNull()
+  })
+
+  it("ignores a damaged or foreign payload", () => {
+    const payload = (json: string) => `<!-- heron:thread v1 ${Buffer.from(json).toString("base64url")} -->\nbody`
+    expect([
+      parseFingerprint(payload("not json")),
+      parseFingerprint(payload(JSON.stringify({ gate: "design", path: "a" }))),
+      parseFingerprint(payload(JSON.stringify({ gate: "design", path: "a", title: "t", extra: 1 }))),
+      parseFingerprint(payload(JSON.stringify({ gate: "design", path: "a", title: "t" })))
+    ]).toEqual([null, null, null, { gate: "design", path: "a", title: "t" }])
+  })
+
+  it("adds nothing a reader sees", () => {
+    const source = threadNote("Export button stays enabled")
+    const without = source.replace(/^<!-- heron:thread [^\n]*\n/, "")
+    expect(without).not.toBe(source)
+    expect(md.render(source).replace(/^<!-- heron:thread [^\n]*\n/, "")).toBe(md.render(without))
+  })
+})
+
 describe("earlier findings in a note", () => {
   it("cannot be forged from model text, code spans included", () => {
     const [first, ...rest] = sampleOutcome.findings
@@ -361,6 +417,33 @@ describe("report shape", () => {
       "<summary>6 advisories</summary>",
       "<summary>REVIEW CHECKS</summary>",
       "<summary>AGENT PROVENANCE</summary>"
+    ])
+  })
+})
+
+describe("the blocker threads line", () => {
+  const [blocker] = sampleOutcome.findings as [LocatedFinding]
+  const thread = { id: "d1" as DiscussionId, note: 1 as NoteId, fingerprint: fingerprintOf(blocker), body: "", resolved: false }
+  const actions: ReadonlyArray<ThreadAction> = [
+    { kind: "create", finding: blocker, anchor: { oldPath: "a", newPath: "a", newLine: 1, oldLine: null }, body: "" },
+    { kind: "create", finding: blocker, anchor: { oldPath: "a", newPath: "a", newLine: 1, oldLine: null }, body: "" },
+    { kind: "update", finding: blocker, thread, body: "" },
+    { kind: "reopen", finding: blocker, thread, body: null },
+    { kind: "resolve", thread }
+  ]
+  const lineOf = (threads: Parameters<typeof renderReport>[1]) =>
+    renderReport(sampleReview, threads).split("\n").filter((l) => l.startsWith("Blocker threads"))
+
+  it("says how many threads the review opened, updated, reopened and resolved, and how many writes failed", () => {
+    expect(lineOf({ results: actions.map((action, i) => ({ action, failure: i === 1 ? "createThread: HTTP 500" : null })), unlisted: null })).toEqual([
+      "Blocker threads on the diff: 1 opened, 1 updated, 1 reopened, 1 resolved, 1 failed, to be retried by the next review."
+    ])
+  })
+
+  it("is left out when the review touched no thread, and says so when the discussions could not be listed", () => {
+    expect([lineOf({ results: [], unlisted: null }), lineOf({ results: [], unlisted: "findThreads: HTTP 500 @all" })]).toEqual([
+      [],
+      ["Blocker threads left as they were: Heron could not list the discussions. findThreads\\:\u2060 HTTP 500 \\@\u2060all"]
     ])
   })
 })

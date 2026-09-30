@@ -9,12 +9,14 @@ import {
   type Classification,
   type Finding,
   type FindingId,
+  type Fingerprint,
   type Gate,
   type GateName,
   type GateStatus,
   type LabelMap,
   type LabelTransition,
   type Lane,
+  type LocatedFinding,
   type Marker,
   type ModelFinding,
   type MrSnapshot,
@@ -27,6 +29,9 @@ import {
   type Sha,
   type Slot,
   type SynthesisOutput,
+  type Thread,
+  type ThreadAction,
+  type ThreadDraft,
   type UserId,
   type Verdict
 } from "./domain.ts"
@@ -210,3 +215,44 @@ export const publication = (
     : verdict === "SUPERSEDED" && existing.marker.head === liveHead
     ? { kind: "skip", note: existing.id }
     : { kind: "update", note: existing.id }
+
+/** A finding that gets a thread: a blocker with a location. Advisories and blockers without one stay in the note only. */
+export const threadable = (f: Finding): f is LocatedFinding =>
+  f.severity === "blocker" && f.location !== null
+
+export const fingerprintOf = (f: LocatedFinding): Fingerprint => ({
+  gate: f.gate,
+  path: f.location.path,
+  title: f.title.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()
+})
+
+const keyOf = (f: Fingerprint): string => JSON.stringify([f.gate, f.path, f.title])
+
+/**
+ * One thread per blocker across runs. A kept blocker updates its thread, or reopens it when a person resolved it; a
+ * blocker with no thread opens one only where the diff can hold it, and only when this run found it, because a carried
+ * earlier finding's line was read at an earlier head. An open thread whose blocker is no longer kept is resolved.
+ * Computed from the threads as they are, so applying it twice changes nothing the second time.
+ */
+export const threadActions = (drafts: ReadonlyArray<ThreadDraft>, threads: ReadonlyArray<Thread>): ReadonlyArray<ThreadAction> => {
+  const byKey = new Map<string, Thread>()
+  for (const t of threads) if (!byKey.has(keyOf(t.fingerprint))) byKey.set(keyOf(t.fingerprint), t)
+  const kept = new Set<string>()
+  const actions: Array<ThreadAction> = []
+  for (const draft of drafts) {
+    const { finding } = draft
+    const key = keyOf(fingerprintOf(finding))
+    if (kept.has(key)) continue
+    kept.add(key)
+    const thread = byKey.get(key)
+    const changed = thread !== undefined && thread.body.trimEnd() !== draft.body.trimEnd()
+    if (thread === undefined) {
+      if (draft.anchor !== null && finding.origin !== EARLIER) actions.push({ kind: "create", finding, anchor: draft.anchor, body: draft.body })
+    } else if (thread.resolved) actions.push({ kind: "reopen", finding, thread, body: changed ? draft.body : null })
+    else if (changed) actions.push({ kind: "update", finding, thread, body: draft.body })
+  }
+  for (const thread of threads) {
+    if (!thread.resolved && !kept.has(keyOf(thread.fingerprint))) actions.push({ kind: "resolve", thread })
+  }
+  return actions
+}

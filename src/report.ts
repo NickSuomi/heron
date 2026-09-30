@@ -1,6 +1,18 @@
 import { Schema } from "effect"
-import { type Finding, type Marker, PriorReview, type Review, type RulingKind, Sha, type SubscriptionUse, type Verdict } from "./domain.ts"
-import { EARLIER, gateStatuses, slotsOf } from "./policy.ts"
+import {
+  type Finding,
+  Fingerprint,
+  type LocatedFinding,
+  type Marker,
+  PriorReview,
+  type Review,
+  type RulingKind,
+  Sha,
+  type SubscriptionUse,
+  type ThreadReport,
+  type Verdict
+} from "./domain.ts"
+import { EARLIER, fingerprintOf, gateStatuses, slotsOf } from "./policy.ts"
 
 const slugs: Readonly<Record<Verdict, string>> = {
   "PASS": "pass",
@@ -38,6 +50,23 @@ export const parsePrior = (body: string): PriorReview | null => {
   const m = priorPattern.exec(body)
   if (m === null) return null
   const decoded = decodePrior(Buffer.from(m[1]!, "base64url").toString("utf8"))
+  return decoded._tag === "Some" ? decoded.value : null
+}
+
+/*
+ * A blocker's thread starts with its fingerprint: base64url JSON in an HTML comment, as the note's last line holds the
+ * earlier findings. Heron reads it only from the first line of a first note, and every such note starts with Heron's own
+ * text, so model text cannot write it.
+ */
+const printFingerprint = (f: Fingerprint): string => `<!-- heron:thread v1 ${Buffer.from(JSON.stringify(f)).toString("base64url")} -->`
+
+const fingerprintPattern = /^<!-- heron:thread v1 ([A-Za-z0-9_-]+) -->\n/
+const decodeFingerprint = Schema.decodeUnknownOption(Schema.fromJsonString(Fingerprint), { onExcessProperty: "error" })
+
+export const parseFingerprint = (body: string): Fingerprint | null => {
+  const m = fingerprintPattern.exec(body)
+  if (m === null) return null
+  const decoded = decodeFingerprint(Buffer.from(m[1]!, "base64url").toString("utf8"))
   return decoded._tag === "Some" ? decoded.value : null
 }
 
@@ -220,13 +249,28 @@ const subscriptionLines = (s: SubscriptionUse | null): ReadonlyArray<string> => 
   return [...share, ...s.warnings.map((w) => `Claude Code warned: ${inline(w)}.`)]
 }
 
+/** How many blocker threads the review opened, updated, reopened and resolved; empty when it touched none. */
+const threadLine = (threads: ThreadReport): ReadonlyArray<string> => {
+  if (threads.unlisted !== null) return [`Blocker threads left as they were: Heron could not list the discussions. ${inline(threads.unlisted)}`]
+  const done = threads.results.filter((r) => r.failure === null)
+  const counted = ([["create", "opened"], ["update", "updated"], ["reopen", "reopened"], ["resolve", "resolved"]] as const).flatMap(([kind, word]) => {
+    const n = done.filter((r) => r.action.kind === kind).length
+    return n === 0 ? [] : [`${n} ${word}`]
+  })
+  const failed = threads.results.length - done.length
+  const parts = [...counted, ...(failed === 0 ? [] : [`${failed} failed, to be retried by the next review`])]
+  return parts.length === 0 ? [] : [`Blocker threads on the diff: ${parts.join(", ")}.`]
+}
+
 const details = (title: string, body: ReadonlyArray<string>): string =>
   `<details>\n<summary>${title}</summary>\n\n${body.join("\n")}\n\n</details>`
 
 /** Said once in every report, so no session lists it as a limitation. */
 export const SCOPE_LINE = "Heron reviews by reading the source and target branches. It does not run tests, the app, a browser or a device."
 
-export const renderReport = (review: Review): string => {
+const noThreads: ThreadReport = { results: [], unlisted: null }
+
+export const renderReport = (review: Review, threads: ThreadReport = noThreads): string => {
   const { outcome, sessions, snapshot, verdict } = review
   const head = snapshot.revision.head
   const lane = review.classification.lane
@@ -255,6 +299,7 @@ export const renderReport = (review: Review): string => {
     const { lead, rest } = splitSummary(outcome.summary)
     lines.push(`${count(blockers.length, "blocker", "blockers")} · ${count(advisories.length, "advisory", "advisories")} · ${where}`, ...moved)
     if (range !== "") lines.push("", `${range}: ${outcome.findings.filter((f) => f.origin === EARLIER).length} of ${earlier} earlier findings carried.`)
+    lines.push(...threadLine(threads).flatMap((l) => ["", l]))
     if (lead.length > 0) lines.push("", paragraphLine(lead))
     // The one line a reader acts on comes from the kept findings, the same source as the verdict, so the two agree.
     if (verdict === "PASS" || verdict === "CHANGES REQUESTED") lines.push("", actionLine(blockers.length, advisories.length))
@@ -317,3 +362,18 @@ export const renderReport = (review: Review): string => {
   }
   return lines.join("\n") + "\n"
 }
+
+/** The first note of a blocker's thread: the fingerprint, the blocker as the note shows it, and what Heron does with the thread. */
+export const renderThread = (review: Review, f: LocatedFinding): string => {
+  const body = markdown(blocksOf(f.body))
+  return [
+    printFingerprint(fingerprintOf(f)),
+    `**Heron blocker** ${code(f.gate)} ${inline(f.title)}${location(review, f)}`,
+    ...(body === "" ? [] : ["", body]),
+    "",
+    `Kept by the review of ${code(short(review.snapshot.revision.head))}. Heron updates this thread while a review keeps the blocker and resolves it when one no longer does.`
+  ].join("\n") + "\n"
+}
+
+/** Heron's reply in a thread whose blocker the review at `head` no longer keeps. */
+export const renderCleared = (head: Sha): string => `No longer a blocker at ${code(short(head))}.\n`
