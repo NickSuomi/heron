@@ -277,7 +277,7 @@ describe("GitLab forge", () => {
       expect(ours?.prior?.findings.length).toBe(sampleOutcome.findings.length)
     }))
 
-  const threadBody = (title: string) => renderThread(sampleReview, { ...(sampleOutcome.findings[0] as LocatedFinding), title })
+  const threadBody = (title: string) => renderThread(sampleReview, { ...(sampleOutcome.findings[0] as LocatedFinding), title }, false)
   const discussion = (id: string, notes: ReadonlyArray<unknown>) => ({ id, individual_note: false, notes })
   const diffNote = (id: number, author: number, body: string, resolved?: boolean) => ({
     ...note(id, author, body),
@@ -290,20 +290,33 @@ describe("GitLab forge", () => {
       const fake = fakeGitLab([
         { body: { id: 1001, username: "heron-bot" } },
         page([
-          discussion("aa01", [diffNote(20, 1001, threadBody("Second"), true), diffNote(21, 555, "a reply", true)]),
+          discussion("aa01", [
+            { ...diffNote(20, 1001, threadBody("Second"), true), position: { position_type: "text", head_sha: sha("c"), new_path: "src/a.ts", new_line: 12, old_line: null } },
+            diffNote(21, 555, "a reply", true)
+          ]),
           discussion("aa02", [diffNote(22, 555, threadBody("Copied by a person"), false)]),
           discussion("aa03", [diffNote(23, 1001, "an ordinary bot comment", false)])
         ], "2"),
         page([
-          discussion("aa04", [diffNote(10, 1001, threadBody("First"), false), diffNote(11, 1001, "No longer a blocker at `cccccccc`.", false)]),
+          discussion("aa04", [
+            { ...diffNote(10, 1001, threadBody("First"), false), position: { position_type: "image", head_sha: sha("c"), new_path: "logo.png", width: 10 } },
+            diffNote(11, 1001, "No longer a blocker at `cccccccc`.", false)
+          ]),
           discussion("aa05", [{ ...note(12, 1001, threadBody("System"), true) }]),
           discussion("aa06", [])
         ], "")
       ])
       const threads = yield* withForge(fake, (forge) => forge.findThreads(ref))
       expect(threads).toEqual([
-        { id: "aa04", note: 10, fingerprint: parseFingerprint(threadBody("First")), body: threadBody("First"), resolved: false },
-        { id: "aa01", note: 20, fingerprint: parseFingerprint(threadBody("Second")), body: threadBody("Second"), resolved: true }
+        { id: "aa04", note: 10, fingerprint: parseFingerprint(threadBody("First")), body: threadBody("First"), resolved: false, position: null },
+        {
+          id: "aa01",
+          note: 20,
+          fingerprint: parseFingerprint(threadBody("Second")),
+          body: threadBody("Second"),
+          resolved: true,
+          position: { path: "src/a.ts", line: 12, head: sha("c") }
+        }
       ])
       expect(fake.sent.slice(1)).toEqual([
         { method: "GET", path: `${MR}/discussions`, query: { per_page: "100", page: "1" } },

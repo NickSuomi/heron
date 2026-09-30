@@ -77,7 +77,8 @@ const f = (id: string, severity: "blocker" | "advisory"): Finding => ({
   severity,
   location: null,
   title: id,
-  body: ""
+  body: "",
+  suggestion: null
 })
 
 describe("verdictOf", () => {
@@ -98,7 +99,7 @@ describe("applySynthesis", () => {
     const out = applySynthesis(inputs, {
       summary: "",
       limitations: [],
-      decisions: [{ id: "gate.design#1", ruling: "drop", reason: "", line: null }, { id: "gate.design#2", ruling: "keep", reason: "", line: null }],
+      decisions: [{ id: "gate.design#1", ruling: "drop", reason: "", line: null, confirmSuggestion: false }, { id: "gate.design#2", ruling: "keep", reason: "", line: null, confirmSuggestion: false }],
       added: [{ gate: "design", severity: "blocker", location: null, title: "missed", body: "" }]
     }, "supervisor" as SessionId)
     expect(Result.map(out, (fs) => fs.map((x) => `${x.id}:${x.severity}`))).toEqual(
@@ -110,7 +111,7 @@ describe("applySynthesis", () => {
     const out = applySynthesis(inputs, {
       summary: "",
       limitations: [],
-      decisions: [{ id: "gate.design#1", ruling: "keep as advisory", reason: "", line: null }, { id: "gate.design#2", ruling: "keep as advisory", reason: "", line: null }]
+      decisions: [{ id: "gate.design#1", ruling: "keep as advisory", reason: "", line: null, confirmSuggestion: false }, { id: "gate.design#2", ruling: "keep as advisory", reason: "", line: null, confirmSuggestion: false }]
     }, judge)
     expect(Result.map(out, (fs) => fs.map((x) => `${x.id}:${x.severity}`))).toEqual(Result.succeed(["gate.design#1:advisory", "gate.design#2:advisory"]))
   })
@@ -121,9 +122,22 @@ describe("applySynthesis", () => {
     const out = applySynthesis([unplaced, placed], {
       summary: "",
       limitations: [],
-      decisions: [{ id: "earlier#1", ruling: "keep", reason: "", line: 12 }, { id: "earlier#2", ruling: "keep", reason: "", line: 30 }]
+      decisions: [{ id: "earlier#1", ruling: "keep", reason: "", line: 12, confirmSuggestion: false }, { id: "earlier#2", ruling: "keep", reason: "", line: 30, confirmSuggestion: false }]
     }, judge)
     expect(Result.map(out, (fs) => fs.map((x) => x.location))).toEqual(Result.succeed([{ path: "src/a.ts", line: 12 }, { path: "src/a.ts", line: 4 }]))
+  })
+
+  it("keeps a finding's suggestion only when the decision confirms it", () => {
+    const suggestion = { lines: 1, replacement: "const x = 1" }
+    const out = applySynthesis([{ ...f("gate.design#1", "blocker"), suggestion }, { ...f("gate.design#2", "blocker"), suggestion }], {
+      summary: "",
+      limitations: [],
+      decisions: [
+        { id: "gate.design#1", ruling: "keep", reason: "", line: null, confirmSuggestion: true },
+        { id: "gate.design#2", ruling: "keep", reason: "", line: null, confirmSuggestion: false }
+      ]
+    }, judge)
+    expect(Result.map(out, (fs) => fs.map((x) => x.suggestion))).toEqual(Result.succeed([suggestion, null]))
   })
 
   it("fails when decisions are not a bijection over the input ids", () => {
@@ -131,9 +145,9 @@ describe("applySynthesis", () => {
       summary: "",
       limitations: [],
       decisions: [
-        { id: "gate.design#1", ruling: "keep", reason: "", line: null },
-        { id: "gate.design#1", ruling: "drop", reason: "", line: null },
-        { id: "gate.spec#9", ruling: "keep", reason: "", line: null }
+        { id: "gate.design#1", ruling: "keep", reason: "", line: null, confirmSuggestion: false },
+        { id: "gate.design#1", ruling: "drop", reason: "", line: null, confirmSuggestion: false },
+        { id: "gate.spec#9", ruling: "keep", reason: "", line: null, confirmSuggestion: false }
       ]
     }, judge)
     expect(Result.isFailure(out) && { ...out.failure }).toEqual({
@@ -153,6 +167,20 @@ describe("carried", () => {
   it("moves each earlier finding to its line at the reviewed head and leaves a line the delta rewrote without one", () => {
     expect(carried([at("earlier#1", { path: "src/a.ts", line: 9 }), at("earlier#2", { path: "src/a.ts", line: 2 }), at("earlier#3", null)], delta).map((x) => x.location))
       .toEqual([{ path: "src/a.ts", line: 11 }, { path: "src/a.ts", line: null }, null])
+  })
+
+  it("keeps a suggestion whose lines all moved together, and drops one whose lines the delta touched", () => {
+    const suggestion = (lines: number) => ({ lines, replacement: "x" })
+    const out = carried([
+      { ...at("earlier#1", { path: "src/a.ts", line: 8 }), suggestion: suggestion(2) },
+      { ...at("earlier#2", { path: "src/a.ts", line: 1 }), suggestion: suggestion(2) },
+      { ...at("earlier#3", { path: "src/b.ts", line: 1 }), suggestion: suggestion(3) }
+    ], delta)
+    expect(out.map((x) => [x.location, x.suggestion])).toEqual([
+      [{ path: "src/a.ts", line: 10 }, suggestion(2)],
+      [{ path: "src/a.ts", line: 1 }, null],
+      [{ path: "src/b.ts", line: 1 }, suggestion(3)]
+    ])
   })
 })
 
@@ -210,29 +238,36 @@ describe("threadActions", () => {
     severity: "blocker",
     location: { path: "src/a.ts", line: 4 },
     title,
-    body: ""
+    body: "",
+    suggestion: null
   })
   const anchor = { oldPath: "src/a.ts", newPath: "src/a.ts", newLine: 4, oldLine: null }
-  const draft = (finding: LocatedFinding, body = "now", onDiff = true) => ({ finding, body, anchor: onDiff ? anchor : null })
-  const thread = (n: number, title: string, body = "now", resolved = false): Thread => ({
+  const draft = (finding: LocatedFinding, body = "now", onDiff = true, suggesting: string | null = null) => ({
+    finding,
+    body,
+    anchor: onDiff ? anchor : null,
+    suggesting
+  })
+  const thread = (n: number, title: string, body = "now", resolved = false, position: Thread["position"] = null): Thread => ({
     id: `d${n}` as DiscussionId,
     note: n as NoteId,
     fingerprint: fingerprintOf(blocker(title)),
     body,
-    resolved
+    resolved,
+    position
   })
   const kinds = (actions: ReturnType<typeof threadActions>) =>
     actions.map((a) => a.kind === "resolve" ? `resolve ${a.thread.id}` : a.kind === "create" ? `create ${a.finding.title}` : `${a.kind} ${a.thread.id} ${a.body}`)
 
   it("finds a thread again by gate, path and a title that differs only in case, spacing and punctuation", () => {
     expect(fingerprintOf(blocker("  Export: button   stays ENABLED!"))).toEqual({ gate: "correctness", path: "src/a.ts", title: "export button stays enabled" })
-    expect(kinds(threadActions([draft(blocker("Export button stays enabled."), "later")], [thread(1, "export: button stays enabled")]))).toEqual([
+    expect(kinds(threadActions(sha("c"), [draft(blocker("Export button stays enabled."), "later")], [thread(1, "export: button stays enabled")]))).toEqual([
       "update d1 later"
     ])
   })
 
   it("opens a thread only for a blocker on a diff line, a carried one included, once per fingerprint", () => {
-    expect(kinds(threadActions([
+    expect(kinds(threadActions(sha("c"), [
       draft(blocker("On the diff")),
       draft(blocker("On the diff"), "a duplicate"),
       draft(blocker("Off the diff"), "now", false),
@@ -242,7 +277,7 @@ describe("threadActions", () => {
   })
 
   it("updates an open thread only when its text changed, and reopens a resolved one", () => {
-    expect(kinds(threadActions([draft(blocker("Same")), draft(blocker("Changed"), "new"), draft(blocker("Resolved")), draft(blocker("Resolved, changed"), "new")], [
+    expect(kinds(threadActions(sha("c"), [draft(blocker("Same")), draft(blocker("Changed"), "new"), draft(blocker("Resolved")), draft(blocker("Resolved, changed"), "new")], [
       thread(1, "Same"),
       thread(2, "Changed", "old"),
       thread(3, "Resolved", "now\n", true),
@@ -251,11 +286,23 @@ describe("threadActions", () => {
   })
 
   it("keeps the thread of a carried earlier blocker, even off the diff", () => {
-    expect(kinds(threadActions([draft(blocker("Carried", EARLIER), "later", false)], [thread(1, "Carried")]))).toEqual(["update d1 later"])
+    expect(kinds(threadActions(sha("c"), [draft(blocker("Carried", EARLIER), "later", false)], [thread(1, "Carried")]))).toEqual(["update d1 later"])
+  })
+
+  it("offers a suggestion in a new thread, and in an open one only while it sits on the finding's line at the reviewed head", () => {
+    const at = (line: number, head = "c") => ({ path: "src/a.ts", line, head: sha(head) })
+    expect(threadActions(sha("c"), [
+      draft(blocker("New"), "now", true, "with"),
+      draft(blocker("Here"), "now", true, "with"),
+      draft(blocker("Moved"), "now", true, "with"),
+      draft(blocker("Stale"), "now", true, "with"),
+      draft(blocker("Plain"), "now", true, null)
+    ], [thread(1, "Here", "now", false, at(4)), thread(2, "Moved", "now", false, at(6)), thread(3, "Stale", "now", false, at(4, "a")), thread(4, "Plain", "now", false, at(4))])
+      .map((a) => a.kind === "resolve" ? a.kind : `${a.kind} ${a.finding.title} ${a.body}`)).toEqual(["create New with", "update Here with"])
   })
 
   it("resolves every open thread whose blocker is gone and leaves resolved ones and duplicates of a kept one alone", () => {
-    expect(kinds(threadActions([draft(blocker("Kept"))], [
+    expect(kinds(threadActions(sha("c"), [draft(blocker("Kept"))], [
       thread(1, "Kept"),
       thread(2, "Kept", "a second thread"),
       thread(3, "Fixed"),

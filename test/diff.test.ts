@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
-import { anchorAt, diffLines, lineAfter, locationAfter } from "../src/diff.ts"
+import { anchorAt, diffLines, lineAfter, locationAfter, withinDiff } from "../src/diff.ts"
 import type { Change } from "../src/domain.ts"
 
 const modified = [
@@ -107,5 +107,19 @@ describe("locationAfter", () => {
       locationAfter(delta, { path: "src/gone.ts", line: 1 }),
       locationAfter(delta, { path: "src/old.ts", line: null })
     ]).toEqual([{ path: "src/a.ts", line: null }, { path: "src/gone.ts", line: null }, { path: "src/moved.ts", line: null }])
+  })
+})
+
+describe("withinDiff", () => {
+  const changes: ReadonlyArray<Change> = [{ path: "src/a.ts", oldPath: null, status: "modified", diff: modified }]
+
+  it("holds when every line of the range is a line of the merge request diff at the head", () => {
+    expect([
+      withinDiff(changes, { path: "src/a.ts", line: 2 }, 4),
+      withinDiff(changes, { path: "src/a.ts", line: 4 }, 3),
+      withinDiff(changes, { path: "src/a.ts", line: 21 }, 3),
+      withinDiff(changes, { path: "src/b.ts", line: 1 }, 1),
+      withinDiff(changes, { path: "src/a.ts", line: null }, 1)
+    ]).toEqual([true, false, false, false, false])
   })
 })

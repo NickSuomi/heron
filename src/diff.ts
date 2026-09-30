@@ -95,3 +95,11 @@ export const anchorAt = (changes: ReadonlyArray<Change>, location: { readonly pa
   if (!lines.has(location.line)) return null
   return { oldPath: change.oldPath ?? change.path, newPath: change.path, newLine: location.line, oldLine: lines.get(location.line) ?? null }
 }
+
+/** Whether `count` lines from `location` are all lines of the merge request diff at the head, which the author sees there. */
+export const withinDiff = (changes: ReadonlyArray<Change>, location: { readonly path: string; readonly line: number | null }, count: number): boolean => {
+  const change = changes.find((c) => c.path === location.path)
+  if (change === undefined || location.line === null) return false
+  const lines = diffLines(change.diff)
+  return Array.from({ length: count }, (_, i) => location.line! + i).every((l) => lines.has(l))
+}

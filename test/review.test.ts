@@ -128,7 +128,7 @@ describe("reviewOnce", () => {
         "b2.gate.design": () => reviewOut(),
         "b2.gate.correctness": () => reviewOut([finding("correctness", "advisory")]),
         "b2.supervisor": keepAll({ added: [] }),
-        "judge": () => ({ summary: "", decisions: [{ id: "b1.gate.design#1", ruling: "keep", reason: "", line: null }], limitations: [] })
+        "judge": () => ({ summary: "", decisions: [{ id: "b1.gate.design#1", ruling: "keep", reason: "", line: null, confirmSuggestion: false }], limitations: [] })
       })
       expect(result.review.outcome).toEqual({
         kind: "incomplete",
@@ -224,8 +224,8 @@ describe("reviewOnce", () => {
         "supervisor": () => ({
           summary: "Fine.",
           decisions: [
-            { id: "gate.design#1", ruling: "drop", reason: "The layer is right.", line: null },
-            { id: "gate.correctness#1", ruling: "keep", reason: "Real.", line: null }
+            { id: "gate.design#1", ruling: "drop", reason: "The layer is right.", line: null, confirmSuggestion: false },
+            { id: "gate.correctness#1", ruling: "keep", reason: "Real.", line: null, confirmSuggestion: false }
           ],
           added: [],
           limitations: []
@@ -248,7 +248,7 @@ describe("reviewOnce", () => {
         "gate.design": () => reviewOut([finding("design", "blocker", "Missing region comments")]),
         "supervisor": (r) => ({
           summary: "Fine.",
-          decisions: promptIds(r).map((id) => ({ id, ruling: id === "gate.design#1" ? "keep as advisory" : "keep", reason: "A rule-only breach.", line: null })),
+          decisions: promptIds(r).map((id) => ({ id, ruling: id === "gate.design#1" ? "keep as advisory" : "keep", reason: "A rule-only breach.", line: null, confirmSuggestion: false })),
           added: [],
           limitations: []
         })
@@ -364,7 +364,7 @@ describe("re-review", () => {
         "gate.correctness": () => reviewOut(),
         "supervisor": (r) => ({
           summary: "Fixed.",
-          decisions: promptIds(r).map((id) => ({ id, ruling: id === "earlier#1" ? "drop" : "keep", reason: id === "earlier#1" ? "The new commit removed it." : "real", line: null })),
+          decisions: promptIds(r).map((id) => ({ id, ruling: id === "earlier#1" ? "drop" : "keep", reason: id === "earlier#1" ? "The new commit removed it." : "real", line: null, confirmSuggestion: false })),
           added: [],
           limitations: []
         })
@@ -382,7 +382,7 @@ describe("re-review", () => {
       const result = yield* run(forge, {
         reviewer: () => ({
           summary: "Link fixed.",
-          decisions: [{ id: "earlier#1", ruling: "drop", reason: "The link now resolves.", line: null }],
+          decisions: [{ id: "earlier#1", ruling: "drop", reason: "The link now resolves.", line: null, confirmSuggestion: false }],
           added: [finding("correctness", "advisory", "Typo in the new heading")],
           limitations: []
         })
@@ -400,7 +400,7 @@ describe("re-review", () => {
       const forge = yield* reviewedThenPushed({ reviewer: () => reviewOut([finding("correctness", "blocker", "Heading skips a level")]) }, [change("README.md")])
       forge.state.delta = () => [change("docs/guide.md")]
       const result = yield* run(forge, {
-        reviewer: () => ({ summary: "Minor.", decisions: [{ id: "earlier#1", ruling: "keep as advisory", reason: "Style only.", line: null }], added: [], limitations: [] })
+        reviewer: () => ({ summary: "Minor.", decisions: [{ id: "earlier#1", ruling: "keep as advisory", reason: "Style only.", line: null, confirmSuggestion: false }], added: [], limitations: [] })
       })
       expect([result.review.verdict, result.body.includes("| `reviewer` | `earlier#1` Heading skips a level | kept as advisory |")]).toEqual(["PASS", true])
       expect(result.body).toContain("Re-review of `aaaaaaaa..cccccccc`: 1 of 1 earlier findings carried.")
@@ -415,7 +415,7 @@ describe("re-review", () => {
         "b2.gate.design": () => reviewOut(),
         "b2.gate.correctness": () => reviewOut(),
         "b2.supervisor": keepAll({ added: [] }),
-        "judge": () => ({ summary: "", decisions: [{ id: "b1.gate.design#1", ruling: "keep as advisory", reason: "Naming only.", line: null }], limitations: [] })
+        "judge": () => ({ summary: "", decisions: [{ id: "b1.gate.design#1", ruling: "keep as advisory", reason: "Naming only.", line: null, confirmSuggestion: false }], limitations: [] })
       }, { publish: false })
       expect([result.review.verdict, result.review.outcome.kind === "complete" && result.review.outcome.findings.map((f) => `${f.id}:${f.severity}`)]).toEqual([
         "PASS",
@@ -647,13 +647,58 @@ describe("blocker threads", () => {
         ...gated,
         "supervisor": (r) => ({
           summary: "Still there.",
-          decisions: promptIds(r).map((id) => ({ id, ruling: "keep", reason: "real", line: id === "earlier#1" ? 4 : null })),
+          decisions: promptIds(r).map((id) => ({ id, ruling: "keep", reason: "real", line: id === "earlier#1" ? 4 : null, confirmSuggestion: false })),
           added: [],
           limitations: []
         })
       })
       expect([carriedLocation(placed), forge.state.threads[0]!.body.includes("/src/app.ts#L4))")]).toEqual([[{ path: "src/app.ts", line: 4 }], true])
       expect(parsePrior(report(forge))?.findings.find((f) => f.title === "Export runs twice")?.location).toEqual({ path: "src/app.ts", line: 4 })
+    }))
+
+  const suggested = { ...finding("design", "blocker", "Export runs twice"), suggestion: { lines: 2, replacement: "if (busy) return\nbusy = true" } }
+  const ruling = (confirm: boolean): Script => (r) => ({
+    summary: "Ruled.",
+    decisions: promptIds(r).map((id) => ({ id, ruling: "keep", reason: "real", line: null, confirmSuggestion: confirm })),
+    added: [],
+    limitations: []
+  })
+  const block = "```suggestion:-0+1\nif (busy) return\nbusy = true\n```"
+
+  it.effect("offers a gate's suggestion in the thread only when the supervisor confirms it", () =>
+    Effect.gen(function*() {
+      const confirmed = onDiff()
+      yield* run(confirmed, { ...gated, "gate.design": () => reviewOut([suggested]), "supervisor": ruling(true) })
+      const unconfirmed = onDiff()
+      yield* run(unconfirmed, { ...gated, "gate.design": () => reviewOut([suggested]), "supervisor": ruling(false) })
+      expect([confirmed.state.threads[0]!.body.includes(block), unconfirmed.state.threads[0]!.body.includes("suggestion")]).toEqual([true, false])
+      expect(confirmed.state.threads[0]!.body).toContain("Suggested fix for lines 3 to 4, confirmed by the review.")
+      expect(parsePrior(report(confirmed))?.findings[0]?.suggestion).toEqual(suggested.suggestion)
+      expect(report(confirmed).includes("suggestion:-0")).toBe(false)
+    }))
+
+  it.effect("carries a suggestion to the new head only when the ruling session confirms it again there", () =>
+    Effect.gen(function*() {
+      const pushed = () =>
+        Effect.gen(function*() {
+          const forge = yield* reviewedThenPushed({ ...gated, "gate.design": () => reviewOut([suggested]), "supervisor": ruling(true) }, [addedFile("src/app.ts")])
+          forge.state.changes = [addedFile("src/app.ts", 7)]
+          forge.state.delta = () => [{ path: "src/app.ts", oldPath: null, status: "modified", diff: "@@ -0,0 +1,2 @@\n+import a\n+import b" }]
+          const t = forge.state.threads[0]!
+          t.anchor = { ...t.anchor!, newLine: 5 }
+          t.head = sha("c")
+          return forge
+        })
+      const again = yield* pushed()
+      const kept = yield* run(again, { ...gated, "supervisor": ruling(true) })
+      const lapsed = yield* pushed()
+      const dropped = yield* run(lapsed, { ...gated, "supervisor": ruling(false) })
+      expect([threadKinds(kept), again.state.threads[0]!.body.includes("Suggested fix for lines 5 to 6"), again.state.threads[0]!.body.includes(block)]).toEqual([
+        ["update"],
+        true,
+        true
+      ])
+      expect([threadKinds(dropped), lapsed.state.threads[0]!.body.includes("suggestion")]).toEqual([["update"], false])
     }))
 
   it.effect("keeps the thread of a blocker a re-review carries", () =>

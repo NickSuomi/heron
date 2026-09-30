@@ -359,19 +359,46 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
     ])
   )
   if (outcome.kind === "complete") {
-    const findings = outcome.findings.map(({ body, gate, location, severity, title }) => ({ gate, severity, location, title, body }))
+    const findings = outcome.findings.map(({ body, gate, location, severity, suggestion, title }) => ({ gate, severity, location, title, body, suggestion }))
     lines.push("", printPrior({ base: snapshot.revision.base, start: snapshot.revision.start, lane: lane.name, findings }))
   }
   return lines.join("\n") + "\n"
 }
 
-/** The first note of a blocker's thread: the fingerprint, the blocker as the note shows it, and what Heron does with the thread. */
-export const renderThread = (review: Review, f: LocatedFinding): string => {
+/*
+ * A suggestion is code, so it never goes through the escaping above. Heron writes it as a fenced code block whose fence
+ * is a backtick run longer than any in the text, so no line of the text can close it; CommonMark shows a code block's
+ * content literally, GitLab's reference filters skip `pre` and `code`, and GitLab reads quick actions only from
+ * paragraphs outside code blocks. Heron writes the info string, and the lines before and after the block are its own.
+ */
+const suggestionBlock = (f: LocatedFinding): ReadonlyArray<string> => {
+  const { line } = f.location
+  if (f.suggestion === null || line === null) return []
+  const { lines, replacement } = f.suggestion
+  const text = replacement.replace(/\r\n?/g, "\n").replace(/\n$/, "")
+  const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)))
+  const range = lines === 1 ? `line ${line}` : `lines ${line} to ${line + lines - 1}`
+  return [
+    "",
+    `Suggested fix for ${range}, confirmed by the review. Heron does not run tests: review it before you apply it.`,
+    "",
+    `${fence}suggestion:-0+${lines - 1}`,
+    ...(text === "" ? [] : [text]),
+    fence
+  ]
+}
+
+/**
+ * The first note of a blocker's thread: the fingerprint, the blocker as the note shows it, and what Heron does with the
+ * thread. With `suggest`, a confirmed suggestion follows the blocker; only a thread on the finding's line may carry one.
+ */
+export const renderThread = (review: Review, f: LocatedFinding, suggest: boolean): string => {
   const body = markdown(blocksOf(f.body))
   return [
     printFingerprint(fingerprintOf(f)),
     `**Heron blocker** ${code(f.gate)} ${inline(f.title)}${location(review, f)}`,
     ...(body === "" ? [] : ["", body]),
+    ...(suggest ? suggestionBlock(f) : []),
     "",
     `Kept by the review of ${code(short(review.snapshot.revision.head))}. Heron updates this thread while a review keeps the blocker and resolves it when one no longer does.`
   ].join("\n") + "\n"

@@ -102,7 +102,7 @@ export const slotsOf = (plan: ReviewPlan): ReadonlyArray<Slot> => {
 }
 
 export const assignIds = (origin: SessionId, findings: ReadonlyArray<ModelFinding | Omit<Finding, "id" | "origin">>): ReadonlyArray<Finding> =>
-  findings.map((f, i) => ({ ...f, id: `${origin}#${i + 1}` as FindingId, origin }))
+  findings.map((f, i) => ({ ...f, location: f.location, suggestion: f.suggestion ?? null, id: `${origin}#${i + 1}` as FindingId, origin }))
 
 /** The origin of the findings an earlier review kept; their ids are `earlier#n`. */
 export const EARLIER = sessionId(["earlier"])
@@ -127,9 +127,18 @@ export const rereviewStart = (
 /**
  * The earlier findings moved to the reviewed head through `delta`, the changes since the head they were read at. A
  * finding on a line the delta removed or rewrote keeps its path and loses its line, for the ruling session to place again.
+ * A suggestion stays only when every line it replaces moved unchanged and together, and still needs a ruling to confirm it.
  */
 export const carried = (earlier: ReadonlyArray<Finding>, delta: ReadonlyArray<Change>): ReadonlyArray<Finding> =>
-  earlier.map((f) => f.location === null ? f : { ...f, location: locationAfter(delta, f.location) })
+  earlier.map((f) => {
+    if (f.location === null) return f
+    const { path, line } = f.location
+    const location = locationAfter(delta, f.location)
+    const intact = f.suggestion !== null && line !== null && location.line !== null &&
+      Array.from({ length: f.suggestion.lines }, (_, i) => locationAfter(delta, { path, line: line + i }).line)
+        .every((l, i) => l === location.line! + i)
+    return { ...f, location, suggestion: intact ? f.suggestion : null }
+  })
 
 export class SynthesisIncomplete extends Schema.TaggedError<SynthesisIncomplete>()("SynthesisIncomplete", {
   session: Schema.String,
@@ -155,10 +164,11 @@ export const applySynthesis = (
   }
   const decisions = new Map(out.decisions.map((d) => [d.id, d]))
   const kept = inputs.flatMap((f) => {
-    const { line, ruling } = decisions.get(f.id)!
+    const { confirmSuggestion, line, ruling } = decisions.get(f.id)!
     if (ruling === "drop") return []
     // A ruling places only a finding that has no line; it does not move one that has.
-    const placed = f.location !== null && f.location.line === null && line !== null ? { ...f, location: { ...f.location, line } } : f
+    const located = f.location !== null && f.location.line === null && line !== null ? { ...f, location: { ...f.location, line } } : f
+    const placed = confirmSuggestion ? located : { ...located, suggestion: null }
     return ruling === "keep as advisory" ? [{ ...placed, severity: "advisory" as const }] : [placed]
   })
   return Result.succeed([...kept, ...assignIds(origin, out.added ?? [])])
@@ -243,9 +253,11 @@ const keyOf = (f: Fingerprint): string => JSON.stringify([f.gate, f.path, f.titl
  * One thread per blocker across runs. A kept blocker updates its thread, or reopens it when a person resolved it; a
  * blocker with no thread opens one only where the diff can hold it, which a carried finding whose line the newer commits
  * rewrote cannot. An open thread whose blocker is no longer kept is resolved.
+ * A suggestion replaces lines counted from the line the thread sits on, so a thread shows one only while GitLab places it
+ * on the finding's line at `head`; a new thread always starts there.
  * Computed from the threads as they are, so applying it twice changes nothing the second time.
  */
-export const threadActions = (drafts: ReadonlyArray<ThreadDraft>, threads: ReadonlyArray<Thread>): ReadonlyArray<ThreadAction> => {
+export const threadActions = (head: Sha, drafts: ReadonlyArray<ThreadDraft>, threads: ReadonlyArray<Thread>): ReadonlyArray<ThreadAction> => {
   const byKey = new Map<string, Thread>()
   for (const t of threads) if (!byKey.has(keyOf(t.fingerprint))) byKey.set(keyOf(t.fingerprint), t)
   const kept = new Set<string>()
@@ -256,11 +268,16 @@ export const threadActions = (drafts: ReadonlyArray<ThreadDraft>, threads: Reado
     if (kept.has(key)) continue
     kept.add(key)
     const thread = byKey.get(key)
-    const changed = thread !== undefined && thread.body.trimEnd() !== draft.body.trimEnd()
     if (thread === undefined) {
-      if (draft.anchor !== null) actions.push({ kind: "create", finding, anchor: draft.anchor, body: draft.body })
-    } else if (thread.resolved) actions.push({ kind: "reopen", finding, thread, body: changed ? draft.body : null })
-    else if (changed) actions.push({ kind: "update", finding, thread, body: draft.body })
+      if (draft.anchor !== null) actions.push({ kind: "create", finding, anchor: draft.anchor, body: draft.suggesting ?? draft.body })
+      continue
+    }
+    const { position } = thread
+    const onLine = position !== null && position.head === head && position.path === finding.location.path && position.line === finding.location.line
+    const body = onLine && draft.suggesting !== null ? draft.suggesting : draft.body
+    const changed = thread.body.trimEnd() !== body.trimEnd()
+    if (thread.resolved) actions.push({ kind: "reopen", finding, thread, body: changed ? body : null })
+    else if (changed) actions.push({ kind: "update", finding, thread, body })
   }
   for (const thread of threads) {
     if (!thread.resolved && !kept.has(keyOf(thread.fingerprint))) actions.push({ kind: "resolve", thread })

@@ -83,8 +83,9 @@ export interface FakeThread {
   resolved: boolean
   /** False for a discussion a person started. */
   readonly byBot: boolean
-  readonly anchor: DiffAnchor | null
-  readonly head: Sha | null
+  /** Where GitLab shows the thread now; a test moves it the way GitLab's position tracing does after a push. */
+  anchor: DiffAnchor | null
+  head: Sha | null
   readonly replies: Array<string>
 }
 
@@ -160,7 +161,8 @@ export const fakeForge = (
       threadCall("findThreads", () =>
         state.threads.flatMap((t) => {
           const fingerprint = t.byBot ? parseFingerprint(t.body) : null
-          return fingerprint === null ? [] : [{ id: t.id, note: t.note, fingerprint, body: t.body, resolved: t.resolved }]
+          const position = t.anchor === null || t.head === null ? null : { path: t.anchor.newPath, line: t.anchor.newLine, head: t.head }
+          return fingerprint === null ? [] : [{ id: t.id, note: t.note, fingerprint, body: t.body, resolved: t.resolved, position }]
         })),
     createThread: (_, revision, anchor, body) =>
       threadCall("createThread", () => {
@@ -211,6 +213,12 @@ export const finding = (gate: string, severity: "blocker" | "advisory", title = 
   body: "Explanation."
 })
 
+/** A gate's findings must name a suggestion; a scripted finding that leaves it out proposes none. */
+const withSuggestionKeys = (output: unknown): unknown => {
+  const o = output as { findings?: ReadonlyArray<Record<string, unknown>> }
+  return Array.isArray(o.findings) ? { ...o, findings: o.findings.map((f) => ({ suggestion: null, ...f })) } : output
+}
+
 /** Answers by session id; a thrown HarnessError becomes the session's failure. */
 export const fakeHarness = (
   answers: Readonly<Record<string, Script>>,
@@ -241,8 +249,9 @@ export const fakeHarness = (
         inFlight.set(key, inFlight.get(key)! - 1)
         const answer = answers[request.slot.id]
         if (answer === undefined) return yield* new HarnessError({ kind: "vendor", detail: `no scripted answer for ${request.slot.id}` })
-        const output = answer(request)
-        if (output instanceof HarnessError) return yield* output
+        const answered = answer(request)
+        if (answered instanceof HarnessError) return yield* answered
+        const output = request.slot.role === "gate" ? withSuggestionKeys(answered) : answered
         return {
           output,
           reportedModel: request.slot.profile.model,
@@ -264,5 +273,5 @@ export const promptIds = (request: HarnessRequest): ReadonlyArray<string> =>
 /** Keep every decision on every finding id listed in the prompt's JSON blocks. */
 export const keepAll = (extra: Record<string, unknown> = {}): Script => (request) => {
   const ids = promptIds(request)
-  return { summary: "Synthesized.", decisions: ids.map((id) => ({ id, ruling: "keep", reason: "real", line: null })), limitations: [], ...extra }
+  return { summary: "Synthesized.", decisions: ids.map((id) => ({ id, ruling: "keep", reason: "real", line: null, confirmSuggestion: false })), limitations: [], ...extra }
 }

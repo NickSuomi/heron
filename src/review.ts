@@ -24,7 +24,7 @@ import {
   type Usage,
   type UserId
 } from "./domain.ts"
-import { anchorAt } from "./diff.ts"
+import { anchorAt, withinDiff } from "./diff.ts"
 import {
   admits,
   applySynthesis,
@@ -157,7 +157,7 @@ const execute = Effect.fn("execute")(function*(
   const runBranch = (branch: Branch, last: boolean) =>
     Effect.gen(function*() {
       const outputs = yield* Effect.forEach(branch.gates, (slot) =>
-        run(slot, reviewOutput(slot.gates), packet).pipe(Effect.map((out) => ({ slot, out }))), { concurrency: "unbounded" })
+        run(slot, reviewOutput(slot.gates, true), packet).pipe(Effect.map((out) => ({ slot, out }))), { concurrency: "unbounded" })
       const found = outputs.flatMap(({ out, slot }) => assignIds(slot.id, out.findings))
       const inputs = last ? [...found, ...earlier] : found
       const sup = branch.supervisor
@@ -176,7 +176,7 @@ const execute = Effect.fn("execute")(function*(
       case "single": {
         const reviewer = plan.reviewer
         if (rereview === null) {
-          const out = yield* run(reviewer, reviewOutput(reviewer.gates), packet)
+          const out = yield* run(reviewer, reviewOutput(reviewer.gates, false), packet)
           return { summary: out.summary, findings: assignIds(reviewer.id, out.findings), rulings: [], limitations: out.limitations }
         }
         const out = yield* run(reviewer, synthesisOutput(reviewer.gates, "supervisor"), withEarlier(packet, true))
@@ -269,10 +269,14 @@ const syncThreads = Effect.fn("syncThreads")(function*(review: Review, write: bo
   if (listed._tag === "Failure") return { results: [], unlisted: listed.failure.message } satisfies ThreadReport
   const drafts = outcome.findings.filter(threadable).map((finding) => ({
     finding,
-    body: renderThread(review, finding),
-    anchor: anchorAt(snapshot.changes, finding.location)
+    body: renderThread(review, finding, false),
+    anchor: anchorAt(snapshot.changes, finding.location),
+    // A suggestion replaces only lines the author sees in the merge request diff.
+    suggesting: finding.suggestion !== null && withinDiff(snapshot.changes, finding.location, finding.suggestion.lines)
+      ? renderThread(review, finding, true)
+      : null
   }))
-  const actions = threadActions(drafts, listed.success)
+  const actions = threadActions(snapshot.revision.head, drafts, listed.success)
   const results = yield* Effect.forEach(actions, (action) =>
     write
       ? applyThread(snapshot.ref, snapshot.revision, action).pipe(

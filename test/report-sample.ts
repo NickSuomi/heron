@@ -23,7 +23,8 @@ const finding = (n: number, gate: string, severity: Finding["severity"], title: 
   severity,
   location: { path, line },
   title,
-  body
+  body,
+  suggestion: null
 })
 
 const blocker = finding(1, "correctness", "blocker", "Export button stays enabled while an export runs", "A second click starts a parallel export that overwrites the first file. Disable the button while `isExporting` is true.", "src/ExportButton.vue", 12)

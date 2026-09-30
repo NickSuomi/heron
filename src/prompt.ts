@@ -1,4 +1,4 @@
-import type { Change, Finding, MrSnapshot, Rereview, Role, Slot } from "./domain.ts"
+import { type Change, type Finding, MAX_SUGGESTION_LINES, type MrSnapshot, type Rereview, type Role, type Slot } from "./domain.ts"
 
 const roleText: Readonly<Record<Role, string>> = {
   reviewer: "You review one GitLab merge request against every gate below. Return findings only; Heron derives the verdict from them. A blocker is a defect the author must fix before merging; anything else is advisory. Anchor each finding to a file and line at the reviewed head when one exists.",
@@ -32,6 +32,11 @@ const outputRules = [
   "- Put code, paths and identifiers in backticks. Heron shows `- ` lists and backticks; it shows headings, bold, links, tables and HTML as plain text."
 ].join("\n")
 
+/** A gate proposes a suggestion; the author may apply it with one click, so it is only for a fix that needs nothing else. */
+const suggestionRule = `- A finding's \`suggestion\` is for a small fix you are certain of: the exact text that replaces the finding's line and at most ${
+  MAX_SUGGESTION_LINES - 1
+} lines right below it, which fixes the defect with no change anywhere else. A ruling session checks it before the author sees it. For any other fix, or when you are unsure, it is null.`
+
 /** The ruling session sets the final severity, so the verdict does not rest on one gate's call; it may lower a severity, never raise one. */
 const rulingRules = (role: "supervisor" | "judge") =>
   [
@@ -39,7 +44,8 @@ const rulingRules = (role: "supervisor" | "judge") =>
     `- Rule \`keep as advisory\` on a real defect that was called a blocker but does not block. No ruling raises a finding to blocker.${
       role === "supervisor" ? " If you find a blocker the gates missed or called advisory, report it under `added` as a blocker." : ""
     }`,
-    "- Each decision's `reason` is one sentence on why the finding is or is not a real defect. Put your reasoning there, not in the summary."
+    "- Each decision's `reason` is one sentence on why the finding is or is not a real defect. Put your reasoning there, not in the summary.",
+    "- Set `confirmSuggestion` to true only when the finding has a `suggestion`, you read the lines it replaces at the reviewed head, and applying it as written fixes the defect with no other change. Heron shows it in the blocker's thread, where the author can apply it with one click, and Heron runs no tests."
   ].join("\n")
 
 export const instructionsFor = (slot: Slot, policy: ReadonlyArray<string>): string =>
@@ -48,7 +54,11 @@ export const instructionsFor = (slot: Slot, policy: ReadonlyArray<string>): stri
     readingRules,
     ...slot.gates.map((g) => `## Gate: ${g.name}\n\n${g.instructions.trim()}`),
     ...policy,
-    slot.role === "supervisor" || slot.role === "judge" ? `${outputRules}\n${rulingRules(slot.role)}` : outputRules
+    slot.role === "supervisor" || slot.role === "judge"
+      ? `${outputRules}\n${rulingRules(slot.role)}`
+      : slot.role === "gate"
+      ? `${outputRules}\n${suggestionRule}`
+      : outputRules
   ].join("\n\n")
 
 /** A fence longer than any backtick run in `text`, so the text cannot close it. */
@@ -106,7 +116,7 @@ export const packetText = (s: MrSnapshot, rereview: Rereview | null): string =>
 
 const findingsJson = (findings: ReadonlyArray<Finding>): string =>
   `\`\`\`json\n${
-    JSON.stringify(findings.map(({ body, gate, id, location, severity, title }) => ({ id, gate, severity, location, title, body })), null, 2)
+    JSON.stringify(findings.map(({ body, gate, id, location, severity, suggestion, title }) => ({ id, gate, severity, location, title, body, suggestion })), null, 2)
   }\n\`\`\``
 
 export const findingsText = (title: string, findings: ReadonlyArray<Finding>): string => `## ${title}\n\n${findingsJson(findings)}`
@@ -119,5 +129,6 @@ export const earlierText = (r: Rereview, adds: boolean): string =>
       adds ? " Report the findings of your own review of the new commits under `added`." : ""
     }`,
     "Heron has moved each finding's `location` to the reviewed head. A `line` of null means the new commits removed or rewrote the line the finding named: if the defect is still there, keep the finding and give the line where it is now in the decision's `line`; if the rewrite fixed it, drop it.",
+    "A finding's `suggestion` was confirmed at the earlier head, and Heron kept it only where the new commits left its lines unchanged. It stays only if you confirm it again at the reviewed head.",
     findingsJson(r.earlier)
   ].join("\n\n")

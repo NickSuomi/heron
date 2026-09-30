@@ -64,8 +64,15 @@ const Diff = Schema.Struct({
 const Commit = Schema.Struct({ id: Sha })
 const Compare = Schema.Struct({ compare_timeout: Schema.Boolean, diffs: Schema.Array(Diff) })
 const Note = Schema.Struct({ id: NoteId, body: Schema.String, system: Schema.Boolean, author: Schema.Struct({ id: Schema.Int }) })
-/** GitLab leaves `resolved` out of a note that cannot be resolved. */
-const DiscussionNote = Schema.Struct({ ...Note.fields, resolved: Schema.optionalKey(Schema.Boolean) })
+/** GitLab leaves `resolved` out of a note that cannot be resolved. A diff note's `position` has a shape per position type. */
+const DiscussionNote = Schema.Struct({ ...Note.fields, resolved: Schema.optionalKey(Schema.Boolean), position: Schema.optionalKey(Schema.Unknown) })
+/** A `text` position on a head-side line. GitLab moves it to the newest diff when a push leaves the line unchanged. */
+const decodeLinePosition = Schema.decodeUnknownOption(Schema.Struct({
+  position_type: Schema.Literal("text"),
+  head_sha: Sha,
+  new_path: Schema.String,
+  new_line: Schema.Int
+}))
 const Discussion = Schema.Struct({ id: DiscussionId, notes: Schema.Array(DiscussionNote) })
 /** A diff note's place on the diff; GitLab sends null for a line the note does not sit on. */
 const Position = Schema.Struct({
@@ -374,7 +381,10 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
             const first = d.notes[0]
             if (first === undefined || first.system || first.author.id !== me) return []
             const fingerprint = parseFingerprint(first.body)
-            return fingerprint === null ? [] : [{ id: d.id, note: first.id, fingerprint, body: first.body, resolved: first.resolved === true }]
+            if (fingerprint === null) return []
+            const at = decodeLinePosition(first.position)
+            const position = at._tag === "Some" ? { path: at.value.new_path, line: at.value.new_line, head: at.value.head_sha } : null
+            return [{ id: d.id, note: first.id, fingerprint, body: first.body, resolved: first.resolved === true, position }]
           })
           .sort((a, b) => a.note - b.note)
       }),

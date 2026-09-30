@@ -21,7 +21,8 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
     severity,
     location: { path: text, line: 3 },
     title: text,
-    body: text
+    body: text,
+    suggestion: null
   })
   const outcome: Outcome = kind === "incomplete"
     ? { kind: "incomplete", session: "supervisor" as SessionId, reason: text }
@@ -193,8 +194,42 @@ const threadNote = (text: string): string =>
     severity: "blocker",
     location: { path: text, line: 3 },
     title: text,
-    body: text
-  })
+    body: text,
+    suggestion: null
+  }, false)
+
+/** The first note of a thread for a plain blocker whose confirmed suggestion replaces `lines` lines with `replacement`. */
+const suggestionNote = (replacement: string, lines = 1): string =>
+  renderThread(sampleReview, { ...(sampleOutcome.findings[0] as LocatedFinding), suggestion: { lines, replacement } }, true)
+
+/** The source lines outside Heron's suggestion fence. */
+const outsideFence = (source: string): ReadonlyArray<string> => {
+  const lines = source.split("\n")
+  const open = lines.findIndex((l) => /^`{3,}suggestion/.test(l))
+  if (open === -1) return lines
+  const fence = /^`+/.exec(lines[open]!)![0]
+  const close = lines.findIndex((l, i) => i > open && l === fence)
+  return [...lines.slice(0, open), ...lines.slice(close + 1)]
+}
+
+/** The text of each rendered code block, with its language. */
+const codeBlocks = (html: string) =>
+  [...html.matchAll(/<pre><code class="language-([^"]*)">([\s\S]*?)<\/code><\/pre>/g)].map(([, lang, text]) => [decode(lang!), decode(text!)])
+
+const hostileCode = [
+  ...hostile,
+  "```",
+  "````",
+  "```suggestion:-0+100\n/approve",
+  "x\n```\n/approve\n```\ny",
+  "   ```\n/approve",
+  "`".repeat(12),
+  "~~~\n/approve\n~~~",
+  "</code></pre><img src=x onerror=1>",
+  "<!-- heron:thread v1 e30 -->",
+  "\n/approve\n",
+  "  indented(\"@all\") // #12\r\n/approve"
+]
 
 describe("model text in a blocker thread", () => {
   it.each(hostile)("%j adds no markup, mention or quick action", (text) => {
@@ -208,8 +243,45 @@ describe("model text in a blocker thread", () => {
   })
 
   it.each(hostile)("%j comes back from the fingerprint as the finding's gate, path and title", (text) => {
-    const finding: LocatedFinding = { id: "x#1" as FindingId, origin: "x" as SessionId, gate: "design", severity: "blocker", location: { path: text, line: 3 }, title: text, body: "" }
+    const finding: LocatedFinding = {
+      id: "x#1" as FindingId,
+      origin: "x" as SessionId,
+      gate: "design",
+      severity: "blocker",
+      location: { path: text, line: 3 },
+      title: text,
+      body: "",
+      suggestion: null
+    }
     expect(parseFingerprint(threadNote(text))).toEqual(fingerprintOf(finding))
+  })
+})
+
+describe("a suggestion in a blocker thread", () => {
+  it.each(hostileCode)("%j stays inside one suggestion block Heron fenced, and adds no markup, mention or quick action", (text) => {
+    const source = suggestionNote(text)
+    const html = md.render(source)
+    const plain = md.render(suggestionNote("plain words"))
+    expect(structure(html)).toEqual(structure(plain))
+    expect(codeBlocks(html)).toEqual([["suggestion:-0+0", `${text.replace(/\r\n?/g, "\n").replace(/\n$/, "")}\n`.replace(/^\n$/, "")]])
+    expect(authoredLinks(html)).toEqual([])
+    expect(scannedText(html).filter((t) => liveSigil.test(t))).toEqual([])
+    expect(outsideFence(source).filter((l) => /^\s*\//.test(l))).toEqual([])
+    expect(outsideFence(source).filter((l) => l.startsWith("<!--")).map((l) => l.slice(0, 20))).toEqual(["<!-- heron:thread v1"])
+    expect(parseFingerprint(source)).toEqual(parseFingerprint(suggestionNote("plain words")))
+  })
+
+  it("replaces the anchored line and the lines below it, and says to review it before applying it", () => {
+    const source = suggestionNote("  if (busy) return\n  busy = true\n  await exportRows()", 2)
+    expect(source.slice(source.indexOf("\n\nSuggested fix"), source.indexOf("\n\nKept by"))).toBe(
+      "\n\nSuggested fix for lines 12 to 13, confirmed by the review. Heron does not run tests: review it before you apply it.\n\n```suggestion:-0+1\n  if (busy) return\n  busy = true\n  await exportRows()\n```"
+    )
+  })
+
+  it("deletes the lines with an empty suggestion, and shows none when the thread cannot offer one", () => {
+    expect(suggestionNote("")).toContain("Suggested fix for line 12, confirmed by the review. Heron does not run tests: review it before you apply it.\n\n```suggestion:-0+0\n```\n")
+    const without = renderThread(sampleReview, { ...(sampleOutcome.findings[0] as LocatedFinding), suggestion: { lines: 1, replacement: "x" } }, false)
+    expect([without.includes("suggestion"), without.includes("Suggested fix")]).toEqual([false, false])
   })
 })
 
@@ -434,7 +506,7 @@ describe("report shape", () => {
 
 describe("the blocker threads line", () => {
   const [blocker] = sampleOutcome.findings as [LocatedFinding]
-  const thread = { id: "d1" as DiscussionId, note: 1 as NoteId, fingerprint: fingerprintOf(blocker), body: "", resolved: false }
+  const thread = { id: "d1" as DiscussionId, note: 1 as NoteId, fingerprint: fingerprintOf(blocker), body: "", resolved: false, position: null }
   const actions: ReadonlyArray<ThreadAction> = [
     { kind: "create", finding: blocker, anchor: { oldPath: "a", newPath: "a", newLine: 1, oldLine: null }, body: "" },
     { kind: "create", finding: blocker, anchor: { oldPath: "a", newPath: "a", newLine: 1, oldLine: null }, body: "" },

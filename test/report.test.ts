@@ -20,7 +20,7 @@ describe("marker", () => {
 
 describe("earlier findings in the note", () => {
   const body = renderReport(sampleReview)
-  const kept = sampleOutcome.findings.map(({ body, gate, location, severity, title }) => ({ gate, severity, location, title, body }))
+  const kept = sampleOutcome.findings.map(({ body, gate, location, severity, suggestion, title }) => ({ gate, severity, location, title, body, suggestion }))
 
   it("round-trips the kept findings, the merge base, the target tip and the lane", () => {
     expect(parsePrior(body)).toEqual({ base: sha("b"), start: sha("b"), lane: "standard", findings: kept })
@@ -76,13 +76,25 @@ const strictViolations = (node: unknown, at = "$"): Array<string> => {
 describe("model output schemas", () => {
   it("obey strict structured-output rules", () => {
     const emitted = {
-      reviewer: outputJsonSchema(reviewOutput(gates)),
+      reviewer: outputJsonSchema(reviewOutput(gates, false)),
+      gate: outputJsonSchema(reviewOutput(gates, true)),
       supervisor: outputJsonSchema(synthesisOutput(gates, "supervisor")),
       judge: outputJsonSchema(synthesisOutput(gates, "judge"))
     }
     expect(Object.entries(emitted).flatMap(([role, s]) => strictViolations(s, role))).toEqual([])
     expect(Object.keys((emitted.judge["properties"] ?? {}) as object)).toEqual(["summary", "decisions", "limitations"])
     expect(Object.keys((emitted.supervisor["properties"] ?? {}) as object)).toEqual(["summary", "decisions", "added", "limitations"])
+  })
+
+  it("let only a gate propose a suggestion of a few lines, and every ruling session confirm one", () => {
+    const text = (schema: Parameters<typeof outputJsonSchema>[0]) => JSON.stringify(outputJsonSchema(schema))
+    expect([
+      text(reviewOutput(gates, true)).includes(`"suggestion":{"anyOf":[{"type":"object","properties":{"lines":{"type":"integer","minimum":1,"maximum":5,`),
+      text(reviewOutput(gates, false)).includes("suggestion"),
+      text(synthesisOutput(gates, "supervisor")).includes(`"suggestion"`),
+      text(synthesisOutput(gates, "supervisor")).includes(`"confirmSuggestion":{"type":"boolean"`),
+      text(synthesisOutput(gates, "judge")).includes(`"confirmSuggestion":{"type":"boolean"`)
+    ]).toEqual([true, false, false, true, true])
   })
 
   it("let a ruling session keep, downgrade or drop a finding, but never raise one to blocker", () => {

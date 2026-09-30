@@ -18,6 +18,16 @@ describe("instructionsFor", () => {
     }
     expect([text("supervisor").includes("under `added` as a blocker"), text("judge").includes("`added`")]).toEqual([true, false])
   })
+
+  it("asks only a gate for suggestions, and every ruling session to confirm one", () => {
+    const gate = instructionsFor(plan.branches[0].gates[0], [])
+    expect([
+      gate.includes("- A finding's `suggestion` is for a small fix you are certain of"),
+      text("supervisor").includes("`suggestion` is for"),
+      text("supervisor").includes("- Set `confirmSuggestion` to true only"),
+      text("judge").includes("- Set `confirmSuggestion` to true only")
+    ]).toEqual([true, false, true, true])
+  })
 })
 
 describe("instructionsFor on comments", () => {

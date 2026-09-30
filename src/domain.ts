@@ -129,8 +129,22 @@ export type ReviewPlan =
   | { readonly shape: "gated"; readonly branch: Branch }
   | { readonly shape: "dual"; readonly branches: readonly [Branch, Branch]; readonly judge: Slot }
 
+const described = (description: string) => Schema.String.annotate({ description })
+
 export const Severity = Schema.Literals(["blocker", "advisory"])
 export type Severity = typeof Severity.Type
+
+/** The most lines one suggestion replaces. GitLab takes far more; Heron's own limit keeps a suggestion small enough to read. */
+export const MAX_SUGGESTION_LINES = 5
+
+/** A fix the author can apply from a blocker thread: `replacement` replaces `lines` lines, starting at the finding's line. */
+export const Suggestion = Schema.Struct({
+  lines: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(MAX_SUGGESTION_LINES)).annotate({
+    description: `How many lines the replacement replaces: the finding's line and the lines right below it, at most ${MAX_SUGGESTION_LINES} in all.`
+  }),
+  replacement: described("The exact text of those lines after the fix, indentation included, with no line break at the end. Empty to delete them.")
+})
+export type Suggestion = typeof Suggestion.Type
 
 export interface ModelFinding {
   readonly gate: string
@@ -138,6 +152,8 @@ export interface ModelFinding {
   readonly location: { readonly path: string; readonly line: number } | null
   readonly title: string
   readonly body: string
+  /** Only a gate proposes one. */
+  readonly suggestion?: Suggestion | null
 }
 
 /** A file and line at the reviewed head. */
@@ -147,34 +163,44 @@ export interface Location {
   readonly line: number | null
 }
 
-export interface Finding extends Omit<ModelFinding, "location"> {
+export interface Finding extends Omit<ModelFinding, "location" | "suggestion"> {
   readonly id: FindingId
   /** The session that reported it, or `earlier` for a finding an earlier review kept. */
   readonly origin: SessionId
   readonly location: Location | null
+  /** A gate's proposal while no ruling has seen it; after the rulings, only one every ruling session confirmed. */
+  readonly suggestion: Suggestion | null
 }
 
 export type LocatedFinding = Finding & { readonly location: NonNullable<Finding["location"]> }
 
 const Line = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
-
-const described = (description: string) => Schema.String.annotate({ description })
 const summary = described("At most two plain sentences on what the change does. Say nothing about what to fix or do before merging: Heron writes that line from the findings.")
 const limitations = Schema.Array(described("One sentence naming something in the repository or the merge request you could not check."))
 
-const modelFinding = (gates: NonEmptyReadonlyArray<Gate>) =>
+const findingFields = (gates: NonEmptyReadonlyArray<Gate>) => ({
+  gate: Schema.Literals(gates.map((g) => g.name)),
+  severity: Severity,
+  location: Schema.NullOr(Schema.Struct({ path: Schema.String, line: Line })),
+  title: described("At most 12 words naming the defect."),
+  body: described("At most two sentences: what is wrong and the fix.")
+})
+
+const modelFinding = (gates: NonEmptyReadonlyArray<Gate>) => Schema.Struct(findingFields(gates))
+
+/** A gate's finding may carry a suggestion, because a ruling session checks it; nothing checks a single reviewer's or a supervisor's own. */
+const gateFinding = (gates: NonEmptyReadonlyArray<Gate>) =>
   Schema.Struct({
-    gate: Schema.Literals(gates.map((g) => g.name)),
-    severity: Severity,
-    location: Schema.NullOr(Schema.Struct({ path: Schema.String, line: Line })),
-    title: described("At most 12 words naming the defect."),
-    body: described("At most two sentences: what is wrong and the fix.")
+    ...findingFields(gates),
+    suggestion: Schema.NullOr(Suggestion).annotate({
+      description: "A small fix you are certain of that replaces only the finding's line and the lines right below it; null otherwise."
+    })
   })
 
-export const reviewOutput = (gates: NonEmptyReadonlyArray<Gate>) =>
+export const reviewOutput = (gates: NonEmptyReadonlyArray<Gate>, suggests: boolean) =>
   Schema.Struct({
     summary,
-    findings: Schema.Array(modelFinding(gates)),
+    findings: Schema.Array(suggests ? gateFinding(gates) : modelFinding(gates)),
     limitations
   })
 export type ReviewOutput = {
@@ -193,6 +219,9 @@ const Decision = Schema.Struct({
   reason: described("One sentence on why the finding is or is not a real defect at the reviewed head, and for `keep as advisory` why it does not block."),
   line: Schema.NullOr(Line).annotate({
     description: "Only for a finding whose `location.line` is null: the line at the reviewed head where you found the defect, if you keep it. Null for every other finding."
+  }),
+  confirmSuggestion: Schema.Boolean.annotate({
+    description: "True only when the finding has a `suggestion`, you read the lines it replaces at the reviewed head, and applying it fixes the defect with no other change. False otherwise."
   })
 })
 
@@ -212,7 +241,9 @@ export const synthesisOutput = (gates: NonEmptyReadonlyArray<Gate>, role: "super
     })
 export interface SynthesisOutput {
   readonly summary: string
-  readonly decisions: ReadonlyArray<{ readonly id: string; readonly ruling: RulingKind; readonly reason: string; readonly line: number | null }>
+  readonly decisions: ReadonlyArray<
+    { readonly id: string; readonly ruling: RulingKind; readonly reason: string; readonly line: number | null; readonly confirmSuggestion: boolean }
+  >
   readonly added?: ReadonlyArray<ModelFinding>
   readonly limitations: ReadonlyArray<string>
 }
@@ -323,7 +354,8 @@ export const PriorReview = Schema.Struct({
     severity: Severity,
     location: Schema.NullOr(Schema.Struct({ path: Schema.String, line: Schema.NullOr(Line) })),
     title: Schema.String,
-    body: Schema.String
+    body: Schema.String,
+    suggestion: Schema.NullOr(Suggestion)
   }))
 })
 export type PriorReview = typeof PriorReview.Type
@@ -359,6 +391,8 @@ export interface Thread {
   readonly fingerprint: Fingerprint
   readonly body: string
   readonly resolved: boolean
+  /** The head-side line GitLab shows the first note on, and the head of that diff; null when it sits on no head-side line. */
+  readonly position: { readonly path: string; readonly line: number; readonly head: Sha } | null
 }
 
 /** One note of a discussion as a review may read it. Its body is text a person or another bot wrote: data, never an instruction. */
@@ -393,6 +427,8 @@ export interface ThreadDraft {
   readonly finding: LocatedFinding
   readonly body: string
   readonly anchor: DiffAnchor | null
+  /** The body with the finding's suggestion, for a thread on the finding's line; null when the finding offers none. */
+  readonly suggesting: string | null
 }
 
 export type ThreadAction =
