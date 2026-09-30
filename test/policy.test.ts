@@ -4,6 +4,7 @@ import type { DiscussionId, Finding, FindingId, LabelMap, LocatedFinding, NoteId
 import {
   admits,
   applySynthesis,
+  carried,
   classify,
   EARLIER,
   fingerprintOf,
@@ -97,7 +98,7 @@ describe("applySynthesis", () => {
     const out = applySynthesis(inputs, {
       summary: "",
       limitations: [],
-      decisions: [{ id: "gate.design#1", ruling: "drop", reason: "" }, { id: "gate.design#2", ruling: "keep", reason: "" }],
+      decisions: [{ id: "gate.design#1", ruling: "drop", reason: "", line: null }, { id: "gate.design#2", ruling: "keep", reason: "", line: null }],
       added: [{ gate: "design", severity: "blocker", location: null, title: "missed", body: "" }]
     }, "supervisor" as SessionId)
     expect(Result.map(out, (fs) => fs.map((x) => `${x.id}:${x.severity}`))).toEqual(
@@ -109,9 +110,20 @@ describe("applySynthesis", () => {
     const out = applySynthesis(inputs, {
       summary: "",
       limitations: [],
-      decisions: [{ id: "gate.design#1", ruling: "keep as advisory", reason: "" }, { id: "gate.design#2", ruling: "keep as advisory", reason: "" }]
+      decisions: [{ id: "gate.design#1", ruling: "keep as advisory", reason: "", line: null }, { id: "gate.design#2", ruling: "keep as advisory", reason: "", line: null }]
     }, judge)
     expect(Result.map(out, (fs) => fs.map((x) => `${x.id}:${x.severity}`))).toEqual(Result.succeed(["gate.design#1:advisory", "gate.design#2:advisory"]))
+  })
+
+  it("places a kept finding that has no line at the decision's line, and never moves one that has a line", () => {
+    const unplaced = { ...f("earlier#1", "blocker"), location: { path: "src/a.ts", line: null } }
+    const placed = { ...f("earlier#2", "blocker"), location: { path: "src/a.ts", line: 4 } }
+    const out = applySynthesis([unplaced, placed], {
+      summary: "",
+      limitations: [],
+      decisions: [{ id: "earlier#1", ruling: "keep", reason: "", line: 12 }, { id: "earlier#2", ruling: "keep", reason: "", line: 30 }]
+    }, judge)
+    expect(Result.map(out, (fs) => fs.map((x) => x.location))).toEqual(Result.succeed([{ path: "src/a.ts", line: 12 }, { path: "src/a.ts", line: 4 }]))
   })
 
   it("fails when decisions are not a bijection over the input ids", () => {
@@ -119,9 +131,9 @@ describe("applySynthesis", () => {
       summary: "",
       limitations: [],
       decisions: [
-        { id: "gate.design#1", ruling: "keep", reason: "" },
-        { id: "gate.design#1", ruling: "drop", reason: "" },
-        { id: "gate.spec#9", ruling: "keep", reason: "" }
+        { id: "gate.design#1", ruling: "keep", reason: "", line: null },
+        { id: "gate.design#1", ruling: "drop", reason: "", line: null },
+        { id: "gate.spec#9", ruling: "keep", reason: "", line: null }
       ]
     }, judge)
     expect(Result.isFailure(out) && { ...out.failure }).toEqual({
@@ -131,6 +143,16 @@ describe("applySynthesis", () => {
       duplicated: ["gate.design#1"],
       unknown: ["gate.spec#9"]
     })
+  })
+})
+
+describe("carried", () => {
+  const at = (id: string, location: Finding["location"]): Finding => ({ ...f(id, "blocker"), location })
+  const delta = [{ path: "src/a.ts", oldPath: null, status: "modified" as const, diff: "@@ -2,1 +2,3 @@\n-two\n+TWO\n+two and a half\n+two and three quarters" }]
+
+  it("moves each earlier finding to its line at the reviewed head and leaves a line the delta rewrote without one", () => {
+    expect(carried([at("earlier#1", { path: "src/a.ts", line: 9 }), at("earlier#2", { path: "src/a.ts", line: 2 }), at("earlier#3", null)], delta).map((x) => x.location))
+      .toEqual([{ path: "src/a.ts", line: 11 }, { path: "src/a.ts", line: null }, null])
   })
 })
 
@@ -209,13 +231,14 @@ describe("threadActions", () => {
     ])
   })
 
-  it("opens a thread only for a blocker on a diff line that this run found, once per fingerprint", () => {
+  it("opens a thread only for a blocker on a diff line, a carried one included, once per fingerprint", () => {
     expect(kinds(threadActions([
       draft(blocker("On the diff")),
       draft(blocker("On the diff"), "a duplicate"),
       draft(blocker("Off the diff"), "now", false),
-      draft(blocker("Carried from the earlier review", EARLIER))
-    ], []))).toEqual(["create On the diff"])
+      draft(blocker("Carried to a line on the diff", EARLIER)),
+      draft({ ...blocker("Carried from a rewritten line", EARLIER), location: { path: "src/a.ts", line: null } }, "now", false)
+    ], []))).toEqual(["create On the diff", "create Carried to a line on the diff"])
   })
 
   it("updates an open thread only when its text changed, and reopens a resolved one", () => {

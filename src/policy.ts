@@ -35,6 +35,7 @@ import {
   type UserId,
   type Verdict
 } from "./domain.ts"
+import { locationAfter } from "./diff.ts"
 
 export const admits = (allowed: ReadonlyArray<UserId> | null, triggeredBy: UserId | null): boolean =>
   allowed === null || (triggeredBy !== null && allowed.includes(triggeredBy))
@@ -100,7 +101,7 @@ export const slotsOf = (plan: ReviewPlan): ReadonlyArray<Slot> => {
   }
 }
 
-export const assignIds = (origin: SessionId, findings: ReadonlyArray<ModelFinding>): ReadonlyArray<Finding> =>
+export const assignIds = (origin: SessionId, findings: ReadonlyArray<ModelFinding | Omit<Finding, "id" | "origin">>): ReadonlyArray<Finding> =>
   findings.map((f, i) => ({ ...f, id: `${origin}#${i + 1}` as FindingId, origin }))
 
 /** The origin of the findings an earlier review kept; their ids are `earlier#n`. */
@@ -122,6 +123,13 @@ export const rereviewStart = (
     prior.base === current.revision.base && prior.start === current.revision.start
   return safe ? { from: marker.head, earlier: assignIds(EARLIER, prior.findings) } : null
 }
+
+/**
+ * The earlier findings moved to the reviewed head through `delta`, the changes since the head they were read at. A
+ * finding on a line the delta removed or rewrote keeps its path and loses its line, for the ruling session to place again.
+ */
+export const carried = (earlier: ReadonlyArray<Finding>, delta: ReadonlyArray<Change>): ReadonlyArray<Finding> =>
+  earlier.map((f) => f.location === null ? f : { ...f, location: locationAfter(delta, f.location) })
 
 export class SynthesisIncomplete extends Schema.TaggedError<SynthesisIncomplete>()("SynthesisIncomplete", {
   session: Schema.String,
@@ -145,10 +153,13 @@ export const applySynthesis = (
   if (missing.length + duplicated.size + unknown.length > 0) {
     return Result.fail(new SynthesisIncomplete({ session: origin, missing, duplicated: [...duplicated], unknown }))
   }
-  const rulings = new Map(out.decisions.map((d) => [d.id, d.ruling]))
+  const decisions = new Map(out.decisions.map((d) => [d.id, d]))
   const kept = inputs.flatMap((f) => {
-    const ruling = rulings.get(f.id)
-    return ruling === "drop" ? [] : ruling === "keep as advisory" ? [{ ...f, severity: "advisory" as const }] : [f]
+    const { line, ruling } = decisions.get(f.id)!
+    if (ruling === "drop") return []
+    // A ruling places only a finding that has no line; it does not move one that has.
+    const placed = f.location !== null && f.location.line === null && line !== null ? { ...f, location: { ...f.location, line } } : f
+    return ruling === "keep as advisory" ? [{ ...placed, severity: "advisory" as const }] : [placed]
   })
   return Result.succeed([...kept, ...assignIds(origin, out.added ?? [])])
 }
@@ -230,8 +241,8 @@ const keyOf = (f: Fingerprint): string => JSON.stringify([f.gate, f.path, f.titl
 
 /**
  * One thread per blocker across runs. A kept blocker updates its thread, or reopens it when a person resolved it; a
- * blocker with no thread opens one only where the diff can hold it, and only when this run found it, because a carried
- * earlier finding's line was read at an earlier head. An open thread whose blocker is no longer kept is resolved.
+ * blocker with no thread opens one only where the diff can hold it, which a carried finding whose line the newer commits
+ * rewrote cannot. An open thread whose blocker is no longer kept is resolved.
  * Computed from the threads as they are, so applying it twice changes nothing the second time.
  */
 export const threadActions = (drafts: ReadonlyArray<ThreadDraft>, threads: ReadonlyArray<Thread>): ReadonlyArray<ThreadAction> => {
@@ -247,7 +258,7 @@ export const threadActions = (drafts: ReadonlyArray<ThreadDraft>, threads: Reado
     const thread = byKey.get(key)
     const changed = thread !== undefined && thread.body.trimEnd() !== draft.body.trimEnd()
     if (thread === undefined) {
-      if (draft.anchor !== null && finding.origin !== EARLIER) actions.push({ kind: "create", finding, anchor: draft.anchor, body: draft.body })
+      if (draft.anchor !== null) actions.push({ kind: "create", finding, anchor: draft.anchor, body: draft.body })
     } else if (thread.resolved) actions.push({ kind: "reopen", finding, thread, body: changed ? draft.body : null })
     else if (changed) actions.push({ kind: "update", finding, thread, body: draft.body })
   }

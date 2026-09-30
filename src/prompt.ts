@@ -118,5 +118,6 @@ export const earlierText = (r: Rereview, adds: boolean): string =>
     `Heron's review at \`${r.from}\` kept these findings. Rule on each one at the reviewed head: \`keep\` it if the defect is still there, \`keep as advisory\` if it is still there but does not block, and \`drop\` it when the new commits fixed it or it was never real. No ruling raises a finding to blocker.${
       adds ? " Report the findings of your own review of the new commits under `added`." : ""
     }`,
+    "Heron has moved each finding's `location` to the reviewed head. A `line` of null means the new commits removed or rewrote the line the finding named: if the defect is still there, keep the finding and give the line where it is now in the decision's `line`; if the rewrite fixed it, drop it.",
     findingsJson(r.earlier)
   ].join("\n\n")

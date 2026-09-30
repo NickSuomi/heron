@@ -207,8 +207,10 @@ const location = (review: Review, f: Finding): string => {
   if (f.location === null) return ""
   const { path, line } = f.location
   const segment = (p: string) => encodeURIComponent(p).replace(/\(/g, "%28").replace(/\)/g, "%29")
-  const url = `${review.snapshot.projectWebUrl}/-/blob/${review.snapshot.revision.head}/${path.split("/").map(segment).join("/")}#L${line}`
-  return ` ([${cell(`${path}:${line}`)}](${url}))`
+  const url = `${review.snapshot.projectWebUrl}/-/blob/${review.snapshot.revision.head}/${path.split("/").map(segment).join("/")}`
+  return line === null
+    ? ` ([${cell(path)}](${url}), on a line the newer commits changed)`
+    : ` ([${cell(`${path}:${line}`)}](${url}#L${line}))`
 }
 
 const findingItem = (review: Review, f: Finding): string => {

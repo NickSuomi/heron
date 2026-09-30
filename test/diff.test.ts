@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
-import { anchorAt, diffLines } from "../src/diff.ts"
+import { anchorAt, diffLines, lineAfter, locationAfter } from "../src/diff.ts"
 import type { Change } from "../src/domain.ts"
 
 const modified = [
@@ -63,5 +63,49 @@ describe("anchorAt", () => {
       anchorAt(changes, { path: "src/b.ts", line: 1 }),
       anchorAt(changes, { path: "src/old.ts", line: 8 })
     ]).toEqual([null, null, null])
+  })
+})
+
+describe("lineAfter", () => {
+  it("moves an unchanged line before, inside, between and after the hunks by the lines they added and removed", () => {
+    expect([1, 3, 4, 10, 20, 22, 30].map((line) => lineAfter(modified, line))).toEqual([1, 4, 5, 11, 21, 22, 30])
+  })
+
+  it("gives a removed or rewritten line no position", () => {
+    expect([lineAfter(modified, 2), lineAfter(modified, 21), lineAfter("@@ -3 +3 @@\n-old\n+new", 3)]).toEqual([null, null, null])
+  })
+
+  it("moves the lines after a pure insertion and a pure removal", () => {
+    const inserted = "@@ -5,0 +6,2 @@\n+a\n+b"
+    const removed = "@@ -3,2 +2,0 @@\n-a\n-b"
+    expect([lineAfter(inserted, 5), lineAfter(inserted, 6), lineAfter(removed, 2), lineAfter(removed, 3), lineAfter(removed, 5)]).toEqual([5, 8, 2, null, 3])
+  })
+
+  it("keeps every line of a diff with no hunk, such as a rename without edits", () => {
+    expect(lineAfter("", 7)).toBe(7)
+  })
+})
+
+describe("locationAfter", () => {
+  const delta: ReadonlyArray<Change> = [
+    { path: "src/a.ts", oldPath: null, status: "modified", diff: modified },
+    { path: "src/moved.ts", oldPath: "src/old.ts", status: "renamed", diff: "@@ -1,0 +2,1 @@\n+new first\n" },
+    { path: "src/gone.ts", oldPath: null, status: "deleted", diff: "@@ -1,2 +0,0 @@\n-a\n-b\n" }
+  ]
+
+  it("keeps a file the delta does not touch, moves a line in a changed file, and follows a rename", () => {
+    expect([
+      locationAfter(delta, { path: "src/untouched.ts", line: 9 }),
+      locationAfter(delta, { path: "src/a.ts", line: 10 }),
+      locationAfter(delta, { path: "src/old.ts", line: 4 })
+    ]).toEqual([{ path: "src/untouched.ts", line: 9 }, { path: "src/a.ts", line: 11 }, { path: "src/moved.ts", line: 5 }])
+  })
+
+  it("gives no line to a rewritten line, a deleted file, or a line that already had none", () => {
+    expect([
+      locationAfter(delta, { path: "src/a.ts", line: 2 }),
+      locationAfter(delta, { path: "src/gone.ts", line: 1 }),
+      locationAfter(delta, { path: "src/old.ts", line: null })
+    ]).toEqual([{ path: "src/a.ts", line: null }, { path: "src/gone.ts", line: null }, { path: "src/moved.ts", line: null }])
   })
 })

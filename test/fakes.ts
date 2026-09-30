@@ -264,5 +264,5 @@ export const promptIds = (request: HarnessRequest): ReadonlyArray<string> =>
 /** Keep every decision on every finding id listed in the prompt's JSON blocks. */
 export const keepAll = (extra: Record<string, unknown> = {}): Script => (request) => {
   const ids = promptIds(request)
-  return { summary: "Synthesized.", decisions: ids.map((id) => ({ id, ruling: "keep", reason: "real" })), limitations: [], ...extra }
+  return { summary: "Synthesized.", decisions: ids.map((id) => ({ id, ruling: "keep", reason: "real", line: null })), limitations: [], ...extra }
 }

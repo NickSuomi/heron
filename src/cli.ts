@@ -41,7 +41,7 @@ const triggeredBy = (flag: Option.Option<number>) => {
 const threadLine = (planned: boolean) => ({ action, failure }: ThreadResult): string => {
   const where = action.kind === "resolve"
     ? `${action.thread.fingerprint.path} (${action.thread.fingerprint.gate})`
-    : `${action.finding.location.path}:${action.finding.location.line} (${action.finding.gate})`
+    : `${action.finding.location.path}${action.finding.location.line === null ? "" : `:${action.finding.location.line}`} (${action.finding.gate})`
   return `${planned ? "planned " : ""}thread ${action.kind} ${where}${failure === null ? "" : ` failed: ${failure}`}`
 }
 

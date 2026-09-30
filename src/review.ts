@@ -29,6 +29,7 @@ import {
   admits,
   applySynthesis,
   assignIds,
+  carried,
   classify,
   labelTransition,
   planFor,
@@ -296,7 +297,7 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const resumable = rereviewStart(yield* forge.findReport(ref), { digest: config.digest, lane: classification.lane, revision: snapshot.revision })
   // A forge that cannot compare the heads, for example because a force push removed the old one, means a full review.
   const rereview: Rereview | null = resumable === null ? null : yield* forge.delta(ref, resumable.from, head).pipe(
-    Effect.map((changes) => changes === null ? null : { ...resumable, changes }),
+    Effect.map((changes) => changes === null ? null : { from: resumable.from, changes, earlier: carried(resumable.earlier, changes) }),
     Effect.orElseSucceed(() => null)
   )
   const base = { snapshot, classification, plan, configDigest: config.digest, rereview }

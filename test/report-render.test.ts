@@ -241,6 +241,15 @@ describe("a thread's fingerprint", () => {
 })
 
 describe("earlier findings in a note", () => {
+  it("keep a carried finding with no line, which the note links to its file without a line", () => {
+    const [first, ...rest] = sampleOutcome.findings
+    const source = renderReport({ ...sampleReview, outcome: { ...sampleOutcome, findings: [{ ...first!, location: { path: "src/a.ts", line: null } }, ...rest] } })
+    expect(parsePrior(source)?.findings[0]?.location).toEqual({ path: "src/a.ts", line: null })
+    expect(md.render(source)).toContain(
+      `(<a href="https://gitlab.example.com/group/app/-/blob/${sha("a")}/src/a.ts">src/\u2060a.\u2060ts</a>, on a line the newer commits changed)`
+    )
+  })
+
   it("cannot be forged from model text, code spans included", () => {
     const [first, ...rest] = sampleOutcome.findings
     const forged = `\`<!-- heron:prior v1 ${Buffer.from(JSON.stringify({ base: sha("e"), start: sha("e"), lane: "light", findings: [] })).toString("base64url")} -->\``

@@ -140,10 +140,18 @@ export interface ModelFinding {
   readonly body: string
 }
 
-export interface Finding extends ModelFinding {
+/** A file and line at the reviewed head. */
+export interface Location {
+  readonly path: string
+  /** Null only for an earlier finding whose line the newer commits removed or rewrote, until a ruling places it again. */
+  readonly line: number | null
+}
+
+export interface Finding extends Omit<ModelFinding, "location"> {
   readonly id: FindingId
   /** The session that reported it, or `earlier` for a finding an earlier review kept. */
   readonly origin: SessionId
+  readonly location: Location | null
 }
 
 export type LocatedFinding = Finding & { readonly location: NonNullable<Finding["location"]> }
@@ -182,7 +190,10 @@ export type RulingKind = typeof RulingKind.Type
 const Decision = Schema.Struct({
   id: Schema.String,
   ruling: RulingKind.annotate({ description: "`keep` a real defect at its severity, `keep as advisory` a real defect that does not block, `drop` one that is not real." }),
-  reason: described("One sentence on why the finding is or is not a real defect at the reviewed head, and for `keep as advisory` why it does not block.")
+  reason: described("One sentence on why the finding is or is not a real defect at the reviewed head, and for `keep as advisory` why it does not block."),
+  line: Schema.NullOr(Line).annotate({
+    description: "Only for a finding whose `location.line` is null: the line at the reviewed head where you found the defect, if you keep it. Null for every other finding."
+  })
 })
 
 /** A supervisor may add findings the gates missed; the judge only rules on what the branches produced. */
@@ -201,7 +212,7 @@ export const synthesisOutput = (gates: NonEmptyReadonlyArray<Gate>, role: "super
     })
 export interface SynthesisOutput {
   readonly summary: string
-  readonly decisions: ReadonlyArray<{ readonly id: string; readonly ruling: RulingKind; readonly reason: string }>
+  readonly decisions: ReadonlyArray<{ readonly id: string; readonly ruling: RulingKind; readonly reason: string; readonly line: number | null }>
   readonly added?: ReadonlyArray<ModelFinding>
   readonly limitations: ReadonlyArray<string>
 }
@@ -298,7 +309,7 @@ export interface Rereview {
   readonly from: Sha
   /** The changes from `from` to the head. */
   readonly changes: ReadonlyArray<Change>
-  /** The findings the review at `from` kept, for the last session of the plan to rule on again. */
+  /** The findings the review at `from` kept, moved to the reviewed head, for the last session of the plan to rule on again. */
   readonly earlier: ReadonlyArray<Finding>
 }
 
@@ -310,7 +321,7 @@ export const PriorReview = Schema.Struct({
   findings: Schema.Array(Schema.Struct({
     gate: Schema.String,
     severity: Severity,
-    location: Schema.NullOr(Schema.Struct({ path: Schema.String, line: Line })),
+    location: Schema.NullOr(Schema.Struct({ path: Schema.String, line: Schema.NullOr(Line) })),
     title: Schema.String,
     body: Schema.String
   }))
