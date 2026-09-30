@@ -5,7 +5,7 @@ import { join, posix } from "node:path"
 import { Effect } from "effect"
 import { z } from "zod"
 import { type SourceCheckout, TREE_REFS, type TreeRef } from "../ports.ts"
-import { displayPath, type LspClient, LspPool } from "./tools/lsp.ts"
+import { displayPath, isReadable, type LspClient, LspPool } from "./tools/lsp.ts"
 import { fail, linesOf, page, runTool, SourceError } from "./tools/process.ts"
 
 export { SourceError } from "./tools/process.ts"
@@ -465,7 +465,7 @@ const locations = (client: LspClient) => {
     path: displayPath(client.root, l.uri),
     line: l.range.start.line + 1,
     column: l.range.start.character + 1,
-    text: read(l.uri, l.range.start.line)
+    text: isReadable(client.root, l.uri) ? read(l.uri, l.range.start.line) : ""
   })
 }
 

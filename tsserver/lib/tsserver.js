@@ -3,7 +3,8 @@
 // plugins, each from Heron's own install by a fixed path: the Effect language service and the Vue TypeScript plugin.
 // A plugin that the reviewed repository's tsconfig names is refused, and no plugin is looked up by walking directories,
 // so nothing in the reviewed tree, and no other package installed near Heron, runs inside this process.
-const { dirname } = require("node:path")
+const { realpathSync } = require("node:fs")
+const { basename, dirname, join, resolve, sep } = require("node:path")
 
 const PLUGINS = new Map([
   ["@effect/language-service", require.resolve("@effect/language-service")],
@@ -132,5 +133,55 @@ ts.server.Project.prototype.resolveModuleNameLiterals = function(literals, conta
     return found.resolvedModule === undefined ? result : found
   })
 }
+
+// tsserver reads what the reviewed tsconfig names: `include` and `files` entries, `extends`, `typeRoots`, `paths` and
+// `references` can all be absolute paths or symbolic links anywhere on the host, and tsserver also walks up from the
+// tree looking for tsconfig.json, package.json and node_modules. tsserver and both plugins reach the file system only
+// through `ts.sys`, so Heron wraps it: a path whose real path, symbolic links resolved, lies outside the tree
+// (`HERON_TSSERVER_ROOT`, set by Heron's language-server client) and outside Heron's own node_modules does not exist,
+// as far as tsserver can tell.
+const TREE = process.env["HERON_TSSERVER_ROOT"]
+if (TREE === undefined || TREE === "") throw new Error("HERON_TSSERVER_ROOT names no tree for Heron's tsserver")
+
+/** The real path of `path`, or of its nearest existing ancestor with the rest appended when `path` does not exist. */
+const realOf = (path) => {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    const parent = dirname(path)
+    return parent === path ? path : join(realOf(parent), basename(path))
+  }
+}
+const READABLE = [TREE, OWN_MODULES].map((dir) => realOf(resolve(dir)))
+const readable = new Map()
+const canRead = (path) => {
+  if (typeof path !== "string") return false
+  const absolute = resolve(path)
+  if (!readable.has(absolute)) {
+    const real = realOf(absolute)
+    readable.set(absolute, READABLE.some((dir) => real === dir || real.startsWith(dir + sep)))
+  }
+  return readable.get(absolute)
+}
+
+const wrap = (name, wrapper) => {
+  ts.sys[name] = wrapper(ts.sys[name].bind(ts.sys))
+}
+const refusing = (refused) => (original) => (path, ...rest) => (canRead(path) ? original(path, ...rest) : refused)
+wrap("readFile", refusing(undefined))
+wrap("fileExists", refusing(false))
+wrap("directoryExists", refusing(false))
+wrap("getModifiedTime", refusing(undefined))
+wrap("getFileSize", refusing(0))
+wrap("watchFile", refusing({ close() {} }))
+wrap("watchDirectory", refusing({ close() {} }))
+// A symbolic link that leads outside keeps its own path, which canRead then refuses.
+wrap("realpath", (original) => (path) => {
+  const real = original(path)
+  return canRead(real) ? real : path
+})
+// An absolute `include` makes readDirectory list outside directories even when `path` is the tree, so each result is checked.
+wrap("readDirectory", (original) => (...args) => original(...args).filter(canRead))
+wrap("getDirectories", (original) => (path) => (canRead(path) ? original(path).filter((name) => canRead(join(path, name))) : []))
 
 require("typescript-5/lib/tsserver.js")

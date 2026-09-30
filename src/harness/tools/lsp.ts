@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
-import { readdirSync, readFileSync } from "node:fs"
+import { readdirSync, readFileSync, realpathSync } from "node:fs"
 import { createRequire } from "node:module"
 import { basename, dirname, relative, sep } from "node:path"
 import { pathToFileURL, fileURLToPath } from "node:url"
@@ -90,7 +90,12 @@ export class LspClient {
   constructor(root: string) {
     this.root = root
     // Not detached: when a vendor CLI's process group is killed, this server and its tsserver die with it.
-    this.child = spawn(process.execPath, [SERVER, "--stdio"], { cwd: root, env: toolEnv(), stdio: ["pipe", "pipe", "pipe"] })
+    this.child = spawn(process.execPath, [SERVER, "--stdio"], {
+      cwd: root,
+      // typescript-language-server passes its environment on to tsserver, which reads nothing outside this tree.
+      env: { ...toolEnv(), HERON_TSSERVER_ROOT: root },
+      stdio: ["pipe", "pipe", "pipe"]
+    })
     this.child.stderr.resume()
     this.child.stdin.on("error", () => {})
     this.child.stdout.on("data", (chunk: Buffer) => this.receive(chunk))
@@ -263,6 +268,20 @@ export const displayPath = (root: string, uri: string): string => {
   if (file.startsWith(TS_LIB)) return `(TypeScript library) ${file.slice(TS_LIB.length)}`
   if (file.startsWith(OWN_MODULES)) return `(Heron's package types) ${file.slice(file.lastIndexOf("/node_modules/") + "/node_modules/".length)}`
   return `(outside the tree) ${basename(file)}`
+}
+
+/**
+ * Whether the tools may read the file a location points at: its real path, symbolic links resolved, lies in the tree
+ * or in Heron's own packages. Heron's tsserver already refuses everything else; this keeps the tools from reading a
+ * location's text even if a server ever returned one outside.
+ */
+export const isReadable = (root: string, uri: string): boolean => {
+  try {
+    const real = realpathSync(fileURLToPath(uri))
+    return [root, OWN_MODULES].map((dir) => realpathSync(dir)).some((dir) => real === dir || real.startsWith(dir + sep))
+  } catch {
+    return false
+  }
 }
 
 /** One language server per tree, started on first use and killed when the pool closes. */
