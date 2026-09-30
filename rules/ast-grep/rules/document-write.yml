@@ -1,0 +1,26 @@
+id: document-write-js
+language: javascript
+severity: warning
+message: document.write parses its argument as HTML; confirm it can carry input.
+rule:
+  any:
+    - pattern: document.write($$$)
+    - pattern: document.writeln($$$)
+---
+id: document-write-ts
+language: typescript
+severity: warning
+message: document.write parses its argument as HTML; confirm it can carry input.
+rule:
+  any:
+    - pattern: document.write($$$)
+    - pattern: document.writeln($$$)
+---
+id: document-write-tsx
+language: tsx
+severity: warning
+message: document.write parses its argument as HTML; confirm it can carry input.
+rule:
+  any:
+    - pattern: document.write($$$)
+    - pattern: document.writeln($$$)

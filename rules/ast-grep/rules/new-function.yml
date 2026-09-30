@@ -1,0 +1,20 @@
+id: new-function-js
+language: javascript
+severity: warning
+message: new Function() builds code from a string; confirm the argument can carry input.
+rule:
+  pattern: new Function($$$)
+---
+id: new-function-ts
+language: typescript
+severity: warning
+message: new Function() builds code from a string; confirm the argument can carry input.
+rule:
+  pattern: new Function($$$)
+---
+id: new-function-tsx
+language: tsx
+severity: warning
+message: new Function() builds code from a string; confirm the argument can carry input.
+rule:
+  pattern: new Function($$$)

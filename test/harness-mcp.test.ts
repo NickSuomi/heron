@@ -21,7 +21,7 @@ describe("heron mcp-source", () => {
     try {
       const tools = await client.listTools()
       expect(tools.tools.map((t) => `${t.name}:${t.annotations?.readOnlyHint}`)).toEqual([
-        "grep:true", "list_files:true", "read_file:true", "rg:true", "ast_grep:true", "secret_scan:true", "git_log:true", "git_show:true", "git_blame:true",
+        "grep:true", "list_files:true", "read_file:true", "rg:true", "ast_grep:true", "secret_scan:true", "dependency_scan:true", "rule_scan:true", "git_log:true", "git_show:true", "git_blame:true",
         "git_diff:true", "definition:true", "references:true", "hover:true", "document_symbols:true", "workspace_symbols:true", "diagnostics:true"
       ])
       const grep = await client.callTool({ name: "grep", arguments: { pattern: "sub", paths: ["src/math.ts"] } })

@@ -1,0 +1,5 @@
+# Heron's own rule pack for the rule_scan tool. It is passed with --config, so the reviewed tree's sgconfig.yml is never read.
+ruleDirs:
+  - rules
+languageGlobs:
+  html: ["*.vue"]

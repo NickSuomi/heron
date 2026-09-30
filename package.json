@@ -18,6 +18,7 @@
   },
   "files": [
     "dist",
+    "rules",
     "tsserver"
   ],
   "engines": {
@@ -32,7 +33,9 @@
     "check": "pnpm typecheck && pnpm test",
     "gen-env-table": "node scripts/gen-env-table.ts",
     "install-gitleaks": "node scripts/install-gitleaks.mjs",
-    "postinstall": "node scripts/install-gitleaks.mjs"
+    "install-osv-scanner": "node scripts/install-osv-scanner.mjs",
+    "refresh-osv-db": "node scripts/install-osv-scanner.mjs --refresh-db",
+    "postinstall": "node scripts/install-gitleaks.mjs && node scripts/install-osv-scanner.mjs"
   },
   "dependencies": {
     "@ast-grep/cli": "0.45.3",

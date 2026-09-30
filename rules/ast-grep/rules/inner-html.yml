@@ -1,0 +1,44 @@
+id: inner-html-js
+language: javascript
+severity: warning
+message: Assigning a non-literal string to innerHTML or outerHTML parses it as HTML; confirm it can carry input.
+rule:
+  any:
+    - pattern: $O.innerHTML = $V
+    - pattern: $O.innerHTML += $V
+    - pattern: $O.outerHTML = $V
+    - pattern: $O.outerHTML += $V
+constraints:
+  V:
+    not:
+      kind: string
+---
+id: inner-html-ts
+language: typescript
+severity: warning
+message: Assigning a non-literal string to innerHTML or outerHTML parses it as HTML; confirm it can carry input.
+rule:
+  any:
+    - pattern: $O.innerHTML = $V
+    - pattern: $O.innerHTML += $V
+    - pattern: $O.outerHTML = $V
+    - pattern: $O.outerHTML += $V
+constraints:
+  V:
+    not:
+      kind: string
+---
+id: inner-html-tsx
+language: tsx
+severity: warning
+message: Assigning a non-literal string to innerHTML or outerHTML parses it as HTML; confirm it can carry input.
+rule:
+  any:
+    - pattern: $O.innerHTML = $V
+    - pattern: $O.innerHTML += $V
+    - pattern: $O.outerHTML = $V
+    - pattern: $O.outerHTML += $V
+constraints:
+  V:
+    not:
+      kind: string

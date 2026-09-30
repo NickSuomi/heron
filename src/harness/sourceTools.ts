@@ -1,7 +1,7 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
-import { join, posix } from "node:path"
+import { join, posix, relative } from "node:path"
 import { Effect } from "effect"
 import { z } from "zod"
 import { type SourceCheckout, TREE_REFS, type TreeRef } from "../ports.ts"
@@ -35,6 +35,14 @@ const GITLEAKS: string = (() => {
   const installed = new URL("../../vendor/gitleaks/gitleaks", import.meta.url).pathname
   return existsSync(installed) ? installed : "gitleaks"
 })()
+/** osv-scanner 2.6.0 and its npm database snapshot, installed by scripts/install-osv-scanner.mjs at install time. */
+const OSV_DIR = new URL("../../vendor/osv-scanner/", import.meta.url).pathname
+const OSV_SCANNER: string = (() => {
+  const installed = join(OSV_DIR, "osv-scanner")
+  return existsSync(installed) ? installed : "osv-scanner"
+})()
+/** Heron's own ast-grep rules for rule_scan; passed as --config, so the reviewed tree's sgconfig.yml is never read. */
+const RULES_CONFIG = new URL("../../rules/ast-grep/sgconfig.yml", import.meta.url).pathname
 /** The only rules secret_scan uses: gitleaks' built-in set, with no allowlist. Nothing in the reviewed tree can extend or replace it. */
 const GITLEAKS_CONFIG = 'title = "heron secret_scan"\n\n[extend]\nuseDefault = true\n'
 
@@ -382,6 +390,178 @@ const secretScan = (ctx: ToolContext, a: Args<typeof scanInput>) =>
     return { total: p.total, offset: p.offset, next: p.next, findings: p.items }
   })
 
+interface RuleMatch {
+  readonly path: string
+  readonly line: number
+  readonly endLine: number
+  readonly ruleId: string
+  readonly severity: string
+  readonly message: string
+  readonly text: string
+}
+
+const ruleScanInput = {
+  paths: z.array(z.string().min(1)).default([]).describe("Repository-relative directories or files to scan; default the whole tree"),
+  rule: z.string().min(1).optional().describe("Regular expression on rule ids to run only some rules, e.g. ^v-html$ or -js$"),
+  ref: refInput,
+  offset: offsetInput,
+  limit: limitInput(500)
+}
+
+const ruleScan = (ctx: ToolContext, a: Args<typeof ruleScanInput>) =>
+  Effect.gen(function*() {
+    const tree = ctx.checkout.trees[a.ref]
+    const targets = a.paths.length === 0 ? ["."] : a.paths.map((p) => repoPath(p))
+    for (const t of targets) if (!existsSync(join(tree, t))) return yield* fail(`no such path at ${a.ref}: ${t}`)
+    // --config names Heron's rule pack, so ast-grep does not look for the tree's sgconfig.yml, whose customLanguages can load a native library.
+    const noIgnore = ["hidden", "dot", "exclude", "global", "parent", "vcs"].map((k) => `--no-ignore=${k}`)
+    const args = ["scan", `--config=${RULES_CONFIG}`, "--json=stream", ...noIgnore, ...(a.rule === undefined ? [] : [`--filter=${a.rule}`]), ...targets]
+    const out = yield* runTool(AST_GREP, args, tree)
+    if (out.code !== 0 && out.code !== 1) return yield* fail(`ast-grep: ${treeError(ctx, out.stderr) || "failed"}`)
+    const matches: Array<RuleMatch> = linesOf(out.stdout).flatMap((line) => {
+      try {
+        const m = JSON.parse(line) as {
+          file: string; ruleId: string; severity: string; message: string; text: string
+          range: { start: { line: number }; end: { line: number } }
+        }
+        return [{ path: stripPrefix("./", m.file), line: m.range.start.line + 1, endLine: m.range.end.line + 1, ruleId: m.ruleId, severity: m.severity, message: m.message, text: m.text }]
+      } catch {
+        return []
+      }
+    })
+    matches.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : x.line - y.line || (x.ruleId < y.ruleId ? -1 : x.ruleId > y.ruleId ? 1 : 0)))
+    const p = page(matches, a.offset, a.limit)
+    return { total: p.total, offset: p.offset, next: p.next, matches: p.items }
+  })
+
+interface VulnerablePackage {
+  readonly lockfile: string
+  readonly package: string
+  readonly version: string
+  readonly ecosystem: string
+  readonly advisoryIds: ReadonlyArray<string>
+  readonly severity: string | null
+  readonly fixedVersions: ReadonlyArray<string>
+  readonly advisories: ReadonlyArray<{ readonly id: string; readonly summary: string | null; readonly severity: string | null }>
+}
+
+interface OsvVulnerability {
+  readonly id: string
+  readonly summary?: string
+  readonly database_specific?: { readonly severity?: string }
+  readonly affected?: ReadonlyArray<{
+    readonly package?: { readonly name?: string; readonly ecosystem?: string }
+    readonly ranges?: ReadonlyArray<{ readonly events?: ReadonlyArray<Record<string, string>> }>
+  }>
+}
+
+const dependencyScanInput = {
+  paths: z.array(z.string().min(1)).default([]).describe("Repository-relative directories (searched recursively for lockfiles) or lockfiles; default the whole tree"),
+  ref: refInput,
+  offset: offsetInput,
+  limit: limitInput(200)
+}
+
+const numeric = (s: string | undefined) => (s !== undefined && Number.isFinite(Number(s)) ? Number(s) : -1)
+
+const osvDatabase = () => {
+  try {
+    const stamp = JSON.parse(readFileSync(join(OSV_DIR, "db.json"), "utf8")) as { ecosystems: Array<string>; snapshot: string | null; downloadedAt: string }
+    return existsSync(join(OSV_DIR, "db", "osv-scalibr")) ? stamp : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const dependencyScan = (ctx: ToolContext, a: Args<typeof dependencyScanInput>) =>
+  Effect.gen(function*() {
+    const database = osvDatabase()
+    if (database === undefined) return yield* fail("dependency_scan is unavailable: no vulnerability database is installed (run `pnpm install-osv-scanner`)")
+    const tree = ctx.checkout.trees[a.ref]
+    const root = realpathSync(tree)
+    const targets = a.paths.length === 0 ? ["."] : a.paths.map((p) => repoPath(p))
+    for (const t of targets) if (!existsSync(join(tree, t))) return yield* fail(`no such path at ${a.ref}: ${t}`)
+    // A directory is walked, which skips symlinks; a lockfile named directly is read only if it is a regular file, never a link out of the tree.
+    const isLink = (t: string) => lstatSync(join(tree, t)).isSymbolicLink()
+    for (const t of targets) if (isLink(t)) return yield* fail(`not a regular file or directory: ${t}`)
+    const files = targets.filter((t) => statSync(join(tree, t)).isFile())
+    const dirs = targets.filter((t) => !files.includes(t))
+    const scratch = mkdtempSync(join(tmpdir(), "heron-osv-"))
+    const config = join(scratch, "osv-scanner.toml")
+    writeFileSync(config, "")
+    const runs = [...dirs.map((d) => ["-r", d]), ...files.map((f) => ["--lockfile", f])]
+    const scan = Effect.gen(function*() {
+      const packages: Array<VulnerablePackage> = []
+      for (const target of runs) {
+        // --offline: no network, the installed database only. --config with an empty file replaces every osv-scanner.toml in the tree,
+        // which could otherwise ignore vulnerabilities. --no-ignore: a .gitignore in the tree cannot hide a lockfile.
+        const args = ["scan", "source", "--offline", "--config", config, "--no-ignore", "--format", "json", "--verbosity", "error", ...target]
+        const out = yield* runTool(OSV_SCANNER, args, tree, { OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: join(OSV_DIR, "db") })
+        if (out.code === 128) continue
+        if (out.code !== 0 && out.code !== 1) {
+          const missing = /could not load db for (\S+) ecosystem/.exec(out.stderr)
+          return yield* fail(
+            missing === null
+              ? `osv-scanner: ${lastLine(out.stderr)}`
+              : `the tree has a ${missing[1]} lockfile, but only the ${database.ecosystems.join(", ")} vulnerability database is installed`
+          )
+        }
+        try {
+          const report = JSON.parse(out.stdout) as {
+            results?: Array<{
+              source: { path: string }
+              packages: Array<{
+                package: { name: string; version: string; ecosystem: string }
+                groups: Array<{ ids: Array<string>; aliases: Array<string>; max_severity?: string }>
+                vulnerabilities: Array<OsvVulnerability>
+              }>
+            }>
+          }
+          for (const r of report.results ?? []) {
+            for (const p of r.packages) {
+              const fixed = new Set<string>()
+              for (const v of p.vulnerabilities) {
+                for (const af of v.affected ?? []) {
+                  if (af.package?.name !== p.package.name || af.package?.ecosystem !== p.package.ecosystem) continue
+                  for (const range of af.ranges ?? []) for (const e of range.events ?? []) if (e["fixed"] !== undefined) fixed.add(e["fixed"])
+                }
+              }
+              const top = p.groups.map((g) => g.max_severity).filter((s): s is string => s !== undefined).sort((x, y) => numeric(y) - numeric(x))[0]
+              packages.push({
+                lockfile: relative(root, r.source.path),
+                package: p.package.name,
+                version: p.package.version,
+                ecosystem: p.package.ecosystem,
+                advisoryIds: [...new Set(p.groups.flatMap((g) => g.aliases.length > 0 ? g.aliases : g.ids))].sort(),
+                severity: top ?? null,
+                fixedVersions: [...fixed].sort(),
+                advisories: p.vulnerabilities.map((v) => ({ id: v.id, summary: v.summary ?? null, severity: v.database_specific?.severity ?? null }))
+              })
+            }
+          }
+        } catch {
+          return yield* fail("osv-scanner: unreadable report")
+        }
+      }
+      return packages
+    })
+    const packages = yield* scan.pipe(Effect.ensuring(Effect.sync(() => rmSync(scratch, { recursive: true, force: true }))))
+    const seen = new Set<string>()
+    const unique = packages.filter((p) => {
+      const key = `${p.lockfile}\0${p.ecosystem}\0${p.package}\0${p.version}`
+      return seen.has(key) ? false : (seen.add(key), true)
+    })
+    unique.sort((x, y) => (x.lockfile < y.lockfile ? -1 : x.lockfile > y.lockfile ? 1 : x.package < y.package ? -1 : x.package > y.package ? 1 : x.version < y.version ? -1 : 1))
+    const p = page(unique, a.offset, a.limit)
+    return {
+      database: { ecosystems: database.ecosystems, snapshot: database.snapshot, downloadedAt: database.downloadedAt },
+      total: p.total,
+      offset: p.offset,
+      next: p.next,
+      packages: p.items
+    }
+  })
+
 const commitArg = (ctx: ToolContext, raw: string) => {
   if ((TREE_REFS as ReadonlyArray<string>).includes(raw)) return ctx.checkout.commits[raw as TreeRef]
   if (!COMMIT.test(raw)) throw fail(`commit must be 7 to 40 hex characters or source, target, base: ${raw}`)
@@ -653,6 +833,18 @@ export const sourceTools: ReadonlyArray<SourceTool> = [
     `Scan one commit's files for leaked credentials with gitleaks' built-in rules; Heron's own rule set applies, whatever the repository configures. Returns path, lines, rule id, description and the redacted match; the secret itself is never shown. A result is a candidate, not a finding: open the file with read_file, confirm the line really holds a credential and not a placeholder or test value, and cite that line. Never report a secret_scan result you have not read. ${PAGED}`,
     scanInput,
     secretScan
+  ),
+  define(
+    "dependency_scan",
+    `Check the lockfiles of one commit against the OSV vulnerability database with osv-scanner, offline; Heron's own settings apply, whatever osv-scanner.toml the repository holds. Only the npm database is installed, and its snapshot date is in \`database.snapshot\`. Returns, for each vulnerable package: lockfile, package, version, advisory ids, summaries, severity when the advisory has one, and fixed versions. A result is a candidate, not a finding: open the lockfile with read_file, confirm the version is really locked there, use git_diff to see whether this change adds or bumps it, and cite the lockfile line. A vulnerability that was already there before the change is background, not a finding of this change. Never report a dependency_scan result you have not read. ${PAGED}`,
+    dependencyScanInput,
+    dependencyScan
+  ),
+  define(
+    "rule_scan",
+    `Run Heron's own ast-grep rules on one commit: unsafe HTML and code sinks (v-html, innerHTML and outerHTML assignment, eval, new Function, document.write, insertAdjacentHTML) and Vue pitfalls (writing to props, v-for without :key, v-if with v-for on one element, the removed .native modifier) in JavaScript, TypeScript, TSX and Vue files. The rules are Heron's, whatever sgconfig.yml the repository holds. Returns path, lines, rule id, message and the matched code. A result is a candidate, not a finding: open the file with read_file, confirm the code really has the problem, and cite that line. Never report a rule_scan result you have not read. ${PAGED}`,
+    ruleScanInput,
+    ruleScan
   ),
   define("git_log", `Commit history (id, date, author, subject) of one commit, optionally since another and for one path. ${PAGED}`, logInput, gitLog),
   define("git_show", `One commit's message, file summary and patch, optionally for one path. ${PAGED}`, showInput, gitShow),

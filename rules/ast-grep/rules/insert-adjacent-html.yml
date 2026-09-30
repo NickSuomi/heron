@@ -1,0 +1,20 @@
+id: insert-adjacent-html-js
+language: javascript
+severity: warning
+message: insertAdjacentHTML parses its argument as HTML; confirm it can carry input.
+rule:
+  pattern: $O.insertAdjacentHTML($$$)
+---
+id: insert-adjacent-html-ts
+language: typescript
+severity: warning
+message: insertAdjacentHTML parses its argument as HTML; confirm it can carry input.
+rule:
+  pattern: $O.insertAdjacentHTML($$$)
+---
+id: insert-adjacent-html-tsx
+language: tsx
+severity: warning
+message: insertAdjacentHTML parses its argument as HTML; confirm it can carry input.
+rule:
+  pattern: $O.insertAdjacentHTML($$$)

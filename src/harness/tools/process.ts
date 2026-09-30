@@ -28,9 +28,9 @@ export interface ToolOutput {
 const STDERR_CHARS = 4096
 
 /** Runs one read-only helper to completion and keeps all of its stdout; interruption kills it. */
-export const runTool = (command: string, args: ReadonlyArray<string>, cwd?: string) =>
+export const runTool = (command: string, args: ReadonlyArray<string>, cwd?: string, extraEnv: Record<string, string> = {}) =>
   Effect.callback<ToolOutput, SourceError>((resume, signal) => {
-    const child = spawn(command, [...args], { cwd, stdio: ["ignore", "pipe", "pipe"], env: toolEnv() })
+    const child = spawn(command, [...args], { cwd, stdio: ["ignore", "pipe", "pipe"], env: { ...toolEnv(), ...extraEnv } })
     const chunks: Array<string> = []
     let stderr = ""
     const stop = () => child.kill("SIGKILL")

@@ -1,0 +1,20 @@
+id: eval-js
+language: javascript
+severity: warning
+message: eval() runs a string as code; confirm the argument can carry input.
+rule:
+  pattern: eval($$$)
+---
+id: eval-ts
+language: typescript
+severity: warning
+message: eval() runs a string as code; confirm the argument can carry input.
+rule:
+  pattern: eval($$$)
+---
+id: eval-tsx
+language: tsx
+severity: warning
+message: eval() runs a string as code; confirm the argument can carry input.
+rule:
+  pattern: eval($$$)

@@ -1,0 +1,32 @@
+id: prop-assign-js
+language: javascript
+severity: warning
+message: Writing to a prop; a component must emit an event instead of changing what its parent owns.
+rule:
+  any:
+    - pattern: props.$P = $V
+    - pattern: props.$P += $V
+    - pattern: props.$P++
+    - pattern: props.$P--
+---
+id: prop-assign-ts
+language: typescript
+severity: warning
+message: Writing to a prop; a component must emit an event instead of changing what its parent owns.
+rule:
+  any:
+    - pattern: props.$P = $V
+    - pattern: props.$P += $V
+    - pattern: props.$P++
+    - pattern: props.$P--
+---
+id: prop-assign-tsx
+language: tsx
+severity: warning
+message: Writing to a prop; a component must emit an event instead of changing what its parent owns.
+rule:
+  any:
+    - pattern: props.$P = $V
+    - pattern: props.$P += $V
+    - pattern: props.$P++
+    - pattern: props.$P--

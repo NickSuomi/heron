@@ -60,7 +60,7 @@ describe("codex-cli harness", () => {
         "mcp_servers.heron.required": "true",
         "mcp_servers.heron.tool_timeout_sec": "86400",
         "mcp_servers.heron.enabled_tools": JSON.stringify([
-          "grep", "list_files", "read_file", "rg", "ast_grep", "secret_scan", "git_log", "git_show", "git_blame", "git_diff",
+          "grep", "list_files", "read_file", "rg", "ast_grep", "secret_scan", "dependency_scan", "rule_scan", "git_log", "git_show", "git_blame", "git_diff",
           "definition", "references", "hover", "document_symbols", "workspace_symbols", "diagnostics"
         ])
       })

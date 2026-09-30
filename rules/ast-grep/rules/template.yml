@@ -1,0 +1,53 @@
+id: v-html
+language: html
+severity: warning
+message: v-html renders a string as HTML; confirm it cannot carry input.
+rule:
+  kind: attribute
+  has:
+    kind: attribute_name
+    regex: '^v-html$'
+---
+id: v-for-no-key
+language: html
+severity: warning
+message: v-for without :key; Vue cannot track items, so state can stick to the wrong row.
+rule:
+  kind: start_tag
+  has:
+    kind: attribute
+    has:
+      kind: attribute_name
+      regex: '^v-for$'
+  not:
+    has:
+      kind: attribute
+      has:
+        kind: attribute_name
+        regex: '^(:|v-bind:)key$'
+---
+id: v-if-with-v-for
+language: html
+severity: warning
+message: v-if and v-for on one element; in Vue 3 v-if runs first and cannot see the loop variable.
+rule:
+  kind: start_tag
+  all:
+    - has:
+        kind: attribute
+        has:
+          kind: attribute_name
+          regex: '^v-for$'
+    - has:
+        kind: attribute
+        has:
+          kind: attribute_name
+          regex: '^v-if$'
+---
+id: native-modifier
+language: html
+severity: warning
+message: The .native event modifier was removed in Vue 3; the listener never fires.
+rule:
+  kind: attribute_name
+  regex: '^(@|v-on:)[A-Za-z:-]+(\.[A-Za-z]+)*\.native(\.[A-Za-z]+)*$'
