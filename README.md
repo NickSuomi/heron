@@ -24,7 +24,7 @@ The verdict is one of four fixed words: PASS, CHANGES REQUESTED, BLOCKED, or SUP
 - There is no hosted service. Heron runs in your CI job with your GitLab token, and the only outside service it calls is the model vendor you configure.
 - Code decides the verdict, not the model. Any blocker finding means CHANGES REQUESTED. A session that fails, times out, or returns malformed output means BLOCKED, never PASS.
 - Review depth follows the change. Path rules in the config pick a lane, for example one reviewer for a docs change, gates with a supervisor for most changes, or two independent branches and a judge for sensitive paths.
-- Models only read, but they can read everything. Every session searches the whole repository at the source branch, the target branch and their merge base with ripgrep, structural search, TypeScript language-server lookups that also read Vue files and Effect code, and git history. No session has a turn, time or result cap unless you set one. No session can run commands or change files.
+- Models only read, but they can read everything. Every session searches the whole repository at the source branch, the target branch and their merge base with ripgrep, structural search, a gitleaks secret scan whose results the model must confirm by reading the line, TypeScript language-server lookups that also read Vue files and Effect code, and git history. No session has a turn, time or result cap unless you set one. No session can run commands or change files.
 - Heron does not start inline discussion threads, approve, or merge. It writes one note and sets labels.
 
 ## How it works

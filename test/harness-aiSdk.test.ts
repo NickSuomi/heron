@@ -72,7 +72,7 @@ describe("ai-sdk harness", () => {
       const first = mock.doGenerateCalls[0]!
       expect([first.tools?.map((t) => t.name), first.providerOptions, first.responseFormat?.type]).toEqual([
         [
-          "grep", "list_files", "read_file", "rg", "ast_grep", "git_log", "git_show", "git_blame", "git_diff",
+          "grep", "list_files", "read_file", "rg", "ast_grep", "secret_scan", "git_log", "git_show", "git_blame", "git_diff",
           "definition", "references", "hover", "document_symbols", "workspace_symbols", "diagnostics"
         ],
         { openrouter: { reasoning: { effort: "low" } } },

@@ -30,7 +30,9 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.build.json",
     "check": "pnpm typecheck && pnpm test",
-    "gen-env-table": "node scripts/gen-env-table.ts"
+    "gen-env-table": "node scripts/gen-env-table.ts",
+    "install-gitleaks": "node scripts/install-gitleaks.mjs",
+    "postinstall": "node scripts/install-gitleaks.mjs"
   },
   "dependencies": {
     "@ast-grep/cli": "0.45.3",

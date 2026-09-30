@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
-import { posix } from "node:path"
+import { join, posix } from "node:path"
 import { Effect } from "effect"
 import { z } from "zod"
 import { type SourceCheckout, TREE_REFS, type TreeRef } from "../ports.ts"
@@ -29,6 +30,13 @@ const AST_GREP: string = (() => {
     return "ast-grep"
   }
 })()
+/** gitleaks 8.30.1, installed by scripts/install-gitleaks.mjs at install time; a gitleaks on PATH is the fallback. */
+const GITLEAKS: string = (() => {
+  const installed = new URL("../../vendor/gitleaks/gitleaks", import.meta.url).pathname
+  return existsSync(installed) ? installed : "gitleaks"
+})()
+/** The only rules secret_scan uses: gitleaks' built-in set, with no allowlist. Nothing in the reviewed tree can extend or replace it. */
+const GITLEAKS_CONFIG = 'title = "heron secret_scan"\n\n[extend]\nuseDefault = true\n'
 
 /** What every tool reads: the checkout, and the language servers started for it during one session. */
 export interface ToolContext {
@@ -128,6 +136,13 @@ const astInput = {
   globs: z.array(z.string().min(1)).default([]).describe("Include globs, or exclude with a leading !"),
   selector: z.string().regex(NAME).optional().describe("AST kind inside the pattern to report instead of the whole pattern"),
   strictness: z.enum(["cst", "smart", "ast", "relaxed", "signature", "template"]).optional(),
+  ref: refInput,
+  offset: offsetInput,
+  limit: limitInput(500)
+}
+
+const scanInput = {
+  paths: z.array(z.string().min(1)).default([]).describe("Repository-relative directories or files to scan; default the whole tree"),
   ref: refInput,
   offset: offsetInput,
   limit: limitInput(500)
@@ -276,6 +291,95 @@ const astGrep = (ctx: ToolContext, a: Args<typeof astInput>) =>
     matches.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : x.line - y.line || x.column - y.column))
     const p = page(matches, a.offset, a.limit)
     return { total: p.total, offset: p.offset, next: p.next, matches: p.items }
+  })
+
+interface SecretFinding {
+  readonly path: string
+  readonly startLine: number
+  readonly endLine: number
+  readonly ruleId: string
+  readonly description: string
+  readonly match: string
+}
+
+/** Runs gitleaks once on `target` inside `tree`; the report is JSON on stdout with the secret and match redacted. */
+const gitleaks = (tree: string, target: string, config: string, empty: string) =>
+  Effect.gen(function*() {
+    // --config beats the tree's .gitleaks.toml; -i points at an empty directory so the tree's .gitleaksignore is not read;
+    // --ignore-gitleaks-allow drops inline allow comments; decode and archive depth 0 keep it to plain file text; no size limit.
+    const args = [
+      "dir", "--config", config, "-i", empty, "--ignore-gitleaks-allow", "--redact", "--no-banner", "--no-color",
+      "--max-decode-depth", "0", "--max-archive-depth", "0", "--exit-code", "3", "--log-level", "error",
+      "--report-format", "json", "--report-path", "-", target
+    ]
+    const out = yield* runTool(GITLEAKS, args, tree)
+    if (out.code !== 0 && out.code !== 3) return yield* fail(`gitleaks: ${lastLine(out.stderr)}`)
+    try {
+      const rows = JSON.parse(out.stdout.trim() === "" ? "[]" : out.stdout) as Array<Record<string, unknown>>
+      return rows.map((r): SecretFinding => ({
+        path: stripPrefix("./", String(r["File"])),
+        startLine: Number(r["StartLine"]),
+        endLine: Number(r["EndLine"]),
+        ruleId: String(r["RuleID"]),
+        description: String(r["Description"]),
+        match: String(r["Match"])
+      }))
+    } catch {
+      return yield* fail("gitleaks: unreadable report")
+    }
+  })
+const lastLine = (stderr: string) => stderr.trim().split("\n").at(-1) ?? "failed"
+
+/** Where a scan runs and what it uses: the Heron-owned rules, an empty ignore directory, and a place to stage files. */
+interface Scan {
+  readonly tree: string
+  readonly config: string
+  readonly empty: string
+  readonly scratch: string
+}
+
+/**
+ * gitleaks reads `.gitleaksignore` from the root of whatever it scans, `-i` or not. So a directory that holds one is scanned in
+ * two parts: its files, copied without that file into a staging directory, and each subdirectory by this same rule.
+ */
+const scanTarget = (scan: Scan, target: string): Effect.Effect<Array<SecretFinding>, SourceError> =>
+  Effect.gen(function*() {
+    const full = join(scan.tree, target)
+    if (!statSync(full).isDirectory() || !existsSync(join(full, ".gitleaksignore"))) return yield* gitleaks(scan.tree, target, scan.config, scan.empty)
+    const entries = readdirSync(full, { withFileTypes: true }).filter((e) => !e.isSymbolicLink())
+    const files = entries.filter((e) => e.isFile() && e.name !== ".gitleaksignore")
+    const found: Array<SecretFinding> = []
+    if (files.length > 0) {
+      const stage = mkdtempSync(join(scan.scratch, "stage-"))
+      mkdirSync(join(stage, target), { recursive: true })
+      for (const f of files) copyFileSync(join(full, f.name), join(stage, target, f.name))
+      found.push(...(yield* gitleaks(stage, target, scan.config, scan.empty)))
+    }
+    const nested = yield* Effect.forEach(entries.filter((e) => e.isDirectory()), (e) => scanTarget(scan, `${target}/${e.name}`))
+    return [...found, ...nested.flat()]
+  })
+
+const secretScan = (ctx: ToolContext, a: Args<typeof scanInput>) =>
+  Effect.gen(function*() {
+    const targets = a.paths.length === 0 ? ["."] : a.paths.map((p) => `./${repoPath(p)}`)
+    const tree = ctx.checkout.trees[a.ref]
+    for (const t of targets) if (!existsSync(join(tree, t))) return yield* fail(`no such path at ${a.ref}: ${t.slice(2)}`)
+    const scratch = mkdtempSync(join(tmpdir(), "heron-gitleaks-"))
+    const empty = join(scratch, "empty")
+    const config = join(scratch, "gitleaks.toml")
+    mkdirSync(empty)
+    writeFileSync(config, GITLEAKS_CONFIG)
+    const found = yield* Effect.forEach(targets, (t) => scanTarget({ tree, config, empty, scratch }, t)).pipe(
+      Effect.ensuring(Effect.sync(() => rmSync(scratch, { recursive: true, force: true })))
+    )
+    const seen = new Set<string>()
+    const findings = found.flat().filter((f) => {
+      const key = `${f.path}:${f.ruleId}:${f.startLine}`
+      return seen.has(key) ? false : (seen.add(key), true)
+    })
+    findings.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : x.startLine - y.startLine || (x.ruleId < y.ruleId ? -1 : 1)))
+    const p = page(findings, a.offset, a.limit)
+    return { total: p.total, offset: p.offset, next: p.next, findings: p.items }
   })
 
 const commitArg = (ctx: ToolContext, raw: string) => {
@@ -543,6 +647,12 @@ export const sourceTools: ReadonlyArray<SourceTool> = [
     `Structural code search with ast-grep: match syntax, not text, e.g. every call \`fetch($URL, $$$)\`. Returns path, line, column and the matched code. ${PAGED}`,
     astInput,
     astGrep
+  ),
+  define(
+    "secret_scan",
+    `Scan one commit's files for leaked credentials with gitleaks' built-in rules; Heron's own rule set applies, whatever the repository configures. Returns path, lines, rule id, description and the redacted match; the secret itself is never shown. A result is a candidate, not a finding: open the file with read_file, confirm the line really holds a credential and not a placeholder or test value, and cite that line. Never report a secret_scan result you have not read. ${PAGED}`,
+    scanInput,
+    secretScan
   ),
   define("git_log", `Commit history (id, date, author, subject) of one commit, optionally since another and for one path. ${PAGED}`, logInput, gitLog),
   define("git_show", `One commit's message, file summary and patch, optionally for one path. ${PAGED}`, showInput, gitShow),

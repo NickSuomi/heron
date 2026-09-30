@@ -63,10 +63,15 @@ All three backends get the same Heron tools. The CLI backends reach them through
 | `read_file` | A whole file, or a line range | `git cat-file` |
 | `rg` | Search of one working tree with regex or literal, case modes, word and multiline matching, include and exclude globs, file types, and context | ripgrep |
 | `ast_grep` | Structural search by syntax pattern, with an optional language | ast-grep |
+| `secret_scan` | Candidate leaked credentials in one working tree: path, lines, rule id, description and the redacted match, never the secret. The model must read and cite the line before it reports one | gitleaks |
 | `git_log`, `git_show`, `git_blame`, `git_diff` | History, one commit, line authorship, and the diff between any two of `base`, `source` and `target` | git |
 | `definition`, `references`, `hover`, `document_symbols`, `workspace_symbols`, `diagnostics` | TypeScript, JavaScript and Vue lookups on one working tree, with Effect language service diagnostics and hovers | typescript-language-server |
 
 Results are never cut short without notice. `read_file` returns the whole file by default. A tool that can return many results pages them: each answer gives `total` and `next`, the offset of the next page.
+
+`secret_scan` runs `gitleaks dir` with Heron's own config, which holds only gitleaks' built-in rules, so a `.gitleaks.toml` in the reviewed tree changes nothing. It points `-i` at an empty directory, passes `--ignore-gitleaks-allow` so a `gitleaks:allow` comment hides nothing, and copies the files of a directory that holds a `.gitleaksignore` aside without it, because gitleaks reads that file from the root of the scanned path whatever `-i` says. It passes `--redact`, `--max-decode-depth 0` and `--max-archive-depth 0` (gitleaks decodes to depth 5 by default) and sets no file-size limit. A result is a candidate: gitleaks flags placeholders and test values too. Each gitleaks start takes about 0.6 seconds, plus the scan.
+
+gitleaks has no official npm package, so `pnpm install` runs `scripts/install-gitleaks.mjs` (also `pnpm install-gitleaks`). It downloads the release asset for your platform (Linux or macOS, x64 or arm64) from the gitleaks v8.30.1 release, checks the release's checksums file against a digest pinned in the script, checks the archive against that file, and unpacks it to `vendor/gitleaks/`. A failed check fails the install; an unreachable download only prints a warning, and `secret_scan` then falls back to a `gitleaks` on `PATH` or reports that it is not available. Nothing is downloaded during a review. To upgrade, change `VERSION` and `CHECKSUMS_SHA256` together.
 
 The language server runs Heron's own TypeScript through Heron's tsserver entry, [`tsserver/lib/tsserver.js`](../tsserver/lib/tsserver.js), which loads two tsserver plugins:
 
@@ -81,6 +86,7 @@ These tools are pinned dependencies of Heron:
 | --- | --- | --- | --- |
 | `@vscode/ripgrep` | 1.18.0 (ripgrep 15.0.0) | MIT; ripgrep is MIT or Unlicense | `rg`, from a per-platform optional package with no install script |
 | `@ast-grep/cli` | 0.45.3 | MIT | `ast-grep`, called as the native binary; its install script stays off |
+| gitleaks (not an npm package) | 8.30.1 | MIT | `gitleaks`, downloaded by `pnpm install` (see below) |
 | `typescript-language-server` | 6.0.0 | Apache-2.0 | the language server |
 | `typescript-5` (npm alias of `typescript`) | 5.9.3 | Apache-2.0 | the tsserver it runs; TypeScript 7 ships no `tsserver.js` |
 | `@vue/typescript-plugin` | 3.3.11 | MIT | the tsserver plugin for `.vue` files, from Vue language tools |
