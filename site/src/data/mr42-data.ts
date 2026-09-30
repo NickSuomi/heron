@@ -287,7 +287,7 @@ export const sessions: ReadonlyArray<RawSession> = [
 ]
 
 export const summary =
-  "Adds bulk archiving to the project list: a checkbox on each row, an Archive button and an archiveSelected helper. The helper deletes each project instead of archiving it, so the change cannot merge as it is."
+  "Adds bulk archiving to the project list: a checkbox on each row, an Archive button and an archiveSelected helper that sends one request for each selected project."
 
 /** What Heron's verdict rule gives for these findings: one blocker means CHANGES REQUESTED. The build checks it. */
 export const verdict = "CHANGES REQUESTED" as const

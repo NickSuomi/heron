@@ -169,6 +169,11 @@ const splitSummary = (summary: string): { readonly lead: Line; readonly rest: Re
 
 const short = (sha: string) => sha.slice(0, 8)
 
+const actionLine = (blockers: number, advisories: number): string =>
+  blockers > 0
+    ? `Before merge, fix ${blockers === 1 ? "the blocker" : `the ${blockers} blockers`} below.`
+    : `Nothing blocks merging.${advisories === 0 ? "" : advisories === 1 ? " The advisory is optional." : ` The ${advisories} advisories are optional.`}`
+
 const location = (review: Review, f: Finding): string => {
   if (f.location === null) return ""
   const { path, line } = f.location
@@ -251,6 +256,8 @@ export const renderReport = (review: Review): string => {
     lines.push(`${count(blockers.length, "blocker", "blockers")} · ${count(advisories.length, "advisory", "advisories")} · ${where}`, ...moved)
     if (range !== "") lines.push("", `${range}: ${outcome.findings.filter((f) => f.origin === EARLIER).length} of ${earlier} earlier findings carried.`)
     if (lead.length > 0) lines.push("", paragraphLine(lead))
+    // The one line a reader acts on comes from the kept findings, the same source as the verdict, so the two agree.
+    if (verdict === "PASS" || verdict === "CHANGES REQUESTED") lines.push("", actionLine(blockers.length, advisories.length))
     if (blockers.length > 0) lines.push("", "### Blockers", "", ...blockers.map((f) => findingItem(review, f)))
     if (advisories.length > 0) {
       lines.push("", details(count(advisories.length, "advisory", "advisories"), advisories.map((f) => findingItem(review, f))))

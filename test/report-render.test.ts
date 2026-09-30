@@ -327,6 +327,32 @@ describe("report shape", () => {
     expect(source).toContain("Totals: 300,000 / 7,000 tokens in / out, 20 tool calls, $0.50 vendor-reported cost.")
   })
 
+  it("says what to do before merging from the kept findings, and nothing on a superseded head", () => {
+    const actionOf = (review: Review) => {
+      const lines = renderReport(review).split("\n")
+      return lines.find((l) => l.startsWith("Before merge") || l.startsWith("Nothing blocks")) ?? null
+    }
+    const blockers = sampleOutcome.findings.filter((f) => f.severity === "blocker")
+    const advisories = sampleOutcome.findings.filter((f) => f.severity === "advisory")
+    const one = { ...sampleOutcome, findings: [blockers[0]!, ...advisories] }
+    const two = { ...sampleOutcome, findings: [blockers[0]!, { ...blockers[0]!, id: "gate.design#9" as FindingId }] }
+    expect([
+      actionOf({ ...sampleReview, outcome: one }),
+      actionOf({ ...sampleReview, outcome: two }),
+      actionOf({ ...sampleReview, verdict: "PASS", outcome: { ...sampleOutcome, findings: advisories } }),
+      actionOf({ ...sampleReview, verdict: "PASS", outcome: { ...sampleOutcome, findings: advisories.slice(0, 1) } }),
+      actionOf({ ...sampleReview, verdict: "PASS", outcome: { ...sampleOutcome, findings: [] } }),
+      actionOf({ ...sampleReview, verdict: "SUPERSEDED", liveHead: sha("f"), outcome: one })
+    ]).toEqual([
+      "Before merge, fix the blocker below.",
+      "Before merge, fix the 2 blockers below.",
+      `Nothing blocks merging. The ${advisories.length} advisories are optional.`,
+      "Nothing blocks merging. The advisory is optional.",
+      "Nothing blocks merging.",
+      null
+    ])
+  })
+
   it("omits the Blockers section when there are none", () => {
     const findings = sampleOutcome.findings.filter((f) => f.severity === "advisory")
     const pass = renderReport({ ...sampleReview, verdict: "PASS", outcome: { ...sampleOutcome, findings } })

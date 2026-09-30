@@ -32,12 +32,14 @@ describe("the report note as the mock GitLab renders it", () => {
       "h2",
       "Paragraph",
       "Paragraph",
+      "Paragraph",
       "h3",
       "List",
       "details:4 advisories",
       "details:REVIEW CHECKS",
       "details:AGENT PROVENANCE",
     ])
+    expect(blocks[3]).toEqual({ _tag: "Paragraph", children: [{ _tag: "Text", text: "Before merge, fix the blocker below." }] })
     expect(JSON.stringify(blocks)).not.toContain("heron:v1")
   })
 
@@ -56,12 +58,12 @@ describe("the report note as the mock GitLab renders it", () => {
   it("unescapes the two-sentence summary Heron escaped", () => {
     const summary = blocks[2]
     expect(summary?._tag === "Paragraph" && strip(plainText(summary.children))).toBe(
-      "Adds bulk archiving to the project list: a checkbox on each row, an Archive button and an archiveSelected helper. The helper deletes each project instead of archiving it, so the change cannot merge as it is.",
+      "Adds bulk archiving to the project list: a checkbox on each row, an Archive button and an archiveSelected helper that sends one request for each selected project.",
     )
   })
 
   it("renders the blocker as a tight list item: gate, title, file:line link, a hard break, then the body", () => {
-    const list = blocks[4]
+    const list = blocks[5]
     if (list?._tag !== "List") throw new Error("no blocker list")
     expect(list.isLoose).toBe(false)
     const [item] = list.items

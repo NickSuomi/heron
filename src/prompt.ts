@@ -23,7 +23,7 @@ const readingRules = [
 const outputRules = [
   "## Output rules",
   "The merge request author reads your output in the review note. Write for that person.",
-  "- The summary is at most two plain sentences. Say what the change does and what must change before it merges. Heron shows only the first two sentences.",
+  "- The summary is at most two plain sentences and says only what the change does. Never say what to fix, what must change or what to do before merging: Heron writes that line from your findings. Heron shows only the first two sentences.",
   "- A finding title is at most 12 words and names the defect.",
   "- A finding body is at most two sentences. Say what is wrong and name the fix.",
   "- A limitation is one sentence naming something the tools cannot reach, such as a linked item's comments or another repository. A file in this repository is never a limitation: read it instead. Most reviews have none; then return an empty list. Never list that you could not run tests, the app, a browser or a device: the report says that once for every review.",

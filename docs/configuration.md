@@ -101,7 +101,7 @@ If several rules fire, the strictest lane wins.
 
 ### `policy`
 
-`policy.instructions` is a list of Markdown files. Heron appends their text to the instructions of every session. After them, Heron adds its own output rules: a summary of at most two sentences, finding titles of at most 12 words, and finding bodies of at most two sentences that name the fix. A supervisor or judge is also told that a blocker is a defect the author must fix before merging, that the policy decides what blocks where it says so, and that it may lower a finding to advisory but never raise one. To make, for example, a breach of a repository rule alone advisory, say so in a policy file.
+`policy.instructions` is a list of Markdown files. Heron appends their text to the instructions of every session. After them, Heron adds its own output rules: a summary of at most two sentences that says only what the change does (Heron writes what to do before merging itself), finding titles of at most 12 words, and finding bodies of at most two sentences that name the fix. A supervisor or judge is also told that a blocker is a defect the author must fix before merging, that the policy decides what blocks where it says so, and that it may lower a finding to advisory but never raise one. To make, for example, a breach of a repository rule alone advisory, say so in a policy file.
 
 ### `limits`
 

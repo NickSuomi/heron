@@ -149,7 +149,7 @@ export interface Finding extends ModelFinding {
 const Line = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 
 const described = (description: string) => Schema.String.annotate({ description })
-const summary = described("At most two plain sentences: what the change does and what must change before it merges.")
+const summary = described("At most two plain sentences on what the change does. Say nothing about what to fix or do before merging: Heron writes that line from the findings.")
 const limitations = Schema.Array(described("One sentence naming something in the repository or the merge request you could not check."))
 
 const modelFinding = (gates: NonEmptyReadonlyArray<Gate>) =>
