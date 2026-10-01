@@ -73,6 +73,13 @@ const Diff = Schema.Struct({
   collapsed: Schema.optionalKey(Schema.Boolean),
   too_large: Schema.optionalKey(Schema.Boolean)
 })
+const RawChanges = Schema.Struct({
+  sha: Sha,
+  changes_count: Schema.NullOr(Schema.String),
+  overflow: Schema.Boolean,
+  diff_refs: Schema.Struct({ head_sha: Sha, base_sha: Sha, start_sha: Sha }),
+  changes: Schema.Array(Diff)
+})
 const Commit = Schema.Struct({ id: Sha })
 const Compare = Schema.Struct({ compare_timeout: Schema.Boolean, diffs: Schema.Array(Diff) })
 const Note = Schema.Struct({ id: NoteId, body: Schema.String, system: Schema.Boolean, author: Schema.Struct({ id: Schema.Int }) })
@@ -190,6 +197,34 @@ const incompleteness = (
   return null
 }
 
+const recoveryIncompleteness = (
+  mr: typeof MergeRequest.Type,
+  listed: ReadonlyArray<typeof Diff.Type>,
+  raw: typeof RawChanges.Type,
+  latest: typeof Version.Type | undefined
+): string | null => {
+  if (raw.overflow) return "GitLab truncated the repository-backed diff"
+  if (raw.sha !== mr.sha || raw.diff_refs.head_sha !== mr.sha)
+    return "the repository-backed diff does not match the merge request head"
+  if (latest !== undefined && (raw.diff_refs.base_sha !== latest.base_commit_sha || raw.diff_refs.start_sha !== latest.start_commit_sha))
+    return "the repository-backed diff does not match the latest diff version"
+  if (raw.changes_count !== mr.changes_count || raw.changes.length !== listed.length)
+    return "the repository-backed diff has a different changed-file count"
+  const recovered = new Map(raw.changes.map((d) => [d.new_path, d]))
+  if (recovered.size !== raw.changes.length) return "the repository-backed diff repeats a changed file"
+  for (const file of listed) {
+    const full = recovered.get(file.new_path)
+    if (full === undefined || full.old_path !== file.old_path || full.new_file !== file.new_file ||
+      full.renamed_file !== file.renamed_file || full.deleted_file !== file.deleted_file)
+      return `the repository-backed diff has different file metadata for ${file.new_path}`
+    if (full.collapsed === true || full.too_large === true || (file.collapsed === true && full.diff === ""))
+      return `GitLab still omitted the diff of ${file.new_path}`
+    if (file.collapsed !== true && full.diff !== file.diff)
+      return `the repository-backed patch differs from the listed patch for ${file.new_path}`
+  }
+  return null
+}
+
 const errorText = (text: string): string => {
   try {
     const body = JSON.parse(text) as { message?: unknown; error?: unknown }
@@ -298,8 +333,18 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
         // Versions are read after the diffs: if the newest version still matches the head read first,
         // no push landed in between and the diffs belong to that head.
         const mr = yield* call("snapshot", "GET", mrPath(ref), MergeRequest)
-        const diffs = yield* pages("snapshot", `${mrPath(ref)}/diffs`, Diff)
+        let diffs = yield* pages("snapshot", `${mrPath(ref)}/diffs`, Diff)
+        // Only /changes with access_raw_diffs retrieves repository-backed patches omitted by /diffs.
+        const raw = diffs.some((d) => d.collapsed === true) && !diffs.some((d) => d.too_large === true) &&
+          mr.changes_count !== null && /^\d+$/.test(mr.changes_count) && Number(mr.changes_count) === diffs.length
+          ? yield* call("snapshot", "GET", `${mrPath(ref)}/changes`, RawChanges, { query: { access_raw_diffs: "true" } })
+          : null
         const [latest] = yield* call("snapshot", "GET", `${mrPath(ref)}/versions`, Schema.Array(Version), { query: { per_page: "1" } })
+        if (raw !== null) {
+          const reason = recoveryIncompleteness(mr, diffs, raw, latest)
+          if (reason !== null) return yield* new IncompleteSnapshot({ reason })
+          diffs = raw.changes
+        }
         const reason = incompleteness(mr, latest, diffs)
         if (reason !== null || latest === undefined) return yield* new IncompleteSnapshot({ reason: reason ?? "" })
         const suffix = `/-/merge_requests/${ref.iid}`

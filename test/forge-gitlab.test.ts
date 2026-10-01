@@ -208,10 +208,73 @@ describe("GitLab forge", () => {
       ])
     }))
 
+  it.effect("snapshot recovers collapsed patches from repository-backed changes before checking the final version", () =>
+    Effect.gen(function*() {
+      const full = [diff("src/a.ts"), diff("src/moved.ts", { old_path: "src/old.ts", renamed_file: true })]
+      const fake = fakeGitLab([
+        { body: mergeRequest({ changes_count: "2" }) },
+        page([full[0], { ...full[1], collapsed: true, diff: "" }], ""),
+        { body: {
+          sha: sha("c"), changes_count: "2", overflow: false,
+          diff_refs: { head_sha: sha("c"), base_sha: sha("a"), start_sha: sha("b") },
+          changes: full
+        } },
+        { body: [version()] },
+        page([], ""),
+        page([], "")
+      ])
+      const snapshot = yield* withForge(fake, (forge) => forge.snapshot(ref))
+      expect(snapshot.changes).toEqual([
+        { path: "src/a.ts", oldPath: null, status: "modified", diff: full[0]!.diff },
+        { path: "src/moved.ts", oldPath: "src/old.ts", status: "renamed", diff: full[1]!.diff }
+      ])
+      expect(fake.sent.slice(0, 4)).toEqual([
+        { method: "GET", path: MR, query: {} },
+        { method: "GET", path: `${MR}/diffs`, query: { per_page: "100", page: "1" } },
+        { method: "GET", path: `${MR}/changes`, query: { access_raw_diffs: "true" } },
+        { method: "GET", path: `${MR}/versions`, query: { per_page: "1" } }
+      ])
+      expect(fake.remaining()).toBe(0)
+    }))
+
+  const recovered = (overrides: Record<string, unknown> = {}) => ({
+    sha: sha("c"), changes_count: "2", overflow: false,
+    diff_refs: { head_sha: sha("c"), base_sha: sha("a"), start_sha: sha("b") },
+    changes: [diff("src/a.ts"), diff("src/b.ts")],
+    ...overrides
+  })
+  const badRecovery: ReadonlyArray<readonly [string, Record<string, unknown>, Record<string, unknown>, string]> = [
+    ["overflow", { overflow: true }, {}, "GitLab truncated the repository-backed diff"],
+    ["missing files", { changes: [diff("src/a.ts")] }, {}, "the repository-backed diff has a different changed-file count"],
+    ["a capped count", { changes_count: "2+" }, {}, "the repository-backed diff has a different changed-file count"],
+    ["an omitted patch", { changes: [diff("src/a.ts"), diff("src/b.ts", { diff: "" })] }, {}, "GitLab still omitted the diff of src/b.ts"],
+    ["an oversized patch", { changes: [diff("src/a.ts"), diff("src/b.ts", { too_large: true })] }, {}, "GitLab still omitted the diff of src/b.ts"],
+    ["changed file metadata", { changes: [diff("src/a.ts"), diff("src/b.ts", { old_path: "src/old.ts", renamed_file: true })] }, {}, "the repository-backed diff has different file metadata for src/b.ts"],
+    ["repeated files", { changes: [diff("src/a.ts"), diff("src/a.ts")] }, {}, "the repository-backed diff repeats a changed file"],
+    ["a changed listed patch", { changes: [diff("src/a.ts", { diff: "different" }), diff("src/b.ts")] }, {}, "the repository-backed patch differs from the listed patch for src/a.ts"],
+    ["a moved raw head", { sha: sha("e") }, {}, "the repository-backed diff does not match the merge request head"],
+    ["a moved comparison base", { diff_refs: { head_sha: sha("c"), base_sha: sha("e"), start_sha: sha("b") } }, {}, "the repository-backed diff does not match the latest diff version"],
+    ["a push after recovery", {}, { head_commit_sha: sha("e") }, `the latest diff version is at ${sha("e")}, the merge request head is ${sha("c")}`]
+  ]
+  for (const [name, raw, v, reason] of badRecovery) {
+    it.effect(`snapshot refuses repository-backed recovery with ${name}`, () =>
+      Effect.gen(function*() {
+        const fake = fakeGitLab([
+          { body: mergeRequest({ changes_count: "2" }) },
+          page([diff("src/a.ts"), diff("src/b.ts", { collapsed: true, diff: "" })], ""),
+          { body: recovered(raw) },
+          { body: [version(v)] }
+        ])
+        const error = yield* Effect.flip(withForge(fake, (forge) => forge.snapshot(ref)))
+        expect(error._tag).toBe("IncompleteSnapshot")
+        expect(error._tag === "IncompleteSnapshot" && error.reason).toBe(reason)
+        expect(fake.remaining()).toBe(0)
+      }))
+  }
+
   const incomplete: ReadonlyArray<readonly [string, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, string]> = [
     ["an overflowing version", {}, { state: "overflow" }, {}, "GitLab truncated the diff (version state overflow)"],
     ["a capped change count", { changes_count: "1000+" }, {}, {}, "GitLab caps the diff at 1000+ files"],
-    ["a collapsed file", { changes_count: "1" }, {}, { collapsed: true }, "GitLab collapsed the diff of src/a.ts"],
     ["a too-large file", { changes_count: "1" }, {}, { too_large: true }, "GitLab collapsed the diff of src/a.ts"],
     ["a count mismatch", { changes_count: "2" }, {}, {}, "GitLab reports 2 changed files but served 1"],
     ["a diff still being prepared", { changes_count: null }, {}, {}, "GitLab has not finished preparing the diff"],
