@@ -6,7 +6,6 @@
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 const VERSION = "2.6.0"
@@ -62,7 +61,10 @@ const installDatabase = async () => {
   const head = await fetch(DB_URL, { method: "HEAD" })
   if (!head.ok) throw new Error(`${DB_URL}: HTTP ${head.status}`)
   const modified = head.headers.get("last-modified")
-  const work = mkdtempSync(join(tmpdir(), "heron-osv-"))
+  // Not under tmpdir(): during `pnpm install` TMPDIR points into node_modules, and osv-scanner reads no lockfile
+  // inside a node_modules directory, so the probe below would select no ecosystem and download nothing.
+  mkdirSync(dir, { recursive: true })
+  const work = mkdtempSync(join(dir, ".probe-"))
   try {
     // osv-scanner downloads the database itself, for the ecosystems of the lockfiles it finds; one npm lockfile selects npm.
     const fixture = join(work, "fixture")
