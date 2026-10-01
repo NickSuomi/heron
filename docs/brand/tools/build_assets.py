@@ -1,97 +1,71 @@
 #!/usr/bin/env python3
-"""Write every Heron SVG asset from one drawing, in the Heron OS colours of build_tokens.py.
+"""Write every Heron brand asset from the generators next to this file: orb.py (the glass orb and its lockup), flat.py (the flat pixel heron) and icon.mjs (the Vista app icon).
 
 Run from the repository root:
 
     python3 docs/brand/tools/build_assets.py
 
-It writes docs/brand/assets/ and the copy the site serves at /brand/assets/ (site/public/brand/assets/).
+It writes docs/brand/assets/, the copy the site serves at /brand/assets/ (site/public/brand/assets/), the Start orb glyph
+and the Heron icons in site/src/assets/. It needs Python 3 and Node 22 or later.
 The social preview embeds Heron Sans (a renamed Selawik subset) from site/public/fonts (SIL Open Font License 1.1) as data URIs and the
-Heron OS wallpaper from site/src/assets, so it renders the same on a machine without either. Render the PNGs
-with headless Chromium: the mark at 512 by 512 and the social preview at 1280 by 640.
+Heron OS wallpaper from site/src/assets, so it renders the same on a machine without either. It also renders the PNGs with headless Chromium when one is installed:
+the mark at 512 by 512 and the social preview at 1280 by 640.
 """
 import base64
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import build_tokens as T
+import flat
+import orb
 
 ROOT = Path(__file__).resolve().parents[3]
 OUTS = [ROOT / "docs" / "brand" / "assets", ROOT / "site" / "public" / "brand" / "assets"]
 C = T.COLOR
 
-# The heron on the rim, in a 200 x 280 box, facing left. The feet stand on y 277.
-# BODY and NECK are filled; HEAD is an ellipse; BILL is the dagger. There is no eye.
-BODY = "M100 138 C104 116 126 106 148 112 C168 118 180 146 194 188 C172 183 150 182 134 180 C112 176 98 160 100 138 Z"
-NECK = "M126 113 C112 96 97 96 91 80 C85 64 72 58 58 64 L51 77 C61 76 68 82 72 92 C78 107 94 117 102 136 Z"
-HEAD = (51, 70, 11.5, 7.5, 52)
-BILL = "M42 72 L49 79 L17 120 Z"
-PLUME = "M57 63 C66 55 78 54 90 58"
-WING = "M116 132 C136 124 164 142 188 182"
-LEGS = "M132 178 L128 228 L131 276 M142 178 L146 228 L150 276"
-FEET = "M116 277 H139 M139 277 L147 272 M140 277 H166"
-
-# Wordmark "heron", monoline. x-height 40 (y 40..80), ascender at y 16, baseline at y 80. Advance width 216.
-WORD = " ".join([
-    "M8 16 V80 M8 58 C8 46 16 40 26 40 C36 40 42 46 42 56 V80",
-    "M50 60 H90 A20 20 0 1 0 85.3 72.9",
-    "M100 40 V80 M100 56 C100 46 108 40 120 40",
-    "M150 40 A20 20 0 1 1 149.99 40 Z",
-    "M182 40 V80 M182 58 C182 46 190 40 200 40 C210 40 216 46 216 56 V80",
-])
+def mono_lockup(color):
+    """The one-colour heron with the wordmark in the same colour, on the orb lockup's 1200 x 400 canvas."""
+    words, width = orb.wordmark_paths()
+    s = 2.75
+    size = 256 * 1.2
+    left = (1200 - (size + 44 + width * s)) / 2
+    top = 200 - size / 2
+    vx, vy, vw, vh = (float(n) for n in orb.MONO_BOX.split())
+    k = size * 0.92 / vh          # the mono heron is drawn tighter than the orb, so scale it to the orb's height
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-label="Heron">'
+            f'<title>Heron</title><g transform="translate({left + (size - vw * k) / 2:.1f} {200 - vh * k / 2:.1f}) scale({k:.4f}) translate({-vx} {-vy})">{orb.mono_group(color)}</g>'
+            f'<g transform="translate({left + size + 44:.1f} {200 - 70 * s:.1f}) scale({s})"><g fill="none" stroke="{color}" stroke-width="{orb.SW}" '
+            f'stroke-linecap="round" stroke-linejoin="round">{words}</g></g></svg>\n')
 
 
-def figure(style):
-    """The heron drawing. style is 'duo-dark', 'duo-light', or a hex colour for one-colour versions."""
-    cx, cy, rx, ry, rot = HEAD
-    head = f'<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" transform="rotate({rot} {cx} {cy})"/>'
-    if style in ("duo-dark", "duo-light"):
-        fill, edge, bill, leg = ((C["frame-dark"], C["surface"], C["surface"], C["surface-pane"]) if style == "duo-dark"
-                                 else (C["surface-pane"], C["ink-heading"], C["ink-heading"], C["ink-heading"]))
-        return (f'<g fill="{fill}" stroke="{edge}" stroke-opacity="0.72" stroke-width="1.6" stroke-linejoin="round">'
-                f'<path d="{BODY}"/><path d="{NECK}"/>{head}</g>'
-                f'<path d="{BILL}" fill="{bill}"/>'
-                f'<g fill="none" stroke-linecap="round" stroke-linejoin="round">'
-                f'<path d="{WING}" stroke="{edge}" stroke-opacity="0.35" stroke-width="1.4"/>'
-                f'<path d="{PLUME}" stroke="{edge}" stroke-opacity="0.6" stroke-width="1.6"/>'
-                f'<path d="{LEGS} {FEET}" stroke="{leg}" stroke-width="3.2"/></g>')
-    return (f'<g fill="{style}"><path d="{BODY}"/><path d="{NECK}"/>{head}<path d="{BILL}"/></g>'
-            f'<g fill="none" stroke="{style}" stroke-linecap="round" stroke-linejoin="round">'
-            f'<path d="{PLUME}" stroke-width="2.4"/><path d="{LEGS} {FEET}" stroke-width="4.4"/></g>')
+def orb_inline(x, y, size):
+    """The orb as a nested SVG, its ids all starting with L so they stay its own."""
+    return (f'<svg x="{x}" y="{y}" width="{size}" height="{size}" viewBox="0 0 256 256" overflow="visible">'
+            f'<defs>{orb.defs("L", orb.LARGE)}</defs>{orb.orb_body("L", orb.LARGE)}</svg>')
 
 
-GLOW = (f'<defs><radialGradient id="g" cx="0.5" cy="0.92" r="0.6">'
-        f'<stop offset="0" stop-color="{C["orb-light"]}" stop-opacity="0.3"/>'
-        f'<stop offset="1" stop-color="{C["orb-light"]}" stop-opacity="0"/></radialGradient></defs>')
+ICON_SHADOW = ('<filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="1.2"/><feOffset dy="1.2"/>'
+               '<feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>')
 
 
-def mark(style, rim, glow=False, size=128):
-    """The mark faces right, toward the wordmark: the drawing mirrored, standing on the rim line."""
-    g = GLOW + '<rect x="0" y="40" width="128" height="80" fill="url(#g)"/>' if glow else ""
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 128 128" role="img" aria-label="Heron">'
-            f'<title>Heron</title>{g}<g transform="translate(104 6) scale(-0.4 0.4)">{figure(style)}</g>'
-            f'<path d="M12 117.2 H116" stroke="{rim}" stroke-width="1.2" stroke-linecap="round"/></svg>\n')
+def welcome_icon():
+    """The Welcome Center icon: the glass orb at 44 px with the site's 48 px icon shadow."""
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48"><defs>{ICON_SHADOW}{orb.defs("S", orb.SMALL)}</defs>'
+            f'<g filter="url(#sh)"><svg x="2" y="1" width="44" height="44" viewBox="0 0 256 256">{orb.orb_body("S", orb.SMALL)}</svg></g></svg>\n')
 
 
-def lockup(style, word, rim, glow=False):
-    g = GLOW + '<rect x="0" y="40" width="128" height="80" fill="url(#g)"/>' if glow else ""
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="344" height="128" viewBox="0 0 344 128" role="img" aria-label="Heron">'
-            f'<title>Heron</title>{g}<g transform="translate(104 6) scale(-0.4 0.4)">{figure(style)}</g>'
-            f'<g transform="translate(130 45) scale(0.9)"><path d="{WORD}" fill="none" stroke="{word}" stroke-width="3.8" '
-            f'stroke-linecap="round" stroke-linejoin="round"/></g>'
-            f'<path d="M12 117.2 H332" stroke="{rim}" stroke-width="1.2" stroke-linecap="round"/></svg>\n')
-
-
-def favicon():
-    """The Start orb's glass bead in a rounded square, with the heron in white."""
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Heron">'
-            f'<title>Heron</title><defs><radialGradient id="o" cx="0.4" cy="0.28" r="0.85">'
-            f'<stop offset="0" stop-color="{C["orb-light"]}"/><stop offset="0.55" stop-color="{C["orb"]}"/>'
-            f'<stop offset="1" stop-color="{C["orb-deep"]}"/></radialGradient></defs>'
-            f'<rect x="0.5" y="0.5" width="63" height="63" rx="14" fill="url(#o)" stroke="{C["orb-edge"]}"/>'
-            f'<path d="M4 26 C4 10 12 4 32 4 C52 4 60 10 60 26 C46 20 18 20 4 26 Z" fill="#FFFFFF" fill-opacity="0.35"/>'
-            f'<g transform="translate(49 3) scale(-0.19 0.19)">{figure(C["surface"])}</g>'
-            f'<path d="M10 55.8 H54" stroke="#FFFFFF" stroke-opacity="0.8" stroke-width="1.6" stroke-linecap="round"/></svg>\n')
+def user_icon():
+    """The 'What is Heron?' picture: the user-account landscape with the one-colour heron standing in its meadow."""
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48"><defs>'
+            '<linearGradient id="us" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9ee6ff"/><stop offset="0.55" stop-color="#3a9ad8"/><stop offset="1" stop-color="#0d4a7a"/></linearGradient>'
+            '<linearGradient id="gr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fd66a"/><stop offset="1" stop-color="#2f7a3a"/></linearGradient></defs>'
+            '<rect width="48" height="48" fill="url(#us)"/><path d="M0 38c10-5 30-6 48-2v12H0z" fill="url(#gr)"/>'
+            '<path d="M0 40c14-3 30-3 48 0" stroke="#d8ffd0" stroke-width="0.8" fill="none" opacity="0.7"/>'
+            f'<g transform="translate(-6.5 -5.5) scale(0.26)"><g fill="#fbfdff"><path d="{orb.HERON_BODY}" transform="translate(40 29.6) scale(1.5)"/></g>'
+            f'<path d="{orb.HERON_LEGS}" transform="translate(40 29.6) scale(1.5)" stroke="#fbfdff" stroke-width="2.6" fill="none" stroke-linecap="round"/></g></svg>\n')
 
 
 def font_face(family, weight, path):
@@ -152,7 +126,7 @@ def social():
 {wallpaper()}
 <rect width="1280" height="640" fill="url(#shade)"/>
 <g filter="url(#lift)">
-<g transform="translate(70 96) scale(1.35)"><g transform="translate(104 6) scale(-0.4 0.4)">{figure(C["surface"])}</g></g>
+{orb_inline(70, 70, 190)}
 <text x="80" y="376" class="h" fill="#FFFFFF">Heron OS</text>
 <text x="86" y="424" class="s" fill="#FFFFFF">Self-hosted code review for GitLab merge requests.</text>
 <text x="86" y="462" class="s" fill="#FFFFFF" fill-opacity="0.85">Learn it by opening files on a desktop.</text>
@@ -174,22 +148,60 @@ def social():
 '''
 
 
+
+def chromium():
+    for hit in sorted((Path.home() / ".cache" / "ms-playwright").glob("chromium_headless_shell-*/chrome-linux/headless_shell")):
+        return str(hit)
+    return shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+
+
+def render_png(svg, png, w, h):
+    """Screenshot an SVG with headless Chromium; the page background stays transparent."""
+    browser = chromium()
+    if not browser:
+        print(f"no headless Chromium found, {png.name} not rendered", file=sys.stderr)
+        return
+    page = png.with_suffix(".html")
+    page.write_text(f'<!doctype html><html><body style="margin:0;background:transparent"><img src="{svg.name}" width="{w}" height="{h}" style="display:block"></body></html>')
+    subprocess.run([browser, "--no-sandbox", "--hide-scrollbars", "--default-background-color=00000000",
+                    f"--screenshot={png}", f"--window-size={w},{h}", f"file://{page}"],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+    page.unlink()
+
+
 if __name__ == "__main__":
+    ink, white = C["ink-heading"], "#FFFFFF"
+    orb_mark = orb.mark_svg()
     files = {
-        "heron-mark.svg": mark("duo-light", C["select-border"]),
-        "heron-mark-on-dark.svg": mark("duo-dark", C["orb-light"], glow=True),
-        "heron-mark-mono-ink.svg": mark(C["ink-heading"], C["ink-heading"]),
-        "heron-mark-mono-white.svg": mark("#FFFFFF", "#FFFFFF"),
-        "heron-lockup.svg": lockup("duo-light", C["ink-heading"], C["select-border"]),
-        "heron-lockup-on-dark.svg": lockup("duo-dark", C["surface"], C["orb-light"], glow=True),
-        "heron-lockup-mono-ink.svg": lockup(C["ink-heading"], C["ink-heading"], C["ink-heading"]),
-        "heron-lockup-mono-white.svg": lockup("#FFFFFF", "#FFFFFF", "#FFFFFF"),
-        "favicon.svg": favicon(),
+        "heron-mark.svg": orb_mark,
+        "heron-mark-on-dark.svg": orb_mark,
+        "heron-mark-mono-ink.svg": orb.mono_svg(ink),
+        "heron-mark-mono-white.svg": orb.mono_svg(white),
+        "heron-lockup.svg": orb.lockup_svg(False)[0],
+        "heron-lockup-on-dark.svg": orb.lockup_svg(True)[0],
+        "heron-lockup-mono-ink.svg": mono_lockup(ink),
+        "heron-lockup-mono-white.svg": mono_lockup(white),
+        "favicon.svg": flat.flat_svg(ink),
         "social-preview.svg": social(),
     }
     for out in OUTS:
         out.mkdir(parents=True, exist_ok=True)
         for name, text in files.items():
-            (out / name).write_text(text)
+            (out / name).write_text(text if text.endswith("\n") else text + "\n")
     for name, text in files.items():
         print(f"{name} {len(text.encode())}")
+
+    # The site's Start orb glyph and its desktop and Explorer icon (the Vista app icon, in a large and a 32 and 48 px drawing).
+    assets = ROOT / "site" / "src" / "assets"
+    (assets / "heron-glyph.svg").write_text(orb.glyph_svg() + "\n")
+    subprocess.run(["node", str(Path(__file__).with_name("icon.mjs")), str(assets / "icons" / ".icon")], check=True)
+    icons = assets / "icons"
+    (icons / "heron-folder.svg").write_text((icons / ".icon" / "mark.svg").read_text() + "\n")
+    (icons / "heron-folder-small.svg").write_text((icons / ".icon" / "mark-small.svg").read_text() + "\n")
+    shutil.rmtree(icons / ".icon")
+    (icons / "welcome.svg").write_text(welcome_icon())
+    (icons / "user.svg").write_text(user_icon())
+
+    for out in OUTS:
+        render_png(out / "heron-mark.svg", out / "heron-mark-512.png", 512, 512)
+        render_png(out / "social-preview.svg", out / "social-preview.png", 1280, 640)

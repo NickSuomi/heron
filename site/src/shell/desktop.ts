@@ -28,7 +28,7 @@ const iconView = (model: Model, node: VfsNode, h: HtmlBuilder<Message>): Html =>
       h.OnFocus(Message.ClickedIcon({ path: node.path })),
     ],
     [
-      h.img([h.Src(iconUrl(iconForNode(node))), h.Alt(""), h.Width("48"), h.Height("48"), h.Draggable(false)]),
+      h.img([h.Src(iconUrl(iconForNode(node), 48)), h.Alt(""), h.Width("48"), h.Height("48"), h.Draggable(false)]),
       h.span([h.Class("desktop-icon-label")], [displayName(node)]),
     ],
   )

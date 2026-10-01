@@ -49,7 +49,7 @@ const programView = (h: HtmlBuilder<Message>, entry: Entry, isLarge: boolean): H
   h.button(
     [h.Class(`sm-program${isLarge ? " is-pinned" : ""}`), h.Role("menuitem"), h.OnClick(entry.message)],
     [
-      h.img([h.Src(iconUrl(entry.icon)), h.Alt(""), h.Width(isLarge ? "32" : "32"), h.Height("32")]),
+      h.img([h.Src(iconUrl(entry.icon, 32)), h.Alt(""), h.Width(isLarge ? "32" : "32"), h.Height("32")]),
       h.span([h.Class("sm-program-text")], [h.span([h.Class("sm-program-name")], [entry.label]), ...(entry.detail === undefined ? [] : [h.span([h.Class("sm-program-detail")], [entry.detail])])]),
     ],
   )

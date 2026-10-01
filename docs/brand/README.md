@@ -221,21 +221,29 @@ Each joke ends on a true sentence from the docs. A new joke needs an old one to 
 
 ## The heron mark
 
-The heron stands on an edge, neck in an S, head lowered, bill pointed down. It is a silhouette with no eye and no face. `tools/build_assets.py` draws it once and writes every mark from that drawing.
+The mark is a glass orb. A white heron stands in shallow water inside it, one foot on each side of its reflection, and the water carries lines of code (braces and bars) like reeds. It has an eye and no other face. The orb is the Start orb of Heron OS, which is why the heron lives in it.
+
+Two other drawings serve the places the orb cannot:
+
+- **The flat pixel heron** is the same bird on a 16 px grid in one colour, with a water line. Use it at 24 px and below, as the favicon, and wherever the orb's gradients cannot print.
+- **The app icon** is the Vista-style window of code with the heron spearing a line and reeds in front. Use it for the Heron folder on the desktop and in Explorer. `site/src/assets/icons/heron-folder.svg` is the large drawing; `heron-folder-small.svg` is redrawn bolder for 32 and 48 px.
+
+Three generators in `tools/` draw them: `orb.py` (the orb, its glyph and the lockup), `flat.py` (the flat heron) and `icon.mjs` with `icon/` (the app icon). `tools/build_assets.py` runs them and writes every file below.
 
 | File | Use |
 |---|---|
-| `assets/heron-mark-mono-white.svg` | The Start orb and light-on-dark places |
-| `assets/heron-mark-mono-ink.svg` | The phone's Today screen and dark-on-light places |
-| `assets/heron-mark.svg`, `assets/heron-mark-on-dark.svg` | Duotone marks for documents |
-| `assets/heron-lockup.svg`, `assets/heron-lockup-on-dark.svg` | Mark and wordmark, for the repository README |
-| `assets/favicon.svg` | The browser tab |
-| `assets/social-preview.svg`, `assets/social-preview.png` | The link preview, 1280 by 640: Heron OS, with a dry run of !42 in the Command Prompt |
+| `assets/heron-mark.svg`, `assets/heron-mark-on-dark.svg` | The orb. It carries its own dark glass, so one drawing serves both light and dark pages; the two files are identical. Below 48 px it switches to a bolder drawing |
+| `assets/heron-mark-512.png` | The orb at 512 by 512 on a transparent background |
+| `assets/heron-mark-mono-ink.svg`, `assets/heron-mark-mono-white.svg` | The flat heron in ink for light places and in white for dark ones |
+| `assets/heron-lockup.svg`, `assets/heron-lockup-on-dark.svg` | The orb and the wordmark, for the repository README |
+| `assets/heron-lockup-mono-ink.svg`, `assets/heron-lockup-mono-white.svg` | The flat heron and the wordmark in one colour |
+| `assets/favicon.svg` | The flat heron, for the browser tab |
+| `assets/social-preview.svg`, `assets/social-preview.png` | The link preview, 1280 by 640: the orb, Heron OS, and a dry run of !42 in the Command Prompt |
 
-- Do not add an eye, a pupil, or a face.
-- Do not rotate or stretch it. It faces left, or right when it sits beside the wordmark.
+- Do not redraw the heron, and do not add a face.
+- Do not rotate or stretch the orb. It faces right, toward the wordmark.
 - Do not animate it flapping, walking, or idling.
-- Below 24 px, use the favicon.
+- Below 24 px, use the flat heron.
 
 ## The report note
 
@@ -254,8 +262,8 @@ Model-written text is posted as escaped plain text, never as Markdown.
 
 - `README.md`: this book.
 - `tools/build_book.ts`: writes `site/public/brand/index.html` from this file and regenerates the contrast table.
-- `assets/`: the heron mark, lockups, favicon, and social preview.
-- `tools/build_assets.py`: draws every SVG in `assets/` and writes the same files to `site/public/brand/assets/`, which the site serves. It reads its colours from `tools/build_tokens.py`.
+- `assets/`: the orb mark, flat heron, lockups, favicon, and social preview.
+- `tools/build_assets.py`: runs `tools/orb.py`, `tools/flat.py` and `tools/icon.mjs`, writes every file in `assets/` and the same files to `site/public/brand/assets/`, which the site serves, and writes the Start orb glyph and the Heron folder icons into `site/src/assets/`. It reads the social preview's colours from `tools/build_tokens.py`.
 - `tokens.json`, `tokens.css`, `tools/build_tokens.py`: the tables of this book as design tokens: the glass, the surfaces and ink, the ribbon, the verdict labels, the glass recipe, and the type. `build_tokens.py` writes the other two.
 
 ## Rebuilding
@@ -264,4 +272,4 @@ Model-written text is posted as escaped plain text, never as Markdown.
 2. Run `node docs/brand/tools/build_book.ts` from the repository root. It rewrites the contrast table here and writes `site/public/brand/index.html`.
 3. Run `pnpm build` in `site/`. Help and Support reads this file when the site is built.
 4. To change a colour, edit `tools/build_tokens.py` and run `python3 docs/brand/tools/build_tokens.py`.
-5. To change the mark or the social preview, run `python3 docs/brand/tools/build_assets.py`, and render the PNGs with headless Chromium: the mark at 512 by 512 and the social preview at 1280 by 640. The social preview embeds Selawik and the Aurora wallpaper, so it needs nothing installed.
+5. To change the mark or the social preview, run `python3 docs/brand/tools/build_assets.py`. It renders the two PNGs (the mark at 512 by 512, the social preview at 1280 by 640) with headless Chromium when one is installed. The social preview embeds Selawik and the Aurora wallpaper, so it needs nothing else.

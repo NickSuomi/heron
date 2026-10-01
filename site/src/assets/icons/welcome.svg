@@ -1,2 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48"><defs><filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="1.2"/><feOffset dy="1.2"/><feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter><radialGradient id="gw" cx="0.4" cy="0.35" r="0.75"><stop offset="0" stop-color="#e8fff3"/><stop offset="0.5" stop-color="#4fcf8f"/><stop offset="1" stop-color="#0f6e5a"/></radialGradient></defs>
-<g filter="url(#sh)"><circle cx="24" cy="24" r="18" fill="url(#gw)" stroke="#0b5244" stroke-width="0.9"/><g transform="translate(38.5 2) scale(-0.137 0.137)"><path d="M100 138 C104 116 126 106 148 112 C168 118 180 146 194 188 C172 183 150 182 134 180 C112 176 98 160 100 138 Z M126 113 C112 96 97 96 91 80 C85 64 72 58 58 64 L51 77 C61 76 68 82 72 92 C78 107 94 117 102 136 Z M42 72 L49 79 L17 120 Z" fill="#fff"/><ellipse cx="51" cy="70" rx="11.5" ry="7.5" transform="rotate(52 51 70)" fill="#fff"/><path d="M132 178 L128 228 L131 276 M142 178 L146 228 L150 276" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round"/></g><path d="M10 17c5-8 17-10 25-4" stroke="#fff" stroke-width="2.2" opacity="0.45" fill="none" stroke-linecap="round"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48"><defs><filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="1.2"/><feOffset dy="1.2"/><feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<radialGradient id="Sbody" cx="0.5" cy="0.38" r="0.62">
+ <stop offset="0" stop-color="#2c4d6b"/><stop offset="0.55" stop-color="#0d1b2b"/><stop offset="1" stop-color="#020509"/></radialGradient>
+<radialGradient id="Sglow" cx="128.0" cy="253.0" r="135.5" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 253.0) scale(1 0.6) translate(0 -253.0)">
+ <stop offset="0" stop-color="#c4f5ff"/><stop offset="0.26" stop-color="#3cc4ff" stop-opacity="0.85"/>
+ <stop offset="0.6" stop-color="#1468b0" stop-opacity="0.32"/><stop offset="1" stop-color="#06345e" stop-opacity="0"/></radialGradient>
+<radialGradient id="Svig" cx="0.5" cy="0.5" r="0.5">
+ <stop offset="0.8" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.6"/></radialGradient>
+<linearGradient id="Sgloss" x1="0" y1="14.0" x2="0" y2="128.0" gradientUnits="userSpaceOnUse">
+ <stop offset="0" stop-color="#fff" stop-opacity="0.75"/><stop offset="0.42" stop-color="#fff" stop-opacity="0.29"/>
+ <stop offset="1" stop-color="#fff" stop-opacity="0.05"/></linearGradient>
+<linearGradient id="Srim" x1="0" y1="7.0" x2="0" y2="249.0" gradientUnits="userSpaceOnUse">
+ <stop offset="0" stop-color="#fff" stop-opacity="0.62"/><stop offset="0.38" stop-color="#fff" stop-opacity="0.1"/>
+ <stop offset="0.68" stop-color="#7fdcff" stop-opacity="0.28"/><stop offset="1" stop-color="#d2f8ff" stop-opacity="1"/></linearGradient>
+<linearGradient id="Scres" x1="0" y1="223.0" x2="0" y2="249.0" gradientUnits="userSpaceOnUse">
+ <stop offset="0" stop-color="#9fe9ff" stop-opacity="0"/><stop offset="1" stop-color="#e6fbff" stop-opacity="0.85"/></linearGradient>
+<linearGradient id="Sheron" x1="0" y1="12" x2="0" y2="95" gradientUnits="userSpaceOnUse">
+ <stop offset="0" stop-color="#ffffff"/><stop offset="0.62" stop-color="#e2f8ff"/><stop offset="1" stop-color="#8fe0ff"/></linearGradient>
+<linearGradient id="Ssurf" x1="7.0" y1="0" x2="249.0" y2="0" gradientUnits="userSpaceOnUse">
+ <stop offset="0.12" stop-color="#d6f7ff" stop-opacity="0"/><stop offset="0.4" stop-color="#d6f7ff" stop-opacity="0.95"/>
+ <stop offset="0.6" stop-color="#d6f7ff" stop-opacity="0.95"/><stop offset="0.88" stop-color="#d6f7ff" stop-opacity="0"/></linearGradient>
+<clipPath id="Sclip"><circle cx="128.0" cy="128.0" r="120.5"/></clipPath>
+<filter id="Shglow" x="-40%" y="-40%" width="180%" height="180%">
+ <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="b"/>
+ <feFlood flood-color="#4fd2ff"/><feComposite operator="in" in2="b" result="g"/>
+ <feGaussianBlur in="SourceAlpha" stdDeviation="14" result="b2"/>
+ <feFlood flood-color="#1e90ff" flood-opacity="0.6"/><feComposite operator="in" in2="b2" result="g2"/>
+ <feMerge><feMergeNode in="g2"/><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="Sripple" x="-10%" y="-10%" width="120%" height="120%">
+ <feTurbulence type="fractalNoise" baseFrequency="0.012 0.16" numOctaves="2" seed="7" result="n"/>
+ <feDisplacementMap in="SourceGraphic" in2="n" scale="7" xChannelSelector="R" yChannelSelector="G"/></filter>
+<filter id="Ssoft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5"/></filter>
+<filter id="Sblur2" x="-10%" y="-50%" width="120%" height="200%"><feGaussianBlur stdDeviation="2"/></filter>
+<mask id="Scodemask" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><path d="M81.20 198.56 Q108.20 199.07 135.20 198.99" stroke="#fff" stroke-opacity="1.00" stroke-width="8.00" stroke-linecap="round" fill="none"/><path d="M142.40 198.96 Q158.60 198.86 174.80 198.56" stroke="#fff" stroke-opacity="0.72" stroke-width="8.00" stroke-linecap="round" fill="none"/><path d="M97.04 215.91 Q122.78 216.39 148.52 216.07" stroke="#fff" stroke-opacity="1.00" stroke-width="8.80" stroke-linecap="round" fill="none"/></mask></defs><g filter="url(#sh)"><svg x="2" y="1" width="44" height="44" viewBox="0 0 256 256">
+<circle cx="128.0" cy="128.0" r="121.0" fill="url(#Sbody)"/>
+<g clip-path="url(#Sclip)">
+ <circle cx="128.0" cy="128.0" r="121.0" fill="url(#Sglow)"/>
+ <path d="M81.20 198.56 Q108.20 199.07 135.20 198.99" stroke="#a6ebff" stroke-opacity="0.55" stroke-width="8.00" stroke-linecap="round" fill="none"/><path d="M142.40 198.96 Q158.60 198.86 174.80 198.56" stroke="#a6ebff" stroke-opacity="0.40" stroke-width="8.00" stroke-linecap="round" fill="none"/><path d="M97.04 215.91 Q122.78 216.39 148.52 216.07" stroke="#a6ebff" stroke-opacity="0.65" stroke-width="8.80" stroke-linecap="round" fill="none"/><path d="M28.8 179.0 H97.8 M107.2 179.0 H119.4 M128.8 179.0 H227.2" stroke="url(#Ssurf)" stroke-width="5.0" stroke-linecap="round"/>
+ <g filter="url(#Shglow)"><g transform="translate(31.0 25.0) scale(1.64)"><path d="M97 23.4 L74.2 20.9 C72.4 16.6 66.4 15.8 63.4 19.1 C59.6 19.7 55.2 21.4 50.2 25.8 C55 23.2 59 22 62.6 22.2 C62.2 22.9 62 23.6 62 24.3 C59.2 28.6 56.2 33.4 56.2 39.4 C56.4 44.4 58.4 47.2 57.8 50.6 C48.4 48.6 33.4 55.4 18.6 72.4 C31 75 44.4 74.4 52 71.2 C61 67.6 66.4 61 64.8 53.4 C64 48.4 60.2 45.6 60.2 40.4 C60.2 35.2 65.6 31.2 69.2 27.4 C70.4 26.2 72.2 25.6 74.2 25.6 Z" fill="url(#Sheron)" stroke="url(#Sheron)" stroke-width="2.68" stroke-linejoin="round"/><path d="M45.6 71.6 L42.4 83 L43.8 93.6 M53.6 70.6 L53.2 82.4 L56.6 93.6" fill="none" stroke="url(#Sheron)" stroke-width="3.90" stroke-linecap="round" stroke-linejoin="round"/><circle cx="69.4" cy="21.4" r="2.18" fill="#0b2740"/></g></g>
+ <circle cx="128.0" cy="128.0" r="121.0" fill="url(#Svig)"/>
+ <path d="M228.1 190.5 A118.0 118.0 0 0 1 27.9 190.5 Q128.0 242.9 228.1 190.5 Z" fill="url(#Scres)" filter="url(#Sblur2)"/>
+</g>
+<circle cx="128.0" cy="128.0" r="114.50" fill="none" stroke="url(#Srim)" stroke-width="5.0"/>
+<path d="M28.8 112.0 C28.8 46.0 72.4 14.0 128.0 14.0 C183.6 14.0 227.2 46.0 227.2 112.0 C197.5 125.0 163.7 128.0 128.0 128.0 C92.3 128.0 58.5 125.0 28.8 112.0 Z" fill="url(#Sgloss)"/>
+<circle cx="128.0" cy="128.0" r="121.0" fill="none" stroke="#000" stroke-opacity="0.92" stroke-width="6.0"/>
+<circle cx="128.0" cy="128.0" r="124.70" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="1.2"/></svg></g></svg>

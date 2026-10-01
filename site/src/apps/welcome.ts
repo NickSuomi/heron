@@ -6,7 +6,7 @@ import { taggedStruct } from "foldkit/schema"
 import { modifyFields } from "foldkit/struct"
 
 import { FilePath, readmePath } from "../domain/vfs"
-import { iconUrl } from "../shell/icons"
+import { type IconName, iconUrl } from "../shell/icons"
 import { glyphUrl } from "./glyphs"
 import { type Form, Request } from "./request"
 
@@ -44,7 +44,7 @@ export const title = (): string => "Welcome Center"
 type Tile = Readonly<{
   id: TileId
   label: string
-  picture: string
+  picture: IconName
   summary: string
   description: ReadonlyArray<string>
   action: string
@@ -59,7 +59,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "about",
     label: "What is Heron?",
-    picture: iconUrl("user"),
+    picture: "user",
     summary: "A self-hosted code-review bot for GitLab merge requests",
     description: [
       "Heron is a self-hosted code-review bot for GitLab merge requests. It runs on your own runner with your own model credentials, posts one report note per merge request, and never pushes, approves, or merges.",
@@ -72,7 +72,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "diagram",
     label: "How Heron works",
-    picture: iconUrl("diagram"),
+    picture: "diagram",
     summary: "Lanes, gates, supervisor and judge, drawn",
     description: [
       "Path rules in the config pick a lane: one reviewer for a docs change, gates with a supervisor for most changes, or two independent branches and a judge for sensitive paths.",
@@ -85,7 +85,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "readme",
     label: "Read the README",
-    picture: iconUrl("notepad"),
+    picture: "notepad",
     summary: "The repository's own README, in Notepad",
     description: [
       "README.txt on the desktop is the Heron repository's README.md as plain text, made when this site was built.",
@@ -98,7 +98,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "cmd",
     label: "Command Prompt",
-    picture: iconUrl("cmd"),
+    picture: "cmd",
     summary: "heron review --mr 42 --dry-run",
     description: [
       "Run heron --help, heron config check, or a review of the fictional merge request !42.",
@@ -111,7 +111,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "gitlab",
     label: "GitLab",
-    picture: iconUrl("browser"),
+    picture: "browser",
     summary: "Merge request !42 at gitlab.heron.local",
     description: [
       "A fictional GitLab with the example project acme/storefront. Sign in with anything: nothing leaves the page.",
@@ -124,7 +124,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "book",
     label: "Design book",
-    picture: iconUrl("help"),
+    picture: "help",
     summary: "How Heron OS looks, sounds and speaks",
     description: [
       "Help and Support holds the Heron OS design book: the palette, the Aero glass recipe, type, icons, window measurements, sound, voice, and accessibility.",
@@ -136,7 +136,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "computer",
     label: "Browse the Heron source",
-    picture: iconUrl("heron-folder"),
+    picture: "heron-folder",
     summary: "src/, docs/ and README.md, read-only",
     description: [
       "The Heron folder is the repository itself: src/, docs/, README.md and the example config, bundled when this site was built.",
@@ -149,7 +149,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "config",
     label: "heron.config.json",
-    picture: iconUrl("json"),
+    picture: "json",
     summary: "The example config: lanes, gates, rules",
     description: [
       "This is the repository's heron.config.example.json. Path rules in it pick a lane, and the lane sets the gates and the sessions that run them.",
@@ -162,7 +162,7 @@ const tiles: ReadonlyArray<Tile> = [
   {
     id: "bin",
     label: "Recycle Bin",
-    picture: iconUrl("recycle-bin"),
+    picture: "recycle-bin",
     summary: "Three things Heron never does",
     description: ["approve.exe, force-push.bat and merge-without-review.lnk. Open one to find out why it stays in the bin."],
     action: "Open the Recycle Bin",
@@ -229,7 +229,7 @@ const header = (h: HtmlBuilder<Message>, model: Model): Html =>
       h.div(
         [h.Class("wc-header is-tile")],
         [
-          h.img([h.Class("wc-header-picture"), h.Src(tile.picture), h.Alt(""), h.Width("64"), h.Height("64")]),
+          h.img([h.Class("wc-header-picture"), h.Src(iconUrl(tile.picture, 64)), h.Alt(""), h.Width("64"), h.Height("64")]),
           h.div(
             [h.Class("wc-header-text")],
             [
@@ -258,7 +258,7 @@ const tileView = (h: HtmlBuilder<Message>, model: Model, tile: Tile): Html =>
       h.OnDoubleClick(Message.OpenedTile({ tile: tile.id })),
       h.OnKeyDownPreventDefault((key) => (key === "Enter" ? Option.some(Message.OpenedTile({ tile: tile.id })) : Option.none())),
     ],
-    [h.img([h.Src(tile.picture), h.Alt(""), h.Width("32"), h.Height("32")]), h.span([h.Class("wc-tile-label")], [tile.label])],
+    [h.img([h.Src(iconUrl(tile.picture, 32)), h.Alt(""), h.Width("32"), h.Height("32")]), h.span([h.Class("wc-tile-label")], [tile.label])],
   )
 
 const sections: ReadonlyArray<readonly [Tile["section"], string]> = [
@@ -283,7 +283,7 @@ const phoneView = (h: HtmlBuilder<Message>, inputs: WelcomeViewInputs): Html =>
       ...tiles.map((tile) =>
         h.button(
           [h.Class("wm-today-item"), h.OnClick(Message.OpenedTile({ tile: tile.id }))],
-          [h.img([h.Src(tile.picture), h.Alt("")]), h.span([h.Class("wm-today-text")], [h.span([], [tile.label]), h.span([], [tile.summary])])],
+          [h.img([h.Src(iconUrl(tile.picture, 32)), h.Alt("")]), h.span([h.Class("wm-today-text")], [h.span([], [tile.label]), h.span([], [tile.summary])])],
         ),
       ),
       startupCheckbox(h, inputs.isShownAtStartup),

@@ -237,7 +237,7 @@ const iconName = (node: VfsNode): IconName =>
           : "folder"
 
 const icon = <M>(h: HtmlBuilder<M>, node: VfsNode, size: number): Html =>
-  h.img([h.Src(iconUrl(iconName(node))), h.Alt(""), h.Width(String(size)), h.Height(String(size)), h.Draggable(false)])
+  h.img([h.Src(iconUrl(iconName(node), size)), h.Alt(""), h.Width(String(size)), h.Height(String(size)), h.Draggable(false)])
 
 const segments = (at: FilePath): ReadonlyArray<FilePath> => [...ancestors(at), at]
 
