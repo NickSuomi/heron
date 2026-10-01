@@ -83,7 +83,8 @@ export const nativeToolsText = (source: HarnessRequest["source"]) =>
     "## Native file tools",
     "Read, Grep and Glob work on three read-only trees. Use these absolute paths with them:",
     ...TREE_REFS.map((r) => `- ${r}: \`${source.trees[r]}\``),
-    "The Heron tools (`mcp__heron__*`) read the same commits; pass `ref` to them instead of a path."
+    "The Heron tools (`mcp__heron__*`) read the same commits; pass `ref` to them instead of a path.",
+    "Heron tool names in the review instructions and tool descriptions are shorthand. Call their registered Claude names with the `mcp__heron__` prefix. For example, call `mcp__heron__read_file` when the text says `read_file`. Bare `read_file` is unavailable."
   ].join("\n")
 
 /** Error categories Claude Code puts on assistant and `system/api_retry` events. */

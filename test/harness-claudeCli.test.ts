@@ -93,7 +93,8 @@ describe("claude-cli harness", () => {
         `- source: \`${source}\``,
         `- target: \`${target}\``,
         `- base: \`${base}\``,
-        "The Heron tools (`mcp__heron__*`) read the same commits; pass `ref` to them instead of a path."
+        "The Heron tools (`mcp__heron__*`) read the same commits; pass `ref` to them instead of a path.",
+        "Heron tool names in the review instructions and tool descriptions are shorthand. Call their registered Claude names with the `mcp__heron__` prefix. For example, call `mcp__heron__read_file` when the text says `read_file`. Bare `read_file` is unavailable."
       ].join("\n"))
       expect(JSON.parse(files[join(dir, "mcp.json")]!)).toEqual({
         mcpServers: {
@@ -161,5 +162,11 @@ describe("claude-cli harness", () => {
     Effect.gen(function*() {
       const error = yield* Effect.flip(run("claude-violation.synthetic.jsonl").effect)
       expect([error.kind, error.detail]).toEqual(["tool-violation", "model called Bash"])
+    }))
+
+  it.effect("rejects an unqualified Heron name even when the session returns structured output", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(run("claude-bare-tool.synthetic.jsonl").effect)
+      expect([error.kind, error.detail]).toEqual(["tool-violation", "model called read_file"])
     }))
 })
