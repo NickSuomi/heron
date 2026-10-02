@@ -48,7 +48,7 @@
     "ai": "7.0.106",
     "effect": "4.0.0",
     "typescript-5": "npm:typescript@5.9.3",
-    "typescript-language-server": "6.0.0",
+    "typescript-language-server": "6.0.1",
     "vue": "3.5.43",
     "zod": "4.6.5"
   },
