@@ -1,7 +1,7 @@
 import { chmod, lstat, mkdir, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import { Effect, Redacted, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import type { Sha } from "../domain.ts"
 import { ForgeError } from "../ports.ts"
 

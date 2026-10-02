@@ -1,3 +1,9 @@
 allowBuilds:
   '@ast-grep/cli': false
 minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - effect@4.0.0
+  - '@effect/platform-node@4.0.0'
+  - '@effect/platform-node-shared@4.0.0'
+  - '@effect/vitest@4.0.0'
+  - ws@8.22.0
