@@ -1,8 +1,8 @@
 import { rm } from "node:fs/promises"
 import { join } from "node:path"
 import { Config as EnvConfig, Duration, Effect, FileSystem, Layer, Redacted, Schema } from "effect"
-import { HttpClient, HttpClientRequest } from "effect/unstable/http"
-import { ChildProcessSpawner } from "effect/unstable/process"
+import { HttpClient, HttpClientRequest } from "effect/http"
+import { ChildProcessSpawner } from "effect/process"
 import type { Config } from "../config.ts"
 import {
   type Change,

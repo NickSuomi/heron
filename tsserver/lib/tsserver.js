@@ -82,7 +82,7 @@ CompilerOptionsResolver.prototype.addConfig = function(options, rootDir) {
 // plugins have nothing to check. An import of either that the tree cannot resolve resolves to Heron's own pinned
 // declarations of the major version the nearest package.json declares; with no such declaration it stays unresolved.
 // tsserver only reads these .d.ts files. Imports inside them resolve the same way, from Heron's install.
-const SUPPLIED = new Map([["vue", new Map([["3", "vue"]])], ["effect", new Map([["3", "effect-3"], ["4", "effect"]])]])
+const SUPPLIED = new Map([["vue", new Map([["3", "vue"]])], ["effect", new Map([["4", "effect"]])]])
 const OWN_MODULES = `${dirname(dirname(__dirname))}/node_modules/`
 const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 const RESOLUTION = { moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext }

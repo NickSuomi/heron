@@ -3,7 +3,7 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Console, Effect, Layer, Option, Schema } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 import pkg from "../package.json" with { type: "json" }
 import { type Config, configSource, type Env, type HarnessConfig, loadConfig } from "./config.ts"
 import { type ThreadReport, type ThreadResult, UserId } from "./domain.ts"

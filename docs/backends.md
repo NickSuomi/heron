@@ -97,7 +97,7 @@ The language server runs Heron's own TypeScript through Heron's tsserver entry, 
 - The Vue TypeScript plugin makes the same six tools work in `.vue` files, in `<script setup lang="ts">` and in template expressions: a template variable resolves to its declaration in the script, and its references include the template. `document_symbols` lists the script's declarations with their `.vue` lines. `diagnostics` includes template type errors.
 - The Effect language service adds its diagnostics, for example an Effect that is created and never yielded, and its hovers, for example the success, failure and requirement types at a `yield*`.
 
-Heron never installs the reviewed repository's dependencies, so a type that comes from a package in `node_modules` shows as `any` or is missing. Without `vue` and `effect` types the two plugins have nothing to check, so Heron supplies those two packages: an import of `vue` or `effect` that the tree cannot resolve reads Heron's own declarations, when the nearest `package.json` declares Vue 3 (Heron's `vue` 3.5.43), Effect 3 (`effect` 3.22.2) or Effect 4 (Heron's own `effect` 4.0.0-rc.115). A location in them shows as `(Heron's package types)` and the package path. A version range with no major number, such as `workspace:*` or `catalog:`, gets no supplied types. Types declared in the repository are exact. A file outside the tree that the tsconfig names, by an absolute path, `extends`, `typeRoots`, `paths`, `references` or a symbolic link, is treated as missing; see [Security](security.md#read-only-source-tools). Heron starts one server per tree on first use and kills it, and every tsserver it started, when the session ends.
+Heron never installs the reviewed repository's dependencies, so a type that comes from a package in `node_modules` shows as `any` or is missing. Without `vue` and `effect` types the two plugins have nothing to check, so Heron supplies those two packages: an import of `vue` or `effect` that the tree cannot resolve reads Heron's own declarations, when the nearest `package.json` declares Vue 3 (Heron's `vue` 3.5.43) or Effect 4 (Heron's own `effect` 4.0.0). A location in them shows as `(Heron's package types)` and the package path. Effect 3 imports resolve only when the reviewed tree already contains their declarations; Heron does not supply them. A version range with no major number, such as `workspace:*` or `catalog:`, gets no supplied types. Types declared in the repository are exact. A file outside the tree that the tsconfig names, by an absolute path, `extends`, `typeRoots`, `paths`, `references` or a symbolic link, is treated as missing; see [Security](security.md#read-only-source-tools). Heron starts one server per tree on first use and kills it, and every tsserver it started, when the session ends.
 
 These tools are pinned dependencies of Heron:
 
@@ -111,9 +111,16 @@ These tools are pinned dependencies of Heron:
 | `@vue/typescript-plugin` | 3.3.11 | MIT | the tsserver plugin for `.vue` files, from Vue language tools |
 | `@effect/language-service` | 0.87.2 | MIT | the Effect tsserver plugin |
 | `vue` | 3.5.43 | MIT | declarations for projects that declare Vue 3; tsserver only reads them |
-| `effect-3` (npm alias of `effect`) | 3.22.2 | MIT | declarations for projects that declare Effect 3; tsserver only reads them |
 
 All of them were published more than seven days before they were pinned, as `minimumReleaseAge` in `pnpm-workspace.yaml` requires. typescript-language-server 6.0.1 was five days old, so Heron pins 6.0.0. @effect/language-service 0.87.3 was one day old, so Heron pins 0.87.2.
+
+The runtime and test adapter use stable Effect 4.0.0. The owner approved an exact
+release-age exception for `effect`, `@effect/platform-node`,
+`@effect/platform-node-shared` and `@effect/vitest` 4.0.0, plus required
+`ws@8.22.0`, in [the migration issue](https://github.com/NickSuomi/heron/issues/21).
+All other dependencies retain the seven-day rule. Registry metadata provides
+MIT licences, integrity hashes, signatures and release provenance. The lockfile
+pins the resolved closure; install-time hooks remain a separate repository policy.
 
 ### `claude-cli`
 

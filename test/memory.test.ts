@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Fiber, Layer, Redacted } from "effect"
 import { TestClock } from "effect/testing"
-import { HttpClient, HttpClientError, HttpClientResponse } from "effect/unstable/http"
+import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http"
 import { bankOf } from "../src/config.ts"
 import type { MemoryEntry, MemoryWrite, UserId } from "../src/domain.ts"
 import { Hindsight } from "../src/memory/hindsight.ts"

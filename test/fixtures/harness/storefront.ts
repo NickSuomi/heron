@@ -7,7 +7,7 @@ import { join } from "node:path"
 export const storefrontFiles = (marker: string): Readonly<Record<string, string>> => {
   const touch = (who: string) => `require("node:fs").appendFileSync(${JSON.stringify(marker)}, ${JSON.stringify(`${who}\n`)})\n`
   return {
-    "storefront/package.json": JSON.stringify({ name: "acme-storefront", private: true, dependencies: { effect: "^3.19.0", vue: "^3.5.0" } }),
+    "storefront/package.json": JSON.stringify({ name: "acme-storefront", private: true, dependencies: { effect: "^4.0.0", vue: "^3.5.0" } }),
     "storefront/tsconfig.json": JSON.stringify({
       compilerOptions: {
         strict: true,

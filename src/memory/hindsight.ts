@@ -1,5 +1,5 @@
 import { Config as EnvConfig, Effect, Layer, Option, Redacted, Schema } from "effect"
-import { HttpClient, HttpClientRequest } from "effect/unstable/http"
+import { HttpClient, HttpClientRequest } from "effect/http"
 import type { MemoryConfig } from "../config.ts"
 import type { MemoryEntry, MemoryWrite } from "../domain.ts"
 import { Memory, MemoryError, type MemoryShape } from "../ports.ts"

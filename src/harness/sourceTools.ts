@@ -839,7 +839,7 @@ const define = <S extends z.ZodRawShape, A>(
 
 const PAGED = "Results are paged: the answer gives `total` and `next`; call again with offset set to `next` for the rest."
 const LSP_NOTE =
-  "Runs Heron's own TypeScript 5.9 language server on the chosen tree, with the Vue plugin for .vue files (script and template) and the Effect language service. The reviewed repository's dependencies are not installed, so types that come from packages in node_modules resolve to `any` or are missing, except vue and effect: when package.json declares Vue 3 or Effect 3 or 4, Heron supplies its own declarations of that major version. Types defined in the repository are exact."
+  "Runs Heron's own TypeScript 5.9 language server on the chosen tree, with the Vue plugin for .vue files (script and template) and the Effect language service. The reviewed repository's dependencies are not installed, so types that come from packages in node_modules resolve to `any` or are missing, except vue and effect: when package.json declares Vue 3 or Effect 4, Heron supplies its own declarations of that major version. Missing Effect 3 declarations remain unresolved. Types defined in the repository are exact."
 
 export const sourceTools: ReadonlyArray<SourceTool> = [
   define("grep", `Search file contents at one commit with git grep. Returns path:line:text lines. ${PAGED}`, grepInput, grep),
