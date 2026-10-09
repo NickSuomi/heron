@@ -44,7 +44,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@vscode/ripgrep": "1.18.0",
-    "@vue/typescript-plugin": "3.3.11",
+    "@vue/typescript-plugin": "3.3.12",
     "ai": "7.0.106",
     "effect": "4.0.0",
     "typescript-5": "npm:typescript@5.9.3",
