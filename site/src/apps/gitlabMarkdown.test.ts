@@ -123,12 +123,12 @@ describe("the report note as the mock GitLab renders it", () => {
   it("renders the compact provenance table and its totals line", () => {
     const [table, totals] = details("AGENT PROVENANCE")
     expect(tableText(table)).toEqual({
-      head: ["Session", "Model", "Effort", "Tokens in / out", "Duration", "Result"],
+      head: ["Session", "Profile", "Model", "Effort", "Tokens in / out", "Cost", "Duration", "Result"],
       rows: [
-        ["gate.design", "<fast model id> (claude)", "low", "18,420 / 1,212", "61.3 s", "ok"],
-        ["gate.correctness", "<fast model id> (claude)", "low", "26,905 / 1,804", "88.7 s", "ok"],
-        ["gate.security", "<fast model id> (claude)", "low", "15,733 / 690", "52.4 s", "ok"],
-        ["supervisor", "<strong model id> (claude)", "high", "31,118 / 2,356", "71.9 s", "ok"],
+        ["gate.design", "quick", "<fast model id> (claude)", "low", "18,420 / 1,212", "n/a", "61.3 s", "ok"],
+        ["gate.correctness", "quick", "<fast model id> (claude)", "low", "26,905 / 1,804", "n/a", "88.7 s", "ok"],
+        ["gate.security", "quick", "<fast model id> (claude)", "low", "15,733 / 690", "n/a", "52.4 s", "ok"],
+        ["supervisor", "deep", "<strong model id> (claude)", "high", "31,118 / 2,356", "n/a", "71.9 s", "ok"],
       ],
     })
     expect(totals?._tag === "Paragraph" && plainText(totals.children)).toBe(
