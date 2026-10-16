@@ -35,6 +35,7 @@ export const DENIED_EMOJI = "no_entry_sign"
 
 export interface PollRequest {
   readonly sinceMinutes: number
+  readonly mr?: number
   /** List the planned actions only: no emoji, no reply, no review, no model session. */
   readonly dryRun: boolean
 }
@@ -225,7 +226,7 @@ export const pollOnce = Effect.fn("pollOnce")(function*(config: Config, request:
   const forge = yield* Forge
   const now = yield* Clock.currentTimeMillis
   const since = new Date(now - request.sinceMinutes * 60_000).toISOString()
-  const iids = yield* forge.openMergeRequests(since)
+  const iids = yield* forge.openMergeRequests(since, request.mr)
   const lines = yield* Effect.forEach(iids, (iid) => pollMergeRequest(config, allowed, iid, since, request.dryRun), { concurrency: config.poll.concurrency })
   return lines.flat()
 })

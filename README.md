@@ -112,7 +112,9 @@ Day to day, users in `admission.allowedTriggerUserIds` can run Heron from a merg
 | `@heron help`, or `@heron` alone | Replies with this list. |
 | `@heron` and any other text | One model session reads the merge request as a review does and answers in the thread. |
 
-GitLab starts no pipeline for a comment, so a scheduled pipeline runs `heron poll`. It reads the `@heron` comments from the last 60 minutes (`--since-minutes`), adds the `eyes` emoji to each one before it acts, and replies in the comment's thread. Heron skips a comment that already has its emoji, so overlapping polls never run a command twice. `heron poll` refuses to start without `admission.allowedTriggerUserIds`. Anyone not on the list gets one reply per merge request saying that only maintainers can run Heron.
+GitLab starts no pipeline for a comment, so a scheduled pipeline runs `heron poll`. It reads the `@heron` comments from the last 60 minutes (`--since-minutes`), adds the `eyes` emoji to each one before it acts, and replies in the comment's thread. Heron skips a comment that already has its emoji. Callers must serialize polls for each merge request with a host lock or CI `resource_group`. `heron poll` refuses to start without `admission.allowedTriggerUserIds`. Anyone not on the list gets one reply per merge request saying that only maintainers can run Heron.
+
+Use `heron poll --mr 7 --since-minutes 60` to poll only merge request !7. It must still be open and updated within the window, and only comments within the window are considered. Without `--mr`, Heron polls all open merge requests updated within the window. Parallel polls for different merge requests can use separate locks; polls that can touch the same merge request must share a lock.
 
 ## How it works
 

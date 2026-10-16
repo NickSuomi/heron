@@ -528,11 +528,12 @@ export const make = Effect.fn("GitLabForge.make")(function*(config: Config, toke
       }),
 
     // The project is the configured one; nothing a note says reaches this list. https://docs.gitlab.com/api/merge_requests/#list-project-merge-requests
-    openMergeRequests: (updatedAfter) =>
+    openMergeRequests: (updatedAfter, iid) =>
       Effect.map(
         pages("openMergeRequests", `/projects/${encodeURIComponent(config.forge.project)}/merge_requests`, Schema.Struct({ iid: Schema.Int }), {
           state: "opened",
           updated_after: updatedAfter,
+          ...(iid === undefined ? {} : { "iids[]": String(iid) }),
           order_by: "updated_at",
           sort: "asc"
         }),

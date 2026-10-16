@@ -80,13 +80,14 @@ const review = Command.make("review", {
   })).pipe(Command.withDescription("Review one merge request at its current head"))
 
 const poll = Command.make("poll", {
+  mr: Flag.Int("mr").pipe(Flag.withDescription("Only poll this merge request IID within the update window"), Flag.optional),
   sinceMinutes: Flag.Int("since-minutes").pipe(Flag.withDefault(60), Flag.withDescription("Look at merge requests and notes from this many minutes back")),
   dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false), Flag.withDescription("List the planned actions; write nothing, not even an emoji")),
   config: configFlag
 }, (flags) =>
   Effect.gen(function*() {
     const config = yield* load(flags.config)
-    const lines = yield* pollOnce(config, { sinceMinutes: flags.sinceMinutes, dryRun: flags.dryRun }).pipe(
+    const lines = yield* pollOnce(config, { sinceMinutes: flags.sinceMinutes, dryRun: flags.dryRun, ...Option.match(flags.mr, { onNone: () => ({}), onSome: (mr) => ({ mr }) }) }).pipe(
       Effect.provide(Layer.mergeAll(GitLabForge.layer(config), HarnessLive(config, { env }), Hindsight.layer(config.memory))),
       Effect.provide(NodeHttpClient.layerUndici)
     )

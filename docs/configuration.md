@@ -128,7 +128,9 @@ A review session has no turn limit and no time limit by default. The model reads
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `concurrency` | 2 | How many merge requests `heron poll` handles at once. Commands on one merge request always run one at a time, in the order they were written. |
+| `concurrency` | 2 | How many merge requests `heron poll` handles at once. Within one poll, commands on one merge request run one at a time, in the order they were written. |
+
+`heron poll --mr 7` polls only merge request !7 if it is open and updated within `--since-minutes`. The note window still applies. Without `--mr`, it polls all open merge requests updated within that window. The caller must serialize polls per merge request with a host lock or CI `resource_group`, including when running parallel `--mr` polls.
 
 Each merge request's review keeps to each harness's `concurrency`, but two reviews that run at once each do, so the sessions on one harness can reach `poll.concurrency` times its `concurrency`.
 

@@ -664,6 +664,17 @@ describe("GitLab forge", () => {
       ])
     }))
 
+  it.effect("openMergeRequests filters one IID while retaining the open state and update window", () =>
+    Effect.gen(function*() {
+      const fake = fakeGitLab([page([{ iid: 7 }], "")])
+      expect(yield* withForge(fake, (forge) => forge.openMergeRequests("2026-09-30T09:00:00.000Z", 7))).toEqual([7])
+      expect(fake.sent).toEqual([
+        { method: "GET", path: "/api/v4/projects/group%2Fapp/merge_requests", query: {
+          state: "opened", updated_after: "2026-09-30T09:00:00.000Z", "iids[]": "7", order_by: "updated_at", sort: "asc", per_page: "100", page: "1"
+        } }
+      ])
+    }))
+
   const award = (id: number, name: string, user: number) => ({ id, name, user: { id: user, username: `u${user}` }, awardable_type: "Note" })
 
   it.effect("commandNotes keeps new @heron notes by people outside internal threads, reads the bot's awards on each, and trusts only the bot's denials", () =>
