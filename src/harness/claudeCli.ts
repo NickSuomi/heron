@@ -197,11 +197,12 @@ export const foldClaudeEvents = (
     return failed(new HarnessError({ kind: "tool-violation", detail: `denied tool calls: ${denials.map((d) => str(d["tool_name"]) ?? "?").join(", ")}` }))
   }
   if (result["is_error"] === true || result["subtype"] !== "success") {
-    if (failure !== null) return failed(failure)
+    if (failure?.kind === "tool-violation") return failed(failure)
     const subtype = str(result["subtype"]) ?? "error"
     const text = clip(redact(str(result["result"]) ?? ""))
     if (subtype === "error_max_turns") return failed(new HarnessError({ kind: "no-output", detail: "reached the turn limit before answering" }))
     if (subtype === "error_max_structured_output_retries") return failed(new HarnessError({ kind: "no-output", detail: "could not produce output matching the schema" }))
+    if (failure !== null) return failed(failure)
     const status = num(result["api_error_status"])
     const kind = status === 401 || status === 403 ? "auth" : status === 429 ? "quota" : "vendor"
     return failed(new HarnessError({ kind, detail: `${subtype}${text === "" ? "" : `: ${text}`}` }))

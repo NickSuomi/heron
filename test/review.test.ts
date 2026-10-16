@@ -5,6 +5,7 @@ import { ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/p
 import { parseMarker, parsePrior } from "../src/report.ts"
 import { reviewOnce } from "../src/review.ts"
 import { makeHarness } from "../src/harness/index.ts"
+import { foldClaudeEvents } from "../src/harness/claudeCli.ts"
 import { fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
 import { jobEnv } from "./fixtures/harness/request.ts"
 import { addedFile, baseConfig, change, configOf, fakeForge, fakeHarness, finding, keepAll, promptIds, reviewOut, type Script, sha } from "./fakes.ts"
@@ -82,6 +83,20 @@ describe("reviewOnce", () => {
       const harness = fakeHarness({ reviewer: () => new HarnessError({ kind, detail: "failed" }) })
       const result = yield* reviewOnce(fallbackConfig(), { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
       expect([result.review.verdict, harness.seen.length, result.review.sessions[0]!.failure]).toEqual(["BLOCKED", 1, kind])
+    }))
+  }
+
+  for (const subtype of ["error_max_turns", "error_max_structured_output_retries"]) {
+    it.effect(`keeps Claude ${subtype} BLOCKED after an earlier rate limit`, () => Effect.gen(function*() {
+      const configured = configOf({ ...baseConfig, profiles: { ...baseConfig.profiles, quick: { ...baseConfig.profiles.quick, fallback: "other" } } })
+      const primary = foldClaudeEvents([
+        { type: "system", subtype: "api_retry", error: "rate_limit" },
+        { type: "result", is_error: true, subtype }
+      ], (text) => text)
+      const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+      const harness = fakeHarness({ reviewer: (request) => request.slot.profile.name === "quick" ? primary : reviewOut() })
+      const result = yield* reviewOnce(configured, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+      expect([result.review.verdict, harness.seen.length, result.review.sessions[0]?.failure]).toEqual(["BLOCKED", 1, "no-output"])
     }))
   }
 
