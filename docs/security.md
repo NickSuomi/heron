@@ -74,6 +74,8 @@ These flags rely on the vendor CLI doing what its documentation says. Heron chec
 
 ## Comment commands
 
+`heron poll --mr 7` limits the list to merge request !7 while retaining the open-state and update-window filters. It does not bypass the note window, allow list, or bot-note checks. Without `--mr`, the poll lists all open merge requests updated within the window.
+
 `heron poll` runs with the bot token and the model credential, and reads text anyone who can comment on a merge request writes. It treats that text as data:
 
 - Only a note's first line can be a command: `@heron` at the start of the note, then whitespace, then one fixed word (`review`, `full review`, `resolve`, `dismiss`, `learn`, `help`, `configuration`). `@heronbot`, a leading space or a colon make no command. Nothing in a note chooses the project, the merge request, the config, the model or the thread Heron replies in: the project comes from the config, the merge request is the one the note is on, and the reply goes to the note's own discussion. The rest of the line after `dismiss`, the rule after `learn`, and all text of a question, is data.
@@ -128,6 +130,6 @@ To limit the damage:
 - **Source goes to the vendor.** The diff, the linked issues, the failed job logs, the recalled team memories, any comment `read_discussions` returns, and any file the model reads are sent to the model vendor of the backend you chose, under that vendor's data terms.
 - **A dismissal is a person's call.** Anyone on the allow list can dismiss a blocker, and the verdict then leaves it out. The dismissal, its reason and its author stay in the thread and in REVIEW CHECKS.
 - **A memory is a person's call.** Anyone on the allow list can store a rule with `@heron learn`, and later reviews of the project read it. The memory names its author and merge request, and can be read, corrected or deleted in Hindsight.
-- **A denial can be said twice.** Two polls that overlap on one merge request, each with a new comment from the same user outside the allow list, can each reply once. The CI job's `resource_group` keeps polls from overlapping.
+- **A denial can be said twice.** Two polls that overlap on one merge request, each with a new comment from the same user outside the allow list, can each reply once. The caller must serialize polls per merge request with a host lock or CI `resource_group`. Parallel `--mr` polls for different merge requests may use separate locks, but polls targeting the same merge request must share one. An all-merge-request poll must participate in the same serialization or run separately.
 - **The admission filter is only as strong as the trigger.** `allowedTriggerUserIds` checks the user id from `--triggered-by` or `GITLAB_USER_ID`. Anyone who can run `heron` with the token directly can pass any id.
 - **Codex credentials need one writer.** Two jobs that share one `CODEX_HOME` can overwrite each other's refreshed tokens. See [Backends](backends.md#codex-codex-cli).

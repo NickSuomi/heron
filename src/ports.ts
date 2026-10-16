@@ -91,7 +91,7 @@ export interface ForgeShape {
   readonly delta: (ref: MrRef, from: Sha, to: Sha) => Effect.Effect<ReadonlyArray<Change> | null, ForgeError>
   readonly checkout: (ref: MrRef, revision: MrSnapshot["revision"]) => Effect.Effect<SourceCheckout, ForgeError, Scope.Scope>
   /** The iids of the configured project's open merge requests updated at or after `updatedAfter`, an ISO 8601 time. */
-  readonly openMergeRequests: (updatedAfter: string) => Effect.Effect<ReadonlyArray<number>, ForgeError>
+  readonly openMergeRequests: (updatedAfter: string, iid?: number) => Effect.Effect<ReadonlyArray<number>, ForgeError>
   /**
    * The notes created at or after `createdAfter` whose first line starts with `@heron`, by anyone but the configured bot,
    * outside internal notes, with whether the bot has awarded each an emoji; and the users the bot's replies say it denied.

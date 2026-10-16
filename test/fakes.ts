@@ -265,7 +265,7 @@ export const fakeForge = (
         if (t === undefined) state.resolvedDiscussions.push(id)
         else t.resolved = resolved
       }),
-    openMergeRequests: () => call(() => state.openIids),
+    openMergeRequests: (_updatedAfter, iid) => call(() => iid === undefined ? state.openIids : state.openIids.filter((openIid) => openIid === iid)),
     // Yields after reading, so polls run side by side both read the notes before either claims one.
     commandNotes: (ref) =>
       Effect.tap(threadCall("commandNotes", () => ({

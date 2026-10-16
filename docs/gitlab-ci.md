@@ -133,7 +133,8 @@ Then in **Build > Pipeline schedules**, add a schedule:
 
 Notes on the job:
 
-- `resource_group: heron-poll` runs one poll at a time. A poll that takes longer than 5 minutes, for example because it runs a review, makes the next one wait instead of overlapping. Heron's claim also stops two polls from acting on one comment if they do overlap: each poll adds the `eyes` emoji before it acts, and a comment that already has the bot's emoji is skipped.
+- `resource_group: heron-poll` runs one poll at a time. A poll that takes longer than 5 minutes, for example because it runs a review, makes the next one wait instead of overlapping. Each poll adds the `eyes` emoji before it acts and skips a comment that already has the bot's emoji. Keep the resource group even with this claim, because separate comments on one merge request can race.
+- For a job dedicated to one merge request, use `node src/cli.ts poll --mr 7 --since-minutes 60`. The merge request must still be open and updated within the window. Without `--mr`, the scheduled job lists all open merge requests updated within the window. Parallel `--mr` jobs need a `resource_group` keyed by merge request, or a host lock, so the caller serializes every poll that can touch the same merge request. An all-merge-request poll must share that serialization or run separately.
 - `--since-minutes 60` looks at merge requests updated, and comments written, in the last hour. Keep it well above the schedule interval, so a late or failed poll does not miss a comment. A comment older than the window when a poll first sees it is never run.
 - `heron poll` prints one line per action: the merge request, the comment id, the command and the result. It exits with a non-zero code after all other actions when any action failed, so the pipeline shows it.
 - To check the setup without acting, run `node src/cli.ts poll --dry-run`. It prints the planned actions and writes nothing, not even an emoji.

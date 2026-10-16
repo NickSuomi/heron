@@ -20,9 +20,9 @@ const blocking: Record<string, Script> = { ...gated, "gate.design": () => review
 const poll = (
   forge: ReturnType<typeof fakeForge>,
   answers: Record<string, Script> = gated,
-  options: { dryRun?: boolean; onRun?: (r: HarnessRequest) => void; config?: typeof config } = {}
+  options: { dryRun?: boolean; onRun?: (r: HarnessRequest) => void; config?: typeof config; mr?: number } = {}
 ) =>
-  pollOnce(options.config ?? config, { sinceMinutes: 60, dryRun: options.dryRun ?? false }).pipe(
+  pollOnce(options.config ?? config, { sinceMinutes: 60, dryRun: options.dryRun ?? false, ...(options.mr === undefined ? {} : { mr: options.mr }) }).pipe(
     Effect.provide(Layer.mergeAll(forge.layer, fakeHarness(answers, options.onRun ? { onRun: options.onRun } : {}).layer))
   )
 
@@ -36,6 +36,20 @@ const repliesIn = (forge: ReturnType<typeof fakeForge>, discussion: string) => f
 const awards = (forge: ReturnType<typeof fakeForge>) => forge.state.commandNotes.map((n) => `${n.id}:${n.awards.map((a) => a.name).join(",")}`)
 
 describe("heron poll", () => {
+  it.effect("limits pending commands to the requested merge request, and polls all merge requests without mr", () =>
+    Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+      forge.state.openIids = [7, 8]
+      forge.state.commandNotes = [commandNote(701, "@heron help", { iid: 7 }), commandNote(801, "@heron help", { iid: 8 })]
+      expect(texts(yield* poll(forge, gated, { mr: 7 }))).toEqual(["!7 note 701 help: replied"])
+      expect(forge.state.posted.map((p) => p.iid)).toEqual([7])
+      const all = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+      all.state.openIids = [7, 8]
+      all.state.commandNotes = [commandNote(701, "@heron help", { iid: 7 }), commandNote(801, "@heron help", { iid: 8 })]
+      expect(texts(yield* poll(all))).toEqual(["!7 note 701 help: replied", "!8 note 801 help: replied"])
+      expect(all.state.posted.map((p) => p.iid)).toEqual([7, 8])
+    }))
+
   it.effect("claims a command with eyes before it acts, replies in the note's discussion, and does nothing on a second poll", () =>
     Effect.gen(function*() {
       const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
