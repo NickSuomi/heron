@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
-import { codexCli } from "../src/harness/codexCli.ts"
+import { codexCli, foldCodexEvents } from "../src/harness/codexCli.ts"
+import { HarnessError } from "../src/ports.ts"
 import { type Captured, fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
 import { answerSchema, jobEnv, noDiscussions, requestFor } from "./fixtures/harness/request.ts"
 
@@ -26,6 +27,19 @@ const overrides = (argv: ReadonlyArray<string>) =>
   Object.fromEntries(argv.flatMap((a, i) => (argv[i - 1] === "-c" ? [a.split(/=(.*)/s).slice(0, 2)] : [])))
 
 describe("codex-cli harness", () => {
+  it("keeps usage from completed turns when a later turn fails and leaves unknown counts null", () => {
+    const failed = foldCodexEvents([
+      { type: "thread.started", thread_id: "failed-thread" },
+      { type: "turn.completed", usage: { input_tokens: 100, output_tokens: 20 } },
+      { type: "turn.failed", error: { message: "quota reached" } }
+    ], (s) => s)
+    expect(failed).toBeInstanceOf(HarnessError)
+    expect(failed instanceof HarnessError && failed.accounting).toEqual({
+      reportedModel: null, vendorSessionId: "failed-thread", toolCalls: 0,
+      usage: { inputTokens: 100, cachedInputTokens: null, outputTokens: 20, reasoningTokens: null, costUsd: null }
+    })
+  })
+
   it.effect("maps a Codex JSONL stream (synthetic, documented event shapes) to a result", () =>
     Effect.gen(function*() {
       expect(yield* run("codex-success.synthetic.jsonl").effect).toEqual({
@@ -76,6 +90,18 @@ describe("codex-cli harness", () => {
     Effect.gen(function*() {
       const error = yield* Effect.flip(run("codex-noauth.jsonl", { code: 1 }).effect)
       expect([error.kind, error.detail.startsWith("unexpected status 401 Unauthorized")]).toEqual(["auth", true])
+    }))
+
+  it.effect("keeps a partial stream with an ordinary stderr warning as no-output", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(run("codex-partial-warning.synthetic.jsonl", { code: 1 }).effect)
+      expect(error.kind).toBe("no-output")
+    }))
+
+  it.effect("reports a nonzero partial stream with connection refused on stderr as vendor", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(run("codex-partial-connection-refused.synthetic.jsonl", { code: 1 }).effect)
+      expect([error.kind, error.detail]).toEqual(["vendor", "codex exited 1: error sending request to provider: connection refused (os error 61)"])
     }))
 
   it.effect("rejects a session that ran a shell command", () =>

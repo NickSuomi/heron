@@ -50,7 +50,39 @@ Every session reads the whole repository at three commits:
 
 Heron fetches the three commits with their full history into a temporary bare repository and writes one read-only working tree per commit. The judge in a `dual` lane reads them too.
 
-Every session runs with the profile's `model` and `effort`. It has no turn limit and no time limit unless you set `limits.maxTurns` or `limits.sessionTimeoutSeconds`. The model must answer with JSON that matches a schema Heron supplies. If a session fails, hits a limit you set, calls a tool it is not allowed to call, or returns JSON that does not match, the review ends with the verdict BLOCKED.
+Every session runs with the profile's `model` and `effort`. It has no turn limit and no time limit unless you set `limits.maxTurns` or `limits.sessionTimeoutSeconds`. The model must answer with JSON that matches a schema Heron supplies. An optional [profile fallback](configuration.md#profiles) retries the same session once on another harness key for authentication, quota or vendor failures. A Codex provider connection failure qualifies even if Codex already emitted `thread.started`. Each attempt uses its actual harness's concurrency budget. The report keeps both attempts and includes their known usage and cost in the totals.
+
+A timeout, missing or malformed output, tool violation, model mismatch, schema failure or interruption ends the review with BLOCKED without selecting a fallback. Tool violations take priority over transport errors. A fallback that fails ends the review with BLOCKED; Heron never starts a third attempt.
+
+### Profile fallback
+
+Set `fallback` on a profile to try another harness when the primary provider is
+unavailable. This example uses Codex first and Claude as its terminal fallback:
+
+```json
+{
+  "harnesses": {
+    "codex": { "kind": "codex-cli", "concurrency": 2 },
+    "claude": { "kind": "claude-cli", "concurrency": 1 }
+  },
+  "profiles": {
+    "codex-primary": { "harness": "codex", "model": "<codex model>", "effort": "high", "fallback": "claude-fallback" },
+    "claude-fallback": { "harness": "claude", "model": "<claude model>", "effort": "high" }
+  }
+}
+```
+
+Use `codex-primary` in the lane that needs fallback. The snippet supplies the
+harness and profile sections of your existing configuration. Both harnesses
+need their normal credentials. You can also set
+`HERON_PROFILE_CODEX_PRIMARY_FALLBACK=claude-fallback`.
+
+Only `auth`, `quota` and `vendor` failures select the fallback. Its harness key
+must differ from the primary's, and its own `fallback` must be absent. The report
+shows the profile that answered and `fell back from <profile>: <kind> <detail>`.
+It retains both attempts' reported tokens and cost. Unknown amounts stay `n/a`.
+Timeouts and model-behavior failures do not retry. See the
+[profile reference](configuration.md#profiles) for validation and retry details.
 
 ### Source tools
 

@@ -50,6 +50,31 @@ describe("heron poll", () => {
       expect(all.state.posted.map((p) => p.iid)).toEqual([7, 8])
     }))
 
+  for (const kind of ["auth", "quota", "vendor"] as const) {
+    it.effect(`answers a question on the fallback after Codex fails with ${kind}`, () => Effect.gen(function*() {
+      const configured = configOf({ ...baseConfig, profiles: { ...baseConfig.profiles, deep: { harness: "beta", model: "codex-model", effort: "high", fallback: "quick" } } })
+      const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+      forge.state.commandNotes = [commandNote(301, "@heron what does this do?")]
+      const seen: Array<HarnessRequest> = []
+      const lines = yield* poll(forge, { answerer: (r) => r.slot.profile.harness === "beta" ? new HarnessError({ kind, detail: "expired" }) : { answer: "The handler subscribes twice." } }, { config: configured, onRun: (r) => seen.push(r) })
+      expect(texts(lines)).toEqual(["!7 note 301 question: answered at aaaaaaaa"])
+      expect(seen.map((r) => [r.slot.id, r.slot.profile.name])).toEqual([["answerer", "deep"], ["answerer", "quick"]])
+      expect(repliesIn(forge, "c301")[0]).toContain("The handler subscribes twice")
+      expect(repliesIn(forge, "c301")[0]).toContain("Heron's answer from the code at `aaaaaaaa`.")
+      expect(seen[1]).toEqual({ ...seen[0], slot: { ...seen[0]!.slot, profile: { name: "quick", harness: "alpha", model: "model-q", effort: "low" } } })
+    }))
+  }
+
+  it.effect("does not retry a question whose returned answer violates its schema", () =>
+    Effect.gen(function*() {
+      const configured = configOf({ ...baseConfig, profiles: { ...baseConfig.profiles, deep: { ...baseConfig.profiles.deep, fallback: "other" } } })
+      const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+      forge.state.commandNotes = [commandNote(301, "@heron what does this do?")]
+      const seen: Array<HarnessRequest> = []
+      const lines = yield* poll(forge, { answerer: () => ({ wrong: "schema" }) }, { config: configured, onRun: (r) => seen.push(r) })
+      expect([lines[0]?.failed, seen.length]).toEqual([true, 1])
+    }))
+
   it.effect("claims a command with eyes before it acts, replies in the note's discussion, and does nothing on a second poll", () =>
     Effect.gen(function*() {
       const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })

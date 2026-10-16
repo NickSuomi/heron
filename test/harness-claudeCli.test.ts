@@ -3,6 +3,7 @@ import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { claudeCli, foldClaudeEvents } from "../src/harness/claudeCli.ts"
+import { HarnessError } from "../src/ports.ts"
 import { type Captured, fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
 import { answerSchema, jobEnv, noDiscussions, requestFor } from "./fixtures/harness/request.ts"
 
@@ -22,6 +23,41 @@ const run = (fixture: string, options: { code?: number; maxTurns?: number | null
 const flag = (argv: ReadonlyArray<string>, name: string) => argv[argv.indexOf(name) + 1]
 
 describe("foldClaudeEvents on usage-limit events", () => {
+  it("keeps message counters when a final quota result reports only cost", () => {
+    const result = foldClaudeEvents([
+      { type: "assistant", message: { id: "message-1", model: "claude-model", content: [], usage: { input_tokens: 42, output_tokens: 3 } } },
+      { type: "result", subtype: "error_during_execution", is_error: true, api_error_status: 429, total_cost_usd: 0.03 }
+    ], (s) => s)
+    expect(result instanceof HarnessError && result.accounting?.usage).toEqual({
+      inputTokens: 42, cachedInputTokens: null, outputTokens: 3, reasoningTokens: null, costUsd: 0.03
+    })
+  })
+
+  it("keeps known usage from the last snapshot of each assistant message when no result arrives", () => {
+    const result = foldClaudeEvents([
+      { type: "assistant", message: { id: "message-1", model: "claude-model", content: [], usage: { input_tokens: 100, output_tokens: 5 } } },
+      { type: "assistant", message: { id: "message-1", model: "claude-model", content: [], usage: { input_tokens: 100, output_tokens: 10 } } },
+      { type: "assistant", message: { id: "message-2", model: "claude-model", content: [], usage: { input_tokens: 40, output_tokens: 3 } } },
+      { type: "system", subtype: "api_retry", error: "rate_limit" }
+    ], (s) => s)
+    expect(result instanceof HarnessError && result.accounting?.usage).toEqual({
+      inputTokens: 140, cachedInputTokens: null, outputTokens: 13, reasoningTokens: null, costUsd: null
+    })
+  })
+
+  it("keeps vendor usage and cost when a completed result fails on quota", () => {
+    const result = foldClaudeEvents([
+      { type: "system", subtype: "init", model: "claude-model", session_id: "failed-session" },
+      { type: "result", subtype: "error_during_execution", is_error: true, api_error_status: 429,
+        total_cost_usd: 0.03, usage: { input_tokens: 120, output_tokens: 15 }, result: "quota reached" }
+    ], (s) => s)
+    expect(result).toBeInstanceOf(HarnessError)
+    expect(result instanceof HarnessError && result.accounting).toEqual({
+      reportedModel: "claude-model", vendorSessionId: "failed-session", toolCalls: 0,
+      usage: { inputTokens: 120, cachedInputTokens: null, outputTokens: 15, reasoningTokens: null, costUsd: 0.03 }
+    })
+  })
+
   const events = (...limits: ReadonlyArray<Record<string, unknown>>) => [
     { type: "system", subtype: "init", model: "claude-sonnet-5", session_id: "s1", mcp_servers: [{ name: "heron", status: "connected" }] },
     ...limits.map((rate_limit_info) => ({ type: "rate_limit_event", rate_limit_info })),

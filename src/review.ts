@@ -1,4 +1,4 @@
-import { Clock, Data, Duration, Effect, Option, Schema, Semaphore } from "effect"
+import { Cause, Clock, Data, Duration, Effect, Exit, Option, Schema, Semaphore } from "effect"
 import type { Config } from "./config.ts"
 import {
   type Branch,
@@ -6,6 +6,7 @@ import {
   type Discussions,
   type Finding,
   type Gate,
+  type HarnessAccounting,
   type MemoryEntry,
   type MemoryUse,
   type MrRef,
@@ -44,9 +45,10 @@ import {
   threadActions,
   verdictOf
 } from "./policy.ts"
-import { Forge, Harness, type HarnessResult, Memory, type Noteable, type SourceCheckout } from "./ports.ts"
+import { Forge, Harness, HarnessError, Memory, type Noteable, type SourceCheckout } from "./ports.ts"
 import { earlierText, findingsText, instructionsFor, packetText } from "./prompt.ts"
 import { renderCleared, renderReport, renderThread } from "./report.ts"
+import { runSession } from "./session.ts"
 
 export class NotAdmitted extends Schema.TaggedError<NotAdmitted>()("NotAdmitted", {
   triggeredBy: Schema.NullOr(Schema.Number)
@@ -109,21 +111,7 @@ const execute = Effect.fn("execute")(function*(
   const withEarlier = (prompt: string, adds: boolean) => rereview === null ? prompt : `${prompt}\n\n${earlierText(rereview, adds)}`
 
   const run = <S extends Schema.ConstraintDecoder<unknown>>(slot: Slot, schema: S, prompt: string) =>
-    Effect.gen(function*() {
-      const started = yield* Clock.currentTimeMillis
-      const record = (result: HarnessResult | null, failure: string | null) =>
-        Effect.map(Clock.currentTimeMillis, (now) => {
-          sessions.push({
-            slot,
-            reportedModel: result?.reportedModel ?? null,
-            vendorSessionId: result?.vendorSessionId ?? null,
-            usage: result?.usage ?? noUsage,
-            toolCalls: result?.toolCalls ?? null,
-            durationMs: now - started,
-            failure
-          })
-        })
-      const result = yield* harness.run({
+    runSession({
         slot,
         instructions: instructionsFor(slot, config.policy, memory !== null),
         prompt,
@@ -132,22 +120,33 @@ const execute = Effect.fn("execute")(function*(
         outputSchema: outputJsonSchema(schema),
         maxTurns: config.limits.maxTurns,
         timeout: config.limits.sessionTimeoutSeconds === null ? null : Duration.seconds(config.limits.sessionTimeoutSeconds)
-      }).pipe(
-        Effect.tapError((e) => record(null, e.kind)),
-        Effect.onInterrupt(() => record(null, "interrupted")),
-        Effect.mapError((e) => new SessionFailed({ session: slot.id, reason: e.message }))
-      )
-      return yield* Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(result.output).pipe(
-        Effect.tapError(() => record(result, "invalid-output")),
-        Effect.tap(() => record(result, null)),
-        Effect.tap(() =>
-          Effect.sync(() => {
-            if (result.limitWarning !== undefined) warnings.add(result.limitWarning)
+      }, (actual, fallback) => Effect.gen(function*() {
+        const started = yield* Clock.currentTimeMillis
+        let accounting: HarnessAccounting | undefined
+        return yield* Effect.gen(function*() {
+          const result = yield* harness.run(actual).pipe(Effect.tapError((e) => Effect.sync(() => { accounting = e.accounting })))
+          accounting = result
+          if (result.limitWarning !== undefined) warnings.add(result.limitWarning)
+          return yield* Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(result.output).pipe(
+            Effect.mapError((e) => new SessionFailed({ session: slot.id, reason: `output did not match its schema: ${e.message}` }))
+          )
+        }).pipe(Effect.onExit((exit) => Effect.map(Clock.currentTimeMillis, (now) => {
+          const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none()
+          const failure = Exit.isSuccess(exit) ? null : Option.isNone(error) ? "interrupted" : error.value instanceof HarnessError ? error.value.kind : "invalid-output"
+          sessions.push({
+            slot: actual.slot,
+            reportedModel: accounting?.reportedModel ?? null,
+            vendorSessionId: accounting?.vendorSessionId ?? null,
+            usage: accounting?.usage ?? noUsage,
+            toolCalls: accounting?.toolCalls ?? null,
+            durationMs: now - started,
+            failure,
+            ...(fallback === undefined ? {} : { fallback })
           })
-        ),
-        Effect.mapError((e) => new SessionFailed({ session: slot.id, reason: `output did not match its schema: ${e.message}` }))
+        })))
+      }).pipe(permits.get(actual.slot.profile.harness)!.withPermits(1))).pipe(
+        Effect.mapError((e) => e instanceof SessionFailed ? e : new SessionFailed({ session: slot.id, reason: e.message }))
       )
-    }).pipe(permits.get(slot.profile.harness)!.withPermits(1))
 
   const rulingsOf = (inputs: ReadonlyArray<Finding>, out: Parameters<typeof applySynthesis>[1], slot: Slot): ReadonlyArray<Ruling> =>
     out.decisions.map((d) => ({ by: slot.id, finding: inputs.find((f) => f.id === d.id)!, ruling: d.ruling, reason: d.reason }))

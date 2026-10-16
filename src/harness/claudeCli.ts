@@ -122,6 +122,7 @@ export const foldClaudeEvents = (
   let limitWarning: string | null = null
   const failures: Array<HarnessError> = []
   let result: Record<string, unknown> | null = null
+  const messages = new Map<string | object, Usage>()
   const note = (e: HarnessError) => failures.push(e)
 
   for (const event of events) {
@@ -137,6 +138,7 @@ export const foldClaudeEvents = (
       }
     } else if (type === "assistant" && isRecord(event["message"])) {
       const message = event["message"]
+      if (isRecord(message["usage"])) messages.set(str(message["id"]) ?? message, usageOf(message))
       const model = str(message["model"])
       if (apiModel === null && model !== null && !model.startsWith("<")) apiModel = model
       const error = str(event["error"])
@@ -169,35 +171,48 @@ export const foldClaudeEvents = (
     }
   }
 
-  const failure = failures[0] ?? null
-  if (result === null) return failure ?? new HarnessError({ kind: "no-output", detail: "Claude Code ended without a result event" })
+  const partial = (key: keyof Usage) => {
+    const known = [...messages.values()].map((u) => u[key]).filter((n) => n !== null)
+    return known.length === 0 ? null : known.reduce((a, b) => a + b, 0)
+  }
+  const reported = usageOf(result ?? {})
+  const used = (key: keyof Usage) => reported[key] ?? partial(key)
+  const accounting = {
+    reportedModel: apiModel ?? initModel,
+    vendorSessionId: (result === null ? null : str(result["session_id"])) ?? sessionId,
+    usage: {
+      inputTokens: used("inputTokens"), cachedInputTokens: used("cachedInputTokens"),
+      outputTokens: used("outputTokens"), reasoningTokens: used("reasoningTokens"), costUsd: used("costUsd")
+    },
+    toolCalls
+  }
+  const failed = (error: HarnessError) => new HarnessError({ kind: error.kind, detail: error.detail, accounting })
+  const failure = failures.find((e) => e.kind === "tool-violation") ?? failures[0] ?? null
+  if (result === null) return failed(failure ?? new HarnessError({ kind: "no-output", detail: "Claude Code ended without a result event" }))
   // A denied native read (a path outside the trees) only tells the model no; the session goes on. Any other denied
   // tool means the model reached for something it must never have.
   const denials = (Array.isArray(result["permission_denials"]) ? result["permission_denials"].filter(isRecord) : [])
     .filter((d) => !(NATIVE_TOOLS as ReadonlyArray<string>).includes(str(d["tool_name"]) ?? ""))
   if (denials.length > 0) {
-    return new HarnessError({ kind: "tool-violation", detail: `denied tool calls: ${denials.map((d) => str(d["tool_name"]) ?? "?").join(", ")}` })
+    return failed(new HarnessError({ kind: "tool-violation", detail: `denied tool calls: ${denials.map((d) => str(d["tool_name"]) ?? "?").join(", ")}` }))
   }
   if (result["is_error"] === true || result["subtype"] !== "success") {
-    if (failure !== null) return failure
+    if (failure !== null) return failed(failure)
     const subtype = str(result["subtype"]) ?? "error"
     const text = clip(redact(str(result["result"]) ?? ""))
-    if (subtype === "error_max_turns") return new HarnessError({ kind: "no-output", detail: "reached the turn limit before answering" })
-    if (subtype === "error_max_structured_output_retries") return new HarnessError({ kind: "no-output", detail: "could not produce output matching the schema" })
+    if (subtype === "error_max_turns") return failed(new HarnessError({ kind: "no-output", detail: "reached the turn limit before answering" }))
+    if (subtype === "error_max_structured_output_retries") return failed(new HarnessError({ kind: "no-output", detail: "could not produce output matching the schema" }))
     const status = num(result["api_error_status"])
     const kind = status === 401 || status === 403 ? "auth" : status === 429 ? "quota" : "vendor"
-    return new HarnessError({ kind, detail: `${subtype}${text === "" ? "" : `: ${text}`}` })
+    return failed(new HarnessError({ kind, detail: `${subtype}${text === "" ? "" : `: ${text}`}` }))
   }
-  if (failure !== null && failure.kind === "tool-violation") return failure
+  if (failure !== null && failure.kind === "tool-violation") return failed(failure)
   if (!("structured_output" in result) || result["structured_output"] === undefined) {
-    return new HarnessError({ kind: "no-output", detail: "the result carried no structured output" })
+    return failed(new HarnessError({ kind: "no-output", detail: "the result carried no structured output" }))
   }
   return {
     output: result["structured_output"],
-    reportedModel: apiModel ?? initModel,
-    vendorSessionId: str(result["session_id"]) ?? sessionId,
-    usage: usageOf(result),
-    toolCalls,
+    ...accounting,
     ...(limitWarning === null ? {} : { limitWarning })
   }
 }

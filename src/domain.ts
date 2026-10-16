@@ -76,11 +76,15 @@ export interface MrSnapshot {
   readonly pipeline: PipelineContext | null
 }
 
-export interface Profile {
+export interface ProfileTarget {
   readonly name: ProfileName
   readonly harness: HarnessKey
   readonly model: string
   readonly effort: string
+}
+
+export interface Profile extends ProfileTarget {
+  readonly fallback?: ProfileTarget
 }
 
 export interface Gate {
@@ -264,22 +268,33 @@ export const outputJsonSchema = (schema: Schema.Constraint): JsonSchema => {
     : { ...document.schema, $defs: document.definitions }
 }
 
-export interface Usage {
-  readonly inputTokens: number | null
-  readonly cachedInputTokens: number | null
-  readonly outputTokens: number | null
-  readonly reasoningTokens: number | null
+export const Usage = Schema.Struct({
+  inputTokens: Schema.NullOr(Schema.Number),
+  cachedInputTokens: Schema.NullOr(Schema.Number),
+  outputTokens: Schema.NullOr(Schema.Number),
+  reasoningTokens: Schema.NullOr(Schema.Number),
   /** As reported by the vendor, which may call it an estimate; null when the vendor reports none. */
-  readonly costUsd: number | null
+  costUsd: Schema.NullOr(Schema.Number)
+})
+export type Usage = typeof Usage.Type
+
+export const HarnessAccounting = Schema.Struct({
+  reportedModel: Schema.NullOr(Schema.String),
+  vendorSessionId: Schema.NullOr(Schema.String),
+  usage: Usage,
+  toolCalls: Schema.NullOr(Schema.Number)
+})
+export type HarnessAccounting = typeof HarnessAccounting.Type
+
+export interface FallbackCause {
+  readonly profile: ProfileName
+  readonly kind: "auth" | "quota" | "vendor"
+  readonly detail: string
 }
 
-export interface SessionRecord {
+export interface SessionRecord extends HarnessAccounting {
   readonly slot: Slot
-  readonly reportedModel: string | null
-  readonly vendorSessionId: string | null
-  readonly usage: Usage
-  /** Null when the session failed before reporting any. */
-  readonly toolCalls: number | null
+  readonly fallback?: FallbackCause
   readonly durationMs: number
   /** Why the session failed (a harness error kind, `invalid-output`, or `interrupted` when a sibling's failure stopped it); null when it succeeded. */
   readonly failure: string | null

@@ -11,6 +11,7 @@ import {
   type Lane,
   LaneName,
   type Profile,
+  type ProfileTarget,
   ProfileName,
   UserId
 } from "./domain.ts"
@@ -65,7 +66,7 @@ export const ConfigFile = Schema.Struct({
   })),
   backend: Schema.optionalKey(HarnessKey),
   harnesses: Schema.Record(HarnessKey, HarnessFile),
-  profiles: Schema.Record(ProfileName, Schema.Struct({ harness: Schema.optionalKey(HarnessKey), model: Text, effort: Text })),
+  profiles: Schema.Record(ProfileName, Schema.Struct({ harness: Schema.optionalKey(HarnessKey), model: Text, effort: Text, fallback: Schema.optionalKey(ProfileName) })),
   gates: Schema.Record(GateName, Schema.Struct({ instructions: Text })),
   lanes: Schema.NonEmptyArray(LaneFile),
   defaultLane: LaneName,
@@ -153,6 +154,7 @@ export const envVars: ReadonlyArray<EnvVar> = [
   { name: "HERON_PROFILE_*_HARNESS", target: ["profiles", "*", "harness"], kind: "string", description: "Harness key of one profile." },
   { name: "HERON_PROFILE_*_MODEL", target: ["profiles", "*", "model"], kind: "string", description: "Model of one profile." },
   { name: "HERON_PROFILE_*_EFFORT", target: ["profiles", "*", "effort"], kind: "string", description: "Reasoning effort of one profile." },
+  { name: "HERON_PROFILE_*_FALLBACK", target: ["profiles", "*", "fallback"], kind: "string", description: "Terminal fallback profile on another harness key, used once for auth, quota or vendor failures." },
   { name: "HERON_HARNESS_*_CONCURRENCY", target: ["harnesses", "*", "concurrency"], kind: "int", description: "Parallel sessions on one harness." },
   { name: "HERON_HARNESS_*_COMMAND", target: ["harnesses", "*", "command"], kind: "string", description: "Vendor CLI path for a claude-cli or codex-cli harness." },
   { name: "HERON_HARNESS_*_BASE_URL", target: ["harnesses", "*", "baseUrl"], kind: "string", description: "API base URL for an ai-sdk harness." },
@@ -261,13 +263,33 @@ export const resolveConfig = (
       const content = texts.get(path)
       return content === undefined ? missing(`instruction file not read: ${path}`) : Result.succeed(content)
     }
-    const profile = (name: ProfileName): Result.Result<Profile, ConfigError> => {
+    const target = (name: ProfileName): Result.Result<ProfileTarget, ConfigError> => {
       const p = file.profiles[name]
       if (p === undefined) return missing(`unknown profile "${name}"`)
       const harness = p.harness ?? file.backend
       if (harness === undefined) return missing(`profile "${name}" names no harness and no backend is set`)
       if (file.harnesses[harness] === undefined) return missing(`profile "${name}" uses unknown harness "${harness}"`)
       return Result.succeed({ name, harness, model: p.model, effort: p.effort })
+    }
+    const profiles = new Map<ProfileName, Profile>()
+    for (const key of Object.keys(file.profiles)) {
+      const primary = yield* target(ProfileName.make(key))
+      const name = primary.name
+      const fallbackName = file.profiles[name]!.fallback
+      if (fallbackName === undefined) {
+        profiles.set(name, primary)
+        continue
+      }
+      if (fallbackName === name) return yield* missing(`profile "${name}" cannot fall back to itself`)
+      if (file.profiles[fallbackName] === undefined) return yield* missing(`profile "${name}" fallback names unknown profile "${fallbackName}"`)
+      const fallback = yield* target(fallbackName)
+      if (fallback.harness === primary.harness) return yield* missing(`profile "${name}" fallback "${fallbackName}" must use a different harness key`)
+      if (file.profiles[fallbackName]!.fallback !== undefined) return yield* missing(`profile "${name}" fallback "${fallbackName}" must not have its own fallback (chains and cycles are not allowed)`)
+      profiles.set(name, { ...primary, fallback })
+    }
+    const profile = (name: ProfileName): Result.Result<Profile, ConfigError> => {
+      const found = profiles.get(name)
+      return found === undefined ? missing(`unknown profile "${name}"`) : Result.succeed(found)
     }
     const gate = (name: GateName): Result.Result<Gate, ConfigError> => {
       const g = file.gates[name]

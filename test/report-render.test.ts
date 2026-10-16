@@ -464,7 +464,7 @@ describe("report shape", () => {
   })
 
   it("puts tool calls and vendor cost in one totals line", () => {
-    expect(source).toContain("| `gate.design` | model\\-\u2060q (alpha) | low | 40,000 / 1,200 | 13.0 s | ok |")
+    expect(source).toContain("| `gate.design` | `quick` | model\\-\u2060q (alpha) | low | 40,000 / 1,200 | $0.0800 | 13.0 s | ok |")
     expect(source).toContain("Totals: 300,000 / 7,000 tokens in / out, 20 tool calls, $0.50 vendor-reported cost.")
   })
 
