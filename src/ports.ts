@@ -1,4 +1,5 @@
 import { Context, type Duration, type Effect, Schema, type Scope } from "effect"
+import { HarnessAccounting } from "./domain.ts"
 import type {
   Change,
   CommandNotes,
@@ -19,8 +20,7 @@ import type {
   PriorReview,
   Sha,
   Slot,
-  Thread,
-  Usage
+  Thread
 } from "./domain.ts"
 
 export class ForgeError extends Schema.TaggedError<ForgeError>()("ForgeError", {
@@ -123,12 +123,9 @@ export interface HarnessRequest {
   readonly timeout: Duration.Duration | null
 }
 
-export interface HarnessResult {
+export interface HarnessResult extends HarnessAccounting {
   /** Decoded by the core against the slot's output schema; never trusted as typed. */
   readonly output: unknown
-  readonly reportedModel: string | null
-  readonly vendorSessionId: string | null
-  readonly usage: Usage
   readonly toolCalls: number
   /** A usage-limit warning the vendor gave during the session, such as a window nearly used up. */
   readonly limitWarning?: string
@@ -137,7 +134,8 @@ export interface HarnessResult {
 export class HarnessError extends Schema.TaggedError<HarnessError>()("HarnessError", {
   kind: Schema.Literals(["auth", "quota", "no-output", "tool-violation", "model-mismatch", "timeout", "vendor"]),
   /** Sanitized: never contains environment or token text. */
-  detail: Schema.String
+  detail: Schema.String,
+  accounting: Schema.optionalKey(HarnessAccounting)
 }) {
   override get message() {
     return `${this.kind}: ${this.detail}`

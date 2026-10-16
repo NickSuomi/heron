@@ -366,12 +366,12 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
     details("REVIEW CHECKS", checks),
     "",
     details("AGENT PROVENANCE", [
-      "| Session | Model | Effort | Tokens in / out | Duration | Result |",
-      "| --- | --- | --- | --- | --- | --- |",
+      "| Session | Profile | Model | Effort | Tokens in / out | Cost | Duration | Result |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- |",
       ...sessions.map((s) =>
-        `| ${code(s.slot.id)} | ${cell(s.reportedModel ?? s.slot.profile.model)} (${cell(s.slot.profile.harness)}) | ${cell(s.slot.profile.effort)} | ${
+        `| ${code(s.slot.id)} | ${code(s.slot.profile.name)} | ${cell(s.reportedModel ?? s.slot.profile.model)} (${cell(s.slot.profile.harness)}) | ${cell(s.slot.profile.effort)} | ${
           tokens(s.usage.inputTokens)
-        } / ${tokens(s.usage.outputTokens)} | ${(s.durationMs / 1000).toFixed(1)} s | ${s.failure === null ? "ok" : cell(s.failure)} |`
+        } / ${tokens(s.usage.outputTokens)} | ${s.usage.costUsd === null ? "n/a" : `$${s.usage.costUsd.toFixed(4)}`} | ${(s.durationMs / 1000).toFixed(1)} s | ${s.failure === null ? "ok" : cell(s.failure)}${s.fallback === undefined ? "" : `; ${cell(`fell back from ${s.fallback.profile}: ${s.fallback.kind} ${s.fallback.detail}`)}`} |`
       ),
       "",
       `Totals: ${tokens(total(sessions.map((s) => s.usage.inputTokens)))} / ${tokens(total(sessions.map((s) => s.usage.outputTokens)))} tokens in / out, ${

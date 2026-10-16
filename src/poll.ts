@@ -21,6 +21,7 @@ import {
   renderStored
 } from "./report.ts"
 import { MEMORY_TIMEOUT, readDiscussions, reviewOnce } from "./review.ts"
+import { runSession } from "./session.ts"
 
 export class PollRefused extends Schema.TaggedError<PollRefused>()("PollRefused", {}) {
   override get message() {
@@ -71,7 +72,7 @@ const answer = (config: Config, ref: MrRef, note: CommandNote, question: string)
     const slot = answererOf(planFor(classify(config, snapshot.changes).lane))
     const discussions = yield* readDiscussions(snapshot)
     const result = yield* Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) =>
-      harness.run({
+      runSession({
         slot,
         instructions: instructionsFor(slot, config.policy, false),
         prompt: questionText(snapshot, note.thread, question),
@@ -80,7 +81,7 @@ const answer = (config: Config, ref: MrRef, note: CommandNote, question: string)
         outputSchema: outputJsonSchema(answerOutput),
         maxTurns: config.limits.maxTurns,
         timeout: config.limits.sessionTimeoutSeconds === null ? null : Duration.seconds(config.limits.sessionTimeoutSeconds)
-      })))
+      }, harness.run)))
     const out = yield* Schema.decodeUnknownEffect(answerOutput, { onExcessProperty: "error" })(result.output).pipe(
       Effect.mapError((e) => new Error(`the answer did not match its schema: ${e.message}`))
     )

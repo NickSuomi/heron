@@ -18,6 +18,7 @@ if (argv[0] === "mcp" && argv[1] === "list") {
   if (code === "hang") setTimeout(() => {}, 60_000)
   else {
     process.stdout.write(readFileSync(fixture, "utf8"))
+    if (existsSync(`${fixture}.stderr`)) process.stderr.write(readFileSync(`${fixture}.stderr`, "utf8"))
     process.exitCode = Number(code)
   }
 }

@@ -1,14 +1,21 @@
-import { describe, expect, it } from "@effect/vitest"
+import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import type { DiscussionId, NoteId, Review, UserId } from "../src/domain.ts"
-import { ForgeError, HarnessError, type HarnessRequest } from "../src/ports.ts"
+import { ForgeError, Harness, HarnessError, type HarnessRequest } from "../src/ports.ts"
 import { parseMarker, parsePrior } from "../src/report.ts"
 import { reviewOnce } from "../src/review.ts"
-import { addedFile, change, configOf, fakeForge, fakeHarness, finding, keepAll, promptIds, reviewOut, type Script, sha } from "./fakes.ts"
+import { makeHarness } from "../src/harness/index.ts"
+import { foldClaudeEvents } from "../src/harness/claudeCli.ts"
+import { fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
+import { jobEnv } from "./fixtures/harness/request.ts"
+import { addedFile, baseConfig, change, configOf, fakeForge, fakeHarness, finding, keepAll, promptIds, reviewOut, type Script, sha } from "./fakes.ts"
 
 const config = configOf()
 const ref = { project: "group/app", iid: 7 }
 const trigger = 2001 as UserId
+const fallbackConfig = () => configOf({ ...baseConfig, profiles: { ...baseConfig.profiles, quick: { harness: "beta", model: "codex-model", effort: "high", fallback: "deep" } } })
+const cliRepo = makeRepo()
+afterAll(cliRepo.cleanup)
 
 const run = (
   forge: ReturnType<typeof fakeForge>,
@@ -26,6 +33,129 @@ const gated: Record<string, Script> = {
 }
 
 describe("reviewOnce", () => {
+  for (const fixture of ["codex-noauth.jsonl", "codex-partial-connection-refused.synthetic.jsonl"]) {
+    it.effect(`completes and reports a Claude fallback after the real Codex adapter reads ${fixture}`, () => Effect.gen(function*() {
+      const codex = fakeCli(cliRepo.root, fixture, 1)
+      const claude = fakeCli(cliRepo.root, "claude-review-success.synthetic.jsonl")
+      const configured = configOf({ ...baseConfig,
+        harnesses: { alpha: { kind: "claude-cli", concurrency: 1, command: claude.bin }, beta: { kind: "codex-cli", concurrency: 1, command: codex.bin } },
+        profiles: { ...baseConfig.profiles, quick: { harness: "beta", model: "codex-model", effort: "high", fallback: "deep" } } })
+      const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+      const { CLAUDE_CODE_OAUTH_TOKEN: _subscription, ...apiEnv } = jobEnv
+      const harness = makeHarness(configured.harnesses, { env: { ...apiEnv, ANTHROPIC_API_KEY: "synthetic-api-key" }, mcpLauncher: { command: "/opt/node", args: ["/opt/heron", "mcp-source"] } })
+      const result = yield* reviewOnce(configured, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, Layer.succeed(Harness)(harness))))
+      expect(result.review.verdict).toBe("PASS")
+      expect(result.review.sessions.map((s) => [s.slot.profile.name, s.slot.profile.harness, s.failure])).toEqual([["quick", "beta", fixture === "codex-noauth.jsonl" ? "auth" : "vendor"], ["deep", "alpha", null]])
+      expect(result.body).toContain("claude\\-\u2060fallback (alpha)")
+      expect(result.body).toContain("fell back from quick")
+      expect(result.body).toContain("240 / 30 | $0.0200")
+    }))
+  }
+
+  it.effect("uses Claude for the same reviewer slot when Codex authentication fails and reports both attempts", () =>
+    Effect.gen(function*() {
+      const configured = fallbackConfig()
+      const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+      const harness = fakeHarness({ reviewer: (r) => r.slot.profile.harness === "beta"
+        ? new HarnessError({ kind: "auth", detail: "login expired" })
+        : reviewOut([], "Claude completed the review.") })
+      const result = yield* reviewOnce(configured, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+      expect(result.review.verdict).toBe("PASS")
+      expect(harness.seen.map((r) => [r.slot.id, r.slot.profile.name, r.slot.profile.harness])).toEqual([["reviewer", "quick", "beta"], ["reviewer", "deep", "alpha"]])
+      expect(result.review.sessions.map((s) => [s.slot.profile.name, s.failure])).toEqual([["quick", "auth"], ["deep", null]])
+      expect(result.body).toContain("fell back from quick")
+      expect(harness.seen[1]).toEqual({ ...harness.seen[0], slot: { ...harness.seen[0]!.slot, profile: { name: "deep", harness: "alpha", model: "model-d", effort: "high" } } })
+    }))
+
+  for (const kind of ["quota", "vendor"] as const) {
+    it.effect(`retries a ${kind} failure once on the fallback`, () => Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+      const harness = fakeHarness({ reviewer: (r) => r.slot.profile.name === "quick" ? new HarnessError({ kind, detail: "provider unavailable" }) : reviewOut() })
+      const result = yield* reviewOnce(fallbackConfig(), { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+      expect([result.review.verdict, harness.seen.length]).toEqual(["PASS", 2])
+      expect(result.review.sessions.map((s) => s.failure)).toEqual([kind, null])
+    }))
+  }
+
+  for (const kind of ["timeout", "no-output", "tool-violation", "model-mismatch"] as const) {
+    it.effect(`keeps ${kind} BLOCKED without trying the fallback`, () => Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+      const harness = fakeHarness({ reviewer: () => new HarnessError({ kind, detail: "failed" }) })
+      const result = yield* reviewOnce(fallbackConfig(), { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+      expect([result.review.verdict, harness.seen.length, result.review.sessions[0]!.failure]).toEqual(["BLOCKED", 1, kind])
+    }))
+  }
+
+  for (const subtype of ["error_max_turns", "error_max_structured_output_retries"]) {
+    it.effect(`keeps Claude ${subtype} BLOCKED after an earlier rate limit`, () => Effect.gen(function*() {
+      const configured = configOf({ ...baseConfig, profiles: { ...baseConfig.profiles, quick: { ...baseConfig.profiles.quick, fallback: "other" } } })
+      const primary = foldClaudeEvents([
+        { type: "system", subtype: "api_retry", error: "rate_limit" },
+        { type: "result", is_error: true, subtype }
+      ], (text) => text)
+      const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+      const harness = fakeHarness({ reviewer: (request) => request.slot.profile.name === "quick" ? primary : reviewOut() })
+      const result = yield* reviewOnce(configured, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+      expect([result.review.verdict, harness.seen.length, result.review.sessions[0]?.failure]).toEqual(["BLOCKED", 1, "no-output"])
+    }))
+  }
+
+  it.effect("keeps invalid model output BLOCKED without fallback and retains its usage", () => Effect.gen(function*() {
+    const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+    const harness = fakeHarness({ reviewer: () => ({ answer: "wrong schema" }) })
+    const result = yield* reviewOnce(fallbackConfig(), { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+    expect([result.review.verdict, harness.seen.length, result.review.sessions[0]!.failure, result.review.sessions[0]!.usage.costUsd]).toEqual(["BLOCKED", 1, "invalid-output", 0.0125])
+  }))
+
+  for (const fallbackFails of [false, true]) {
+    it.effect(`totals the primary's known usage when fallback ${fallbackFails ? "fails without a third attempt" : "succeeds"}`, () => Effect.gen(function*() {
+      const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+      const accounting = { reportedModel: null, vendorSessionId: "charged", toolCalls: 1, usage: { inputTokens: 120, outputTokens: 15, cachedInputTokens: null, reasoningTokens: null, costUsd: 0.03 } }
+      const harness = fakeHarness({ reviewer: (r) => r.slot.profile.name === "quick" || fallbackFails
+        ? new HarnessError({ kind: "quota", detail: "quota reached", accounting }) : reviewOut() })
+      const result = yield* reviewOnce(fallbackConfig(), { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+      expect([result.review.verdict, harness.seen.length]).toEqual([fallbackFails ? "BLOCKED" : "PASS", 2])
+      expect(result.review.sessions.map((s) => [s.slot.profile.name, s.usage.costUsd])).toEqual([["quick", 0.03], ["deep", fallbackFails ? 0.03 : 0.0125]])
+      expect(result.body).toContain(fallbackFails ? "Totals: 240 / 30 tokens in / out, 2 tool calls, $0.06 vendor-reported cost." : "Totals: 1,320 / 315 tokens in / out, 3 tool calls, $0.04 vendor-reported cost.")
+      expect(result.body).toContain("120 / 15 | $0.0300")
+      expect(result.body).toContain("fell back from quick\\:\u2060 quota quota reached")
+    }))
+  }
+
+  it.live("records the failed primary when its running fallback is interrupted by another gate", () => Effect.gen(function*() {
+    const configured = configOf({ ...baseConfig, harnesses: { alpha: { kind: "claude-cli", concurrency: 1 }, beta: { kind: "codex-cli", concurrency: 2 } },
+      profiles: { ...baseConfig.profiles, quick: { harness: "beta", model: "codex-model", effort: "high", fallback: "deep" } } })
+    const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+    const seen: Array<HarnessRequest> = []
+    const harness = Layer.succeed(Harness)({ run: (r) => Effect.gen(function*() {
+      seen.push(r)
+      if (r.slot.id === "gate.correctness") {
+        yield* Effect.sleep(40)
+        return yield* new HarnessError({ kind: "timeout", detail: "gate timed out" })
+      }
+      if (r.slot.profile.harness === "beta") return yield* new HarnessError({ kind: "auth", detail: "login expired" })
+      yield* Effect.sleep(60_000)
+      return yield* new HarnessError({ kind: "vendor", detail: "should have been interrupted" })
+    }) })
+    const result = yield* reviewOnce(configured, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness)))
+    expect(result.review.verdict).toBe("BLOCKED")
+    expect(seen.filter((r) => r.slot.id === "gate.design").map((r) => r.slot.profile.name)).toEqual(["quick", "deep"])
+    expect(result.review.sessions.filter((s) => s.slot.id === "gate.design").map((s) => [s.slot.profile.name, s.failure])).toEqual([["quick", "auth"], ["deep", "interrupted"]])
+    expect(result.body).toContain("fell back from quick")
+  }))
+
+  it.live("shares the fallback harness concurrency budget between gate retries", () => Effect.gen(function*() {
+    const configured = configOf({ ...baseConfig, harnesses: { alpha: { kind: "claude-cli", concurrency: 1 }, beta: { kind: "codex-cli", concurrency: 2 } },
+      profiles: { ...baseConfig.profiles, quick: { harness: "beta", model: "codex-model", effort: "high", fallback: "deep" } } })
+    const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+    const gate: Script = (r) => r.slot.profile.harness === "beta" ? new HarnessError({ kind: "auth", detail: "expired" }) : reviewOut()
+    const harness = fakeHarness({ "gate.design": gate, "gate.correctness": gate, supervisor: keepAll({ added: [] }) }, { delay: 10 })
+    const result = yield* reviewOnce(configured, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+    expect(result.review.verdict).toBe("PASS")
+    expect([...harness.peak.entries()].sort()).toEqual([["alpha", 1], ["beta", 2]])
+    expect(result.review.sessions.map((s) => s.slot.profile.name).sort()).toEqual(["deep", "deep", "deep", "quick", "quick"])
+  }))
+
   it.effect("refuses a trigger user outside the allow list before touching the forge", () =>
     Effect.gen(function*() {
       const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
@@ -193,9 +323,9 @@ describe("reviewOnce", () => {
       const lines = result.body.split("\n")
       const at = lines.indexOf("<summary>AGENT PROVENANCE</summary>")
       expect(lines.slice(at + 2, at + 7)).toEqual([
-        "| Session | Model | Effort | Tokens in / out | Duration | Result |",
-        "| --- | --- | --- | --- | --- | --- |",
-        "| `reviewer` | model\\-\u2060q (alpha) | low | n/a / n/a | 0.0 s | quota |",
+        "| Session | Profile | Model | Effort | Tokens in / out | Cost | Duration | Result |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| `reviewer` | `quick` | model\\-\u2060q (alpha) | low | n/a / n/a | n/a | 0.0 s | quota |",
         "",
         "Totals: n/a / n/a tokens in / out, n/a tool calls, no vendor-reported cost."
       ])
@@ -210,8 +340,8 @@ describe("reviewOnce", () => {
       const lines = result.body.split("\n")
       const at = lines.indexOf("<summary>AGENT PROVENANCE</summary>")
       expect(lines.slice(at + 4, at + 7)).toEqual([
-        "| `gate.design` | model\\-\u2060q (alpha) | low | n/a / n/a | 0.0 s | quota |",
-        "| `gate.correctness` | model\\-\u2060q (alpha) | low | n/a / n/a | 0.0 s | interrupted |",
+        "| `gate.design` | `quick` | model\\-\u2060q (alpha) | low | n/a / n/a | n/a | 0.0 s | quota |",
+        "| `gate.correctness` | `quick` | model\\-\u2060q (alpha) | low | n/a / n/a | n/a | 0.0 s | interrupted |",
         ""
       ])
     }))

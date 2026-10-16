@@ -83,7 +83,11 @@ export const foldCodexEvents = (events: ReadonlyArray<unknown>, redact: (text: s
   let violation: string | null = null
   let failure: string | null = null
   let lastError: string | null = null
-  const usage = { input: 0, cached: 0, output: 0, reasoning: 0 }
+  const usage: Record<"input" | "cached" | "output" | "reasoning", number | null> = { input: null, cached: null, output: null, reasoning: null }
+  const add = (previous: number | null, value: unknown) => {
+    const parsed = num(value)
+    return parsed === null ? previous : (previous ?? 0) + parsed
+  }
 
   for (const event of events) {
     if (!isRecord(event)) continue
@@ -104,10 +108,10 @@ export const foldCodexEvents = (events: ReadonlyArray<unknown>, redact: (text: s
       case "turn.completed": {
         completed = true
         const u = isRecord(event["usage"]) ? event["usage"] : {}
-        usage.input += num(u["input_tokens"]) ?? 0
-        usage.cached += num(u["cached_input_tokens"]) ?? 0
-        usage.output += num(u["output_tokens"]) ?? 0
-        usage.reasoning += num(u["reasoning_output_tokens"]) ?? 0
+        usage.input = add(usage.input, u["input_tokens"])
+        usage.cached = add(usage.cached, u["cached_input_tokens"])
+        usage.output = add(usage.output, u["output_tokens"])
+        usage.reasoning = add(usage.reasoning, u["reasoning_output_tokens"])
         break
       }
       case "turn.failed": {
@@ -121,23 +125,27 @@ export const foldCodexEvents = (events: ReadonlyArray<unknown>, redact: (text: s
     }
   }
 
-  if (violation !== null) return new HarnessError({ kind: "tool-violation", detail: violation })
-  const reason = failure ?? (completed ? null : lastError)
-  if (reason !== null) return new HarnessError({ kind: classify(reason), detail: clip(redact(reason)) })
-  if (!completed) return new HarnessError({ kind: "no-output", detail: "Codex ended without completing the turn" })
-  if (message === null) return new HarnessError({ kind: "no-output", detail: "Codex returned no final message" })
-  let output: unknown
-  try {
-    output = JSON.parse(message)
-  } catch {
-    return new HarnessError({ kind: "no-output", detail: "the final message is not JSON" })
-  }
-  return {
-    output,
+  const accounting = {
     reportedModel: null,
     vendorSessionId: threadId,
     usage: { inputTokens: usage.input, cachedInputTokens: usage.cached, outputTokens: usage.output, reasoningTokens: usage.reasoning, costUsd: null },
     toolCalls
+  }
+  const failed = (kind: HarnessError["kind"], detail: string) => new HarnessError({ kind, detail, accounting })
+  if (violation !== null) return failed("tool-violation", violation)
+  const reason = failure ?? (completed ? null : lastError)
+  if (reason !== null) return failed(classify(reason), clip(redact(reason)))
+  if (!completed) return failed("no-output", "Codex ended without completing the turn")
+  if (message === null) return failed("no-output", "Codex returned no final message")
+  let output: unknown
+  try {
+    output = JSON.parse(message)
+  } catch {
+    return failed("no-output", "the final message is not JSON")
+  }
+  return {
+    output,
+    ...accounting
   }
 }
 
@@ -197,8 +205,11 @@ export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) 
     const redact = redactor(env, SECRETS)
     const folded = foldCodexEvents(run.events, redact)
     if (folded instanceof HarnessError) {
-      return yield* run.events.length === 0 && run.code !== 0
-        ? new HarnessError({ kind: classify(run.stderr), detail: `codex exited ${run.code}: ${clip(redact(run.stderr.trim() || run.text.join(" ")))}` })
+      const transport = /connection refused|ECONNREFUSED|error sending request|connect(?:ion)? (?:error|failed)|network error|TLS handshake/i.test(run.stderr)
+      const incomplete = folded.kind === "no-output" && !run.events.some((e) => isRecord(e) && e["type"] === "turn.completed")
+      const providerFailure = incomplete && run.code !== 0 && (run.events.length === 0 || transport || classify(run.stderr) !== "vendor")
+      return yield* providerFailure
+        ? new HarnessError({ kind: classify(run.stderr), detail: `codex exited ${run.code}: ${clip(redact(run.stderr.trim() || run.text.join(" ")))}`, ...(folded.accounting === undefined ? {} : { accounting: folded.accounting }) })
         : folded
     }
     return folded

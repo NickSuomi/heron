@@ -85,6 +85,34 @@ A profile is a model choice. Lanes refer to profiles by name.
 | `harness` | string, optional | Harness key. Defaults to `backend`. |
 | `model` | string | Model id passed to the backend unchanged. |
 | `effort` | string | Reasoning effort passed to the backend. For `ai-sdk` it must be one of `xhigh`, `high`, `medium`, `low`, `minimal`, `none`. |
+| `fallback` | string, optional | Another profile to try once when this profile fails with `auth`, `quota`, or `vendor`. |
+
+The fallback must exist, resolve to a different harness key, and have no fallback
+of its own. Heron checks every profile after environment overrides, including
+profiles no lane uses. It rejects self references, cycles and chains. Two
+different harness keys may use the same backend kind.
+
+For example, a Codex profile can use a Claude profile when its login expires or
+its provider cannot be reached:
+
+```json
+"profiles": {
+  "primary": { "harness": "codex", "model": "<codex model>", "effort": "high", "fallback": "backup" },
+  "backup": { "harness": "claude", "model": "<claude model>", "effort": "high" }
+}
+```
+
+The retry keeps the same session id, role, gates, prompt, instructions and source
+commits. It uses the fallback model and effort and acquires that harness's
+concurrency permit after releasing the primary permit. Questions use the same
+fallback rule as reviews. A timeout, missing or malformed output, tool violation,
+model mismatch, schema failure or interruption never selects a fallback. A failed
+fallback ends the session; there is no third attempt.
+
+The report lists both attempts with their actual profile, tokens, vendor-reported
+cost and failure. The fallback row says `fell back from <profile>: <kind> <detail>`.
+Totals include known usage from failed attempts. Unknown usage and cost stay
+`n/a`.
 
 ### `gates`
 
@@ -189,6 +217,7 @@ Variables with the config key `none` are read directly and are not part of the c
 | `HERON_PROFILE_*_HARNESS` | `profiles.*.harness` | string | Harness key of one profile. |
 | `HERON_PROFILE_*_MODEL` | `profiles.*.model` | string | Model of one profile. |
 | `HERON_PROFILE_*_EFFORT` | `profiles.*.effort` | string | Reasoning effort of one profile. |
+| `HERON_PROFILE_*_FALLBACK` | `profiles.*.fallback` | string | Terminal fallback profile on another harness key, used once for auth, quota or vendor failures. |
 | `HERON_HARNESS_*_CONCURRENCY` | `harnesses.*.concurrency` | int | Parallel sessions on one harness. |
 | `HERON_HARNESS_*_COMMAND` | `harnesses.*.command` | string | Vendor CLI path for a claude-cli or codex-cli harness. |
 | `HERON_HARNESS_*_BASE_URL` | `harnesses.*.baseUrl` | string | API base URL for an ai-sdk harness. |

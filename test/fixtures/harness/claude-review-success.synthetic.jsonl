@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","model":"claude-fallback","session_id":"synthetic-review-fallback","mcp_servers":[{"name":"heron","status":"connected"}]}
+{"type":"result","subtype":"success","is_error":false,"session_id":"synthetic-review-fallback","total_cost_usd":0.02,"usage":{"input_tokens":240,"output_tokens":30},"permission_denials":[],"structured_output":{"summary":"Fallback review completed.","findings":[],"limitations":[]}}

@@ -10,6 +10,39 @@ const errorOf = (raw: unknown, env: Record<string, string> = {}) => {
 }
 
 describe("config", () => {
+  it("resolves a terminal fallback after environment overrides", () => {
+    const config = configOf(baseConfig, { HERON_PROFILE_QUICK_FALLBACK: "other" })
+    const lane = config.lanes[0]
+    expect(lane.shape === "single" && lane.reviewer).toEqual({
+      name: "quick", harness: "alpha", model: "model-q", effort: "low",
+      fallback: { name: "other", harness: "beta", model: "model-o", effort: "medium" }
+    })
+  })
+
+  it("rejects invalid fallbacks on profiles no lane uses", () => {
+    const withProfiles = (profiles: object) => ({ ...baseConfig, profiles: { ...baseConfig.profiles, ...profiles } })
+    const unused = { model: "unused-model", effort: "low" }
+    expect(errorOf(withProfiles({ unused: { ...unused, fallback: "missing" } }))).toBe('profile "unused" fallback names unknown profile "missing"')
+    expect(errorOf(withProfiles({ unused: { ...unused, fallback: "unused" } }))).toBe('profile "unused" cannot fall back to itself')
+    expect(errorOf(withProfiles({ unused: { ...unused, fallback: "deep" } }))).toBe('profile "unused" fallback "deep" must use a different harness key')
+    expect(errorOf(withProfiles({ unused: { ...unused, fallback: "other" }, other: { ...baseConfig.profiles.other, fallback: "quick" } })))
+      .toContain("must not have its own fallback")
+    expect(errorOf(withProfiles({ unused: { ...unused, fallback: "other" }, other: { ...baseConfig.profiles.other, fallback: "unused" } })))
+      .toContain("chains and cycles are not allowed")
+    expect(errorOf(withProfiles({ unused: { ...unused, harness: "missing" } }))).toBe('profile "unused" uses unknown harness "missing"')
+    const { backend: _backend, ...withoutBackend } = withProfiles({ unused })
+    expect(errorOf(withoutBackend)).toContain("names no harness and no backend is set")
+  })
+
+  it("accepts distinct harness keys with the same kind and validates the overridden fallback", () => {
+    const raw = { ...baseConfig, harnesses: { ...baseConfig.harnesses, beta: { kind: "claude-cli", concurrency: 1 } },
+      profiles: { ...baseConfig.profiles, quick: { ...baseConfig.profiles.quick, fallback: "other" } } }
+    const lane = configOf(raw).lanes[0]
+    expect(lane.shape === "single" && lane.reviewer.fallback?.harness).toBe("beta")
+    expect(errorOf(raw, { HERON_PROFILE_QUICK_FALLBACK: "missing" })).toContain('fallback names unknown profile "missing"')
+    expect(errorOf(raw, { HERON_PROFILE_OTHER_HARNESS: "alpha" })).toContain("must use a different harness key")
+  })
+
   it.effect("loads the shipped example file", () =>
     Effect.gen(function*() {
       const config = yield* loadConfig({ kind: "file", path: "heron.config.example.json" }, {})
