@@ -1,5 +1,6 @@
 import { Duration, Effect, Layer } from "effect"
 import type { Config, Env, HarnessConfig } from "../config.ts"
+import type { HarnessAccounting } from "../domain.ts"
 import { Harness, HarnessError, type HarnessRequest, type HarnessResult, type HarnessShape } from "../ports.ts"
 import { aiSdk, OPENROUTER_CREDENTIALS, openRouterBinding } from "./aiSdk.ts"
 import { CLAUDE_CREDENTIALS, claudeCli } from "./claudeCli.ts"
@@ -51,14 +52,19 @@ export const makeHarness = (harnesses: Config["harnesses"], options: HarnessOpti
     ...(onSubscription ? { limits: readSubscription(token) } : {}),
     run: (request) => {
       const run = adapters.get(request.slot.profile.harness)
-      return run === undefined
-        ? Effect.fail(new HarnessError({ kind: "vendor", detail: `no harness configured under "${request.slot.profile.harness}"` }))
-        : request.timeout === null
-        ? run(request)
-        : run(request).pipe(
+      if (run === undefined) return Effect.fail(new HarnessError({ kind: "vendor", detail: `no harness configured under "${request.slot.profile.harness}"` }))
+      let accounting: HarnessAccounting | undefined
+      const invoked = run({ ...request, onAccounting: (current) => {
+        accounting = current
+        request.onAccounting?.(current)
+      } })
+      const timeout = request.timeout
+      return timeout === null
+        ? invoked
+        : invoked.pipe(
           Effect.timeoutOrElse({
-            duration: request.timeout,
-            orElse: () => Effect.fail(new HarnessError({ kind: "timeout", detail: `no result within ${Duration.format(request.timeout!)}` }))
+            duration: timeout,
+            orElse: () => Effect.fail(new HarnessError({ kind: "timeout", detail: `no result within ${Duration.format(timeout)}`, ...(accounting === undefined ? {} : { accounting }) }))
           })
         )
     }

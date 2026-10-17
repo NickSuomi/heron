@@ -121,6 +121,8 @@ export interface HarnessRequest {
   readonly maxTurns: number | null
   /** Null means no wall-clock limit; an operator opt-in only. */
   readonly timeout: Duration.Duration | null
+  /** Receives accounting during cleanup, including when interruption prevents a result. */
+  readonly onAccounting?: (accounting: HarnessAccounting) => void
 }
 
 export interface HarnessResult extends HarnessAccounting {

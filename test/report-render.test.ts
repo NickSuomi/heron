@@ -53,6 +53,7 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
     dismissed: [],
     rereview: null,
     subscription: null,
+    codexSubscription: null,
     memory: null
   }
   return renderReport(review)
@@ -455,12 +456,38 @@ describe("report shape", () => {
     const render = (subscription: Review["subscription"]) => renderReport({ ...sampleReview, subscription }).split("\n")
     const after = (lines: ReadonlyArray<string>) => lines.slice(lines.findIndex((l) => l.startsWith("Totals:")) + 1).filter((l) => l !== "").slice(0, 2)
     expect(after(render({ before: [window(90, "2026-09-30T01:00:00Z")], after: [window(2, "2026-09-30T06:00:00Z")], warnings: ["@all /close"] }))).toEqual([
-      "Subscription: the five-hour window reset during the review (now 2%). An estimate: Claude reports whole percent, and other sessions on the account count too.",
+      "Claude subscription: the five-hour window reset during the review (now 2%). An estimate: Claude reports whole percent, and other sessions on the account count too.",
       "Claude Code warned: \\@\u2060all \\/\u2060close."
     ])
     expect(after(render({ before: { failure: "HTTP 403" }, after: [window(2, "x")], warnings: [] }))[0]).toBe(
-      "Subscription share unknown: the usage reading failed (HTTP 403)."
+      "Claude subscription share unknown: the usage reading failed (HTTP 403)."
     )
+  })
+
+  it("labels the Claude subscription share by vendor", () => {
+    const window = (percent: number) => [{ window: "weekly" as const, percent, resetsAt: "2026-10-22T06:14:51.000Z" }]
+    expect(renderReport({ ...sampleReview, subscription: { before: window(87), after: window(88), warnings: [] } })).toContain(
+      "Claude subscription: +1% of the weekly window (now 88%). An estimate: Claude reports whole percent, and other sessions on the account count too."
+    )
+  })
+
+  it("shows the Codex subscription share with its whole-percent estimate", () => {
+    const window = (percent: number) => [{ window: "weekly" as const, percent, resetsAt: "2026-10-22T06:14:51.000Z" }]
+    const body = renderReport({ ...sampleReview, codexSubscription: { before: window(87), after: window(88), warnings: [] } })
+    expect(body).toContain("Codex subscription: +1% of the weekly window (now 88%). An estimate: Codex reports whole percent, and other sessions on the account count too.")
+    expect(body.indexOf("Codex subscription:")).toBeGreaterThan(body.indexOf("<summary>AGENT PROVENANCE</summary>"))
+  })
+
+  it("says when the Codex subscription window reset during the review", () => {
+    const before = [{ window: "weekly" as const, percent: 99, resetsAt: "2026-10-15T06:14:51.000Z" }]
+    const after = [{ window: "weekly" as const, percent: 1, resetsAt: "2026-10-22T06:14:51.000Z" }]
+    expect(renderReport({ ...sampleReview, codexSubscription: { before, after, warnings: [] } })).toContain(
+      "Codex subscription: the weekly window reset during the review (now 1%). An estimate: Codex reports whole percent, and other sessions on the account count too."
+    )
+  })
+
+  it("omits the Codex subscription line without readings", () => {
+    expect(renderReport({ ...sampleReview, codexSubscription: null })).not.toContain("Codex subscription")
   })
 
   it("puts tool calls and vendor cost in one totals line", () => {

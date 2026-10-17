@@ -1,0 +1,2 @@
+{"timestamp":"2026-10-17T06:29:33.977Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":87,"window_minutes":10080,"resets_at":1792649691},"secondary":{"used_percent":12,"window_minutes":300,"resets_at":1792235691}}}}
+{"timestamp":"2026-10-17T06:30:33.977Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":13,"window_minutes":300,"resets_at":1792235691},"secondary":{"used_percent":88,"window_minutes":10080,"resets_at":1792649691}}}}

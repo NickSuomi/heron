@@ -81,5 +81,6 @@ export const sampleReview: Review = {
   dismissed: [],
   rereview: null,
   subscription: null,
+  codexSubscription: null,
   memory: null
 }

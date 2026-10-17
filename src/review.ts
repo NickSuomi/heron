@@ -124,7 +124,7 @@ const execute = Effect.fn("execute")(function*(
         const started = yield* Clock.currentTimeMillis
         let accounting: HarnessAccounting | undefined
         return yield* Effect.gen(function*() {
-          const result = yield* harness.run(actual).pipe(Effect.tapError((e) => Effect.sync(() => { accounting = e.accounting })))
+          const result = yield* harness.run({ ...actual, onAccounting: (current) => { accounting = current } }).pipe(Effect.tapError((e) => Effect.sync(() => { accounting = e.accounting ?? accounting })))
           accounting = result
           if (result.limitWarning !== undefined) warnings.add(result.limitWarning)
           return yield* Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(result.output).pipe(
@@ -139,6 +139,7 @@ const execute = Effect.fn("execute")(function*(
             vendorSessionId: accounting?.vendorSessionId ?? null,
             usage: accounting?.usage ?? noUsage,
             toolCalls: accounting?.toolCalls ?? null,
+            ...(accounting?.codexSubscription === undefined ? {} : { codexSubscription: accounting.codexSubscription }),
             durationMs: now - started,
             failure,
             ...(fallback === undefined ? {} : { fallback })
@@ -361,11 +362,15 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
     const subscription: SubscriptionUse | null = before === null || after === null ? null : { before, after, warnings: done.warnings }
     // A person dismissed these in their threads; code drops them after the rulings, so no session can bring one back.
     const { dismissed, outcome } = dropDismissed(done.outcome, dismissals)
-    return { sessions: done.sessions, outcome, dismissed, subscription, memory }
+    const readings = done.sessions.flatMap((s) => s.codexSubscription ? [s.codexSubscription] : [])
+    const first = readings.toSorted((a, b) => a.before.at - b.before.at)[0]?.before
+    const last = readings.toSorted((a, b) => b.after.at - a.after.at)[0]?.after
+    const codexSubscription: SubscriptionUse | null = first === undefined || last === undefined ? null : { before: first.windows, after: last.windows, warnings: [] }
+    return { sessions: done.sessions, outcome, dismissed, subscription, codexSubscription, memory }
   })
   if (!request.publish) {
-    const { dismissed, memory, outcome, sessions, subscription } = yield* reviewed
-    const review: Review = { ...base, sessions, outcome, dismissed, subscription, memory, verdict: verdictOf(outcome), liveHead: null }
+    const { dismissed, memory, outcome, sessions, subscription, codexSubscription } = yield* reviewed
+    const review: Review = { ...base, sessions, outcome, dismissed, subscription, codexSubscription, memory, verdict: verdictOf(outcome), liveHead: null }
     const threads = yield* syncThreads(review, false)
     return { review, body: renderReport(review, threads), note: { kind: "dry-run" }, threads } satisfies ReviewResult
   }
@@ -377,10 +382,10 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const clearRunning = labels.inProgress === null ? Effect.void : forge.updateLabels(ref, { add: [], remove: [labels.inProgress] }).pipe(Effect.ignore)
 
   return yield* Effect.gen(function*() {
-    const { dismissed, memory, outcome, sessions, subscription } = yield* reviewed
+    const { dismissed, memory, outcome, sessions, subscription, codexSubscription } = yield* reviewed
     const live = yield* forge.live(ref)
     const moved = live.head !== head
-    const review: Review = { ...base, sessions, outcome, dismissed, subscription, memory, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
+    const review: Review = { ...base, sessions, outcome, dismissed, subscription, codexSubscription, memory, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
     // Threads go first so the note, the full record, can say what happened to them. A failed thread write never stops the note.
     const threads = yield* syncThreads(review, true)
     const body = renderReport(review, threads)
