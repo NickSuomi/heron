@@ -145,6 +145,7 @@ const render = async (repoRoot: string) => {
     dismissed: [],
     rereview: null,
     subscription: null,
+    codexSubscription: null,
     memory: null,
   }
   return {
