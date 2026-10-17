@@ -232,15 +232,15 @@ const tokens = (n: number | null) => n === null ? "n/a" : n.toLocaleString("en-U
 
 /**
  * The review's share of the subscription: the change in each usage window between the readings before and after it.
- * Claude reports whole percent, and every session on the account counts, so the report calls it an estimate.
+ * Vendors report whole percent, and every session on the account counts, so the report calls it an estimate.
  */
-const subscriptionLines = (s: SubscriptionUse | null): ReadonlyArray<string> => {
+const subscriptionLines = (vendor: "Claude" | "Codex", s: SubscriptionUse | null): ReadonlyArray<string> => {
   if (s === null) return []
   const { after, before } = s
   const share = "failure" in before || "failure" in after
-    ? [`Subscription share unknown: the usage reading failed (${inline("failure" in before ? before.failure : "failure" in after ? after.failure : "")}).`]
+    ? [`${vendor} subscription share unknown: the usage reading failed (${inline("failure" in before ? before.failure : "failure" in after ? after.failure : "")}).`]
     : [
-      `Subscription: ${
+      `${vendor} subscription: ${
         after.flatMap((a) => {
           const b = before.find((w) => w.window === a.window)
           if (b === undefined) return []
@@ -249,7 +249,7 @@ const subscriptionLines = (s: SubscriptionUse | null): ReadonlyArray<string> => 
             ? [`the ${a.window} window reset during the review (now ${now}%)`]
             : [`+${Math.max(0, now - Math.round(b.percent))}% of the ${a.window} window (now ${now}%)`]
         }).join(", ") || "no usage window reported"
-      }. An estimate: Claude reports whole percent, and other sessions on the account count too.`
+      }. An estimate: ${vendor} reports whole percent, and other sessions on the account count too.`
     ]
   return [...share, ...s.warnings.map((w) => `Claude Code warned: ${inline(w)}.`)]
 }
@@ -377,7 +377,7 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
       `Totals: ${tokens(total(sessions.map((s) => s.usage.inputTokens)))} / ${tokens(total(sessions.map((s) => s.usage.outputTokens)))} tokens in / out, ${
         tokens(total(sessions.map((s) => s.toolCalls)))
       } tool calls, ${cost}.`,
-      ...subscriptionLines(review.subscription).flatMap((l) => ["", l])
+      ...[...subscriptionLines("Claude", review.subscription), ...subscriptionLines("Codex", review.codexSubscription)].flatMap((l) => ["", l])
     ])
   )
   if (outcome.kind === "complete") {

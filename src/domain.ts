@@ -278,11 +278,24 @@ export const Usage = Schema.Struct({
 })
 export type Usage = typeof Usage.Type
 
+export const LimitWindow = Schema.Struct({
+  window: Schema.Literals(["five-hour", "weekly"]),
+  percent: Schema.Number,
+  resetsAt: Schema.NullOr(Schema.String)
+})
+export type LimitWindow = typeof LimitWindow.Type
+
+const LimitSample = Schema.Struct({ at: Schema.Number, windows: Schema.Array(LimitWindow) })
+
+export const CodexSubscription = Schema.Struct({ before: LimitSample, after: LimitSample })
+export type CodexSubscription = typeof CodexSubscription.Type
+
 export const HarnessAccounting = Schema.Struct({
   reportedModel: Schema.NullOr(Schema.String),
   vendorSessionId: Schema.NullOr(Schema.String),
   usage: Usage,
-  toolCalls: Schema.NullOr(Schema.Number)
+  toolCalls: Schema.NullOr(Schema.Number),
+  codexSubscription: Schema.optionalKey(Schema.NullOr(CodexSubscription))
 })
 export type HarnessAccounting = typeof HarnessAccounting.Type
 
@@ -339,15 +352,9 @@ export interface Review {
   readonly rereview: Rereview | null
   /** Null when no harness runs on a Claude subscription. */
   readonly subscription: SubscriptionUse | null
+  readonly codexSubscription: SubscriptionUse | null
   /** Null when no team memory is configured. */
   readonly memory: MemoryUse | null
-}
-
-/** One usage window of a Claude subscription, in the whole percent Claude reports. */
-export interface LimitWindow {
-  readonly window: "five-hour" | "weekly"
-  readonly percent: number
-  readonly resetsAt: string | null
 }
 
 /** The subscription's usage windows at one moment, or why they could not be read. */

@@ -1,7 +1,9 @@
-import { mkdir, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import { Effect } from "effect"
+import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises"
+import { homedir } from "node:os"
+import { basename, join } from "node:path"
+import { Effect, Option, Schema } from "effect"
 import type { Env } from "../config.ts"
+import type { CodexSubscription, LimitWindow } from "../domain.ts"
 import { HarnessError, type HarnessRequest, type HarnessResult } from "../ports.ts"
 import { discussionsFile, type Launcher, MCP_SERVER_NAME, mcpSourceCommand } from "./mcpSource.ts"
 import { childEnv, clip, isRecord, num, redactor, runJsonLines, runProcess, str, tempDir } from "./process.ts"
@@ -46,7 +48,6 @@ export const codexArgs = (
   "-c", `model_reasoning_effort=${toml(request.slot.profile.effort)}`,
   "--sandbox", "read-only",
   "--skip-git-repo-check",
-  "--ephemeral",
   "-C", files.cwd,
   "-c", "features.shell_tool=false",
   "-c", "features.unified_exec=false",
@@ -152,6 +153,56 @@ export const foldCodexEvents = (events: ReadonlyArray<unknown>, redact: (text: s
 /** A name `-c mcp_servers.<name>.enabled=false` can address; Codex splits the key on every dot. */
 const ADDRESSABLE = /^[A-Za-z0-9_-]+$/
 
+const rolloutWindow = Schema.decodeUnknownOption(Schema.Struct({ used_percent: Schema.Finite, window_minutes: Schema.Finite, resets_at: Schema.Finite }))
+const rolloutReading = Schema.decodeUnknownOption(Schema.Struct({
+  timestamp: Schema.String,
+  type: Schema.Literal("event_msg"),
+  payload: Schema.Struct({
+    type: Schema.Literal("token_count"),
+    rate_limits: Schema.Struct({ primary: Schema.optionalKey(Schema.Unknown), secondary: Schema.optionalKey(Schema.Unknown) })
+  })
+}))
+
+const rolloutSubscription = (home: string, threadId: string | null): Effect.Effect<CodexSubscription | null> =>
+  threadId === null ? Effect.succeed(null) : Effect.tryPromise(async () => {
+    const sessions = join(home, "sessions")
+    const file = (await readdir(sessions, { recursive: true })).find((path) => basename(path).startsWith("rollout-") && path.endsWith(`-${threadId}.jsonl`))
+    if (file === undefined) return null
+    const path = join(sessions, file)
+    try {
+      let before: CodexSubscription["before"] | null = null
+      let after: CodexSubscription["after"] | null = null
+      for (const line of (await readFile(path, "utf8")).split("\n")) {
+        let body: unknown
+        try {
+          body = JSON.parse(line)
+        } catch {
+          continue
+        }
+        const reading = rolloutReading(body)
+        if (Option.isNone(reading)) continue
+        const at = Date.parse(reading.value.timestamp)
+        if (!Number.isFinite(at)) continue
+        const limits = reading.value.payload.rate_limits
+        const windows = [limits.primary, limits.secondary].flatMap((value): ReadonlyArray<LimitWindow> => {
+          const parsed = rolloutWindow(value)
+          if (Option.isNone(parsed)) return []
+          const w = parsed.value
+          const window = w.window_minutes === 300 ? "five-hour" : w.window_minutes === 10080 ? "weekly" : null
+          const reset = new Date(w.resets_at * 1000)
+          return window === null || !Number.isFinite(reset.getTime()) ? [] : [{ window, percent: w.used_percent, resetsAt: reset.toISOString() }]
+        })
+        if (windows.length === 0) continue
+        const sample = { at, windows }
+        before ??= sample
+        after = sample
+      }
+      return before === null || after === null ? null : { before, after }
+    } finally {
+      await unlink(path)
+    }
+  }).pipe(Effect.orElseSucceed(() => null))
+
 /**
  * `-c` merges into the operator's config.toml instead of replacing `mcp_servers`, and Codex has no flag to skip that
  * file, so every server it defines is listed first and switched off by name. A server already named like Heron's would
@@ -204,13 +255,17 @@ export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) 
     )
     const redact = redactor(env, SECRETS)
     const folded = foldCodexEvents(run.events, redact)
+    const threadId = folded instanceof HarnessError ? folded.accounting?.vendorSessionId ?? null : folded.vendorSessionId
+    const codexSubscription = yield* rolloutSubscription(env["CODEX_HOME"] ?? join(env["HOME"] ?? homedir(), ".codex"), threadId)
     if (folded instanceof HarnessError) {
       const transport = /connection refused|ECONNREFUSED|error sending request|connect(?:ion)? (?:error|failed)|network error|TLS handshake/i.test(run.stderr)
       const incomplete = folded.kind === "no-output" && !run.events.some((e) => isRecord(e) && e["type"] === "turn.completed")
       const providerFailure = incomplete && run.code !== 0 && (run.events.length === 0 || transport || classify(run.stderr) !== "vendor")
-      return yield* providerFailure
-        ? new HarnessError({ kind: classify(run.stderr), detail: `codex exited ${run.code}: ${clip(redact(run.stderr.trim() || run.text.join(" ")))}`, ...(folded.accounting === undefined ? {} : { accounting: folded.accounting }) })
-        : folded
+      return yield* new HarnessError({
+        kind: providerFailure ? classify(run.stderr) : folded.kind,
+        detail: providerFailure ? `codex exited ${run.code}: ${clip(redact(run.stderr.trim() || run.text.join(" ")))}` : folded.detail,
+        ...(folded.accounting === undefined ? {} : { accounting: { ...folded.accounting, codexSubscription } })
+      })
     }
-    return folded
+    return { ...folded, codexSubscription }
   }))

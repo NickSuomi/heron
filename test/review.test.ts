@@ -414,7 +414,7 @@ describe("reviewOnce", () => {
       expect(result.review.subscription).toEqual({ before: at(25, 38), after: at(28, 39), warnings: ["five_hour limit allowed_warning"] })
       const lines = result.body.split("\n")
       expect(lines[lines.findIndex((l) => l.startsWith("Totals:")) + 2]).toBe(
-        "Subscription: +3% of the five-hour window (now 28%), +1% of the weekly window (now 39%). An estimate: Claude reports whole percent, and other sessions on the account count too."
+        "Claude subscription: +3% of the five-hour window (now 28%), +1% of the weekly window (now 39%). An estimate: Claude reports whole percent, and other sessions on the account count too."
       )
     }))
 
@@ -424,6 +424,36 @@ describe("reviewOnce", () => {
       const result = yield* run(forge, gated, { publish: false })
       expect([result.review.subscription, result.body.includes("Subscription")]).toEqual([null, false])
     }))
+
+  for (const failed of [false, true]) {
+    it.effect(`aggregates Codex limits by reading time across ${failed ? "failed" : "successful"} sessions`, () =>
+      Effect.gen(function*() {
+        const forge = fakeForge({ head: sha("a"), changes: [change("src/app.ts")] })
+        const windows = (percent: number) => [{ window: "weekly" as const, percent, resetsAt: "2026-10-22T06:14:51.000Z" }]
+        const limits = (start: number, end: number, before: number, after: number) => ({
+          before: { at: start, windows: windows(before) }, after: { at: end, windows: windows(after) }
+        })
+        const layer = Layer.succeed(Harness)({
+          run: (request) => {
+            const codexSubscription = request.slot.id === "gate.design" ? limits(10, 40, 87, 90)
+              : request.slot.id === "gate.correctness" ? limits(20, 30, 88, 89) : null
+            const accounting = {
+              reportedModel: null, vendorSessionId: request.slot.id, toolCalls: 0,
+              usage: { inputTokens: null, cachedInputTokens: null, outputTokens: null, reasoningTokens: null, costUsd: null },
+              codexSubscription
+            }
+            if (failed && request.slot.id === "supervisor") {
+              return Effect.fail(new HarnessError({ kind: "quota", detail: "quota reached", accounting: { ...accounting, codexSubscription: limits(5, 50, 86, 91) } }))
+            }
+            return Effect.succeed({ ...accounting, output: request.slot.role === "supervisor" ? keepAll({ added: [] })(request) : reviewOut() })
+          }
+        })
+        const result = yield* reviewOnce(config, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, layer)))
+        expect(result.review.codexSubscription).toEqual({ before: windows(failed ? 86 : 87), after: windows(failed ? 91 : 90), warnings: [] })
+        expect(result.review.subscription).toBe(null)
+        expect(result.body).toContain(`Codex subscription: +${failed ? 5 : 3}% of the weekly window (now ${failed ? 91 : 90}%).`)
+      }))
+  }
 
   it.live("never runs more sessions on one harness than its concurrency allows", () =>
     Effect.gen(function*() {
