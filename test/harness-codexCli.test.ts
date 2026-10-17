@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Duration, Effect } from "effect"
 import type { Env } from "../src/config.ts"
 import { codexCli, foldCodexEvents } from "../src/harness/codexCli.ts"
+import { makeHarness } from "../src/harness/index.ts"
 import { HarnessError } from "../src/ports.ts"
 import { type Captured, fakeCli, makeRepo } from "./fixtures/harness/repo.ts"
 import { answerSchema, jobEnv, noDiscussions, requestFor } from "./fixtures/harness/request.ts"
@@ -126,6 +127,25 @@ describe("codex-cli harness", () => {
       const result = yield* run("codex-success.synthetic.jsonl", { home }).effect
       expect(result.output).toEqual({ answer: 42 })
       expect(result.codexSubscription).toBe(null)
+    }))
+
+  it.live("collects and deletes the rollout when a Codex session times out", () =>
+    Effect.gen(function*() {
+      const home = mkdtempSync(join(repo.root, "codex-timeout-"))
+      const dir = join(home, "sessions", "2026", "10", "17")
+      mkdirSync(dir, { recursive: true })
+      const thread = "0199a213-81c0-7800-8aa1-bbab2a035a53"
+      const rollout = join(dir, `rollout-2026-10-17T06-29-33-${thread}.jsonl`)
+      writeFileSync(rollout, readFileSync(join(import.meta.dirname, "fixtures/harness/codex-rollout.synthetic.jsonl")))
+      const fake = fakeCli(repo.root, "codex-success.synthetic.jsonl", "hang")
+      writeFileSync(fake.bin, readFileSync(fake.bin, "utf8").replace("\nexec ", `\nif [ "$1" = "exec" ]; then printf '%s\\n' '${JSON.stringify({ type: "thread.started", thread_id: thread })}'; fi\nexec `))
+      const request = requestFor("beta", repo.source, Duration.seconds(1))
+      const harness = makeHarness({ [request.slot.profile.harness]: { kind: "codex-cli", concurrency: 1, command: fake.bin } }, { env: { ...jobEnv, CODEX_HOME: home }, mcpLauncher: mcp })
+      const error = yield* Effect.flip(harness.run(request))
+      expect(error.kind).toBe("timeout")
+      expect(existsSync(rollout)).toBe(false)
+      expect(error.accounting?.codexSubscription?.before.windows[0]?.percent).toBe(87)
+      expect(error.accounting?.codexSubscription?.after.windows[1]?.percent).toBe(88)
     }))
 
   it.effect("uses the default Codex home and deletes a rollout without supported limits", () =>

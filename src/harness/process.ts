@@ -60,7 +60,7 @@ const STDERR_CAP = 16 * 1024
  * Runs a vendor CLI to completion. The child leads its own process group, so interruption (the session timeout in
  * `makeHarness`) kills it together with the MCP server it started.
  */
-export const runProcess = (spec: ProcessSpec) =>
+export const runProcess = (spec: ProcessSpec, onStdout?: (chunk: string) => void) =>
   Effect.callback<ProcessOutput, HarnessError>((resume, signal) => {
     const child = spawn(spec.command, [...spec.args], {
       cwd: spec.cwd,
@@ -79,8 +79,10 @@ export const runProcess = (spec: ProcessSpec) =>
     signal.addEventListener("abort", killGroup)
     let stdout = ""
     let stderr = ""
+    let closed = false
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
       stdout += chunk
+      onStdout?.(chunk)
     })
     child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
       if (stderr.length < STDERR_CAP) stderr += chunk
@@ -90,26 +92,43 @@ export const runProcess = (spec: ProcessSpec) =>
     child.on("error", (e: NodeJS.ErrnoException) =>
       resume(Effect.fail(new HarnessError({ kind: "vendor", detail: e.code === "ENOENT" ? `${spec.command} not found on PATH` : `cannot start ${spec.command}` }))))
     child.on("close", (code) => {
+      closed = true
       signal.removeEventListener("abort", killGroup)
       killGroup()
       resume(Effect.succeed({ stdout, stderr, code }))
     })
+    return Effect.promise(() => new Promise<void>((resolve) => {
+      if (closed) resolve()
+      else child.once("close", () => resolve())
+    }))
   })
 
 /** Runs a vendor CLI that prints JSON lines on stdout. */
-export const runJsonLines = (spec: ProcessSpec) =>
-  Effect.map(runProcess(spec), (out): ProcessRun => {
+export const runJsonLines = (spec: ProcessSpec, onEvent?: (event: unknown) => void) =>
+  Effect.suspend(() => {
     const events: Array<unknown> = []
     const text: Array<string> = []
-    for (const line of out.stdout.split("\n")) {
-      if (line.trim() === "") continue
+    let pending = ""
+    const accept = (line: string) => {
+      if (line.trim() === "") return
+      let event: unknown
       try {
-        events.push(JSON.parse(line))
+        event = JSON.parse(line)
       } catch {
         text.push(line)
+        return
       }
+      events.push(event)
+      onEvent?.(event)
     }
-    return { ...out, events, text }
+    return runProcess(spec, (chunk) => {
+      const lines = (pending + chunk).split("\n")
+      pending = lines.pop() ?? ""
+      lines.forEach(accept)
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => accept(pending))),
+      Effect.map((out): ProcessRun => ({ ...out, events, text }))
+    )
   })
 
 export const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === "object" && u !== null && !Array.isArray(u)

@@ -64,7 +64,9 @@ describe("reviewOnce", () => {
       expect(harness.seen.map((r) => [r.slot.id, r.slot.profile.name, r.slot.profile.harness])).toEqual([["reviewer", "quick", "beta"], ["reviewer", "deep", "alpha"]])
       expect(result.review.sessions.map((s) => [s.slot.profile.name, s.failure])).toEqual([["quick", "auth"], ["deep", null]])
       expect(result.body).toContain("fell back from quick")
-      expect(harness.seen[1]).toEqual({ ...harness.seen[0], slot: { ...harness.seen[0]!.slot, profile: { name: "deep", harness: "alpha", model: "model-d", effort: "high" } } })
+      const { onAccounting: _primary, ...primary } = harness.seen[0]!
+      const { onAccounting: _fallback, ...fallback } = harness.seen[1]!
+      expect(fallback).toEqual({ ...primary, slot: { ...primary.slot, profile: { name: "deep", harness: "alpha", model: "model-d", effort: "high" } } })
     }))
 
   for (const kind of ["quota", "vendor"] as const) {

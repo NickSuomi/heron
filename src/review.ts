@@ -124,7 +124,7 @@ const execute = Effect.fn("execute")(function*(
         const started = yield* Clock.currentTimeMillis
         let accounting: HarnessAccounting | undefined
         return yield* Effect.gen(function*() {
-          const result = yield* harness.run(actual).pipe(Effect.tapError((e) => Effect.sync(() => { accounting = e.accounting })))
+          const result = yield* harness.run({ ...actual, onAccounting: (current) => { accounting = current } }).pipe(Effect.tapError((e) => Effect.sync(() => { accounting = e.accounting ?? accounting })))
           accounting = result
           if (result.limitWarning !== undefined) warnings.add(result.limitWarning)
           return yield* Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(result.output).pipe(

@@ -250,13 +250,19 @@ export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) 
     const server = mcpSourceCommand(options.mcp, request.source, discussionsFile(dir))
     const env = childEnv(options.env, ALLOWED)
     const disabled = yield* operatorServers({ command: options.command, env, cwd })
-    const run = yield* runJsonLines(
-      { command: options.command, args: codexArgs(request, { schema, cwd }, server, disabled), env, cwd, stdin: `${request.instructions}\n\n${request.prompt}` }
-    )
     const redact = redactor(env, SECRETS)
+    const observed: Array<unknown> = []
+    let codexSubscription: CodexSubscription | null = null
+    const run = yield* runJsonLines(
+      { command: options.command, args: codexArgs(request, { schema, cwd }, server, disabled), env, cwd, stdin: `${request.instructions}\n\n${request.prompt}` },
+      (event) => observed.push(event)
+    ).pipe(Effect.ensuring(Effect.gen(function*() {
+      const partial = foldCodexEvents(observed, redact)
+      const accounting = partial instanceof HarnessError ? partial.accounting : partial
+      codexSubscription = yield* rolloutSubscription(env["CODEX_HOME"] ?? join(env["HOME"] ?? homedir(), ".codex"), accounting?.vendorSessionId ?? null)
+      if (accounting !== undefined) request.onAccounting?.({ ...accounting, codexSubscription })
+    })))
     const folded = foldCodexEvents(run.events, redact)
-    const threadId = folded instanceof HarnessError ? folded.accounting?.vendorSessionId ?? null : folded.vendorSessionId
-    const codexSubscription = yield* rolloutSubscription(env["CODEX_HOME"] ?? join(env["HOME"] ?? homedir(), ".codex"), threadId)
     if (folded instanceof HarnessError) {
       const transport = /connection refused|ECONNREFUSED|error sending request|connect(?:ion)? (?:error|failed)|network error|TLS handshake/i.test(run.stderr)
       const incomplete = folded.kind === "no-output" && !run.events.some((e) => isRecord(e) && e["type"] === "turn.completed")
