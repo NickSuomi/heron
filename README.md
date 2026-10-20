@@ -177,7 +177,7 @@ Heron defends against prompt injection from merge request content. The model has
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
-node scripts/check-readme-contract.mjs README.md
+node scripts/check-readme-contract.ts README.md
 ```
 
 `pnpm check` runs the type checker and the Vitest suite. GitHub Actions runs the install, type check, tests and build on Node 24 for every push to `main` and every pull request.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write every Heron brand asset from the generators next to this file: orb.py (the glass orb and its lockup), flat.py (the flat pixel heron) and icon.mjs (the Vista app icon).
+"""Write every Heron brand asset from the generators next to this file: orb.py (the glass orb and its lockup), flat.py (the flat pixel heron) and icon.ts (the Vista app icon).
 
 Run from the repository root:
 
@@ -194,7 +194,7 @@ if __name__ == "__main__":
     # The site's Start orb glyph and its desktop and Explorer icon (the Vista app icon, in a large and a 32 and 48 px drawing).
     assets = ROOT / "site" / "src" / "assets"
     (assets / "heron-glyph.svg").write_text(orb.glyph_svg() + "\n")
-    subprocess.run(["node", str(Path(__file__).with_name("icon.mjs")), str(assets / "icons" / ".icon")], check=True)
+    subprocess.run(["node", str(Path(__file__).with_name("icon.ts")), str(assets / "icons" / ".icon")], check=True)
     icons = assets / "icons"
     (icons / "heron-folder.svg").write_text((icons / ".icon" / "mark.svg").read_text() + "\n")
     (icons / "heron-folder-small.svg").write_text((icons / ".icon" / "mark-small.svg").read_text() + "\n")

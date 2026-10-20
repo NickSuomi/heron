@@ -85,6 +85,7 @@ const main = async (kinds: ReadonlyArray<HarnessConfig["kind"]>) => {
           "2. What type does the Heron `hover` tool report for `sub` on line 2 of src/math.ts at source?"
         ].join("\n"),
         source: repo.source,
+        discussions: { mergeRequest: { kind: "read", threads: [] }, issues: {} },
         outputSchema: schema,
         maxTurns: null,
         timeout: Duration.minutes(5)

@@ -12,7 +12,7 @@ const VERSION = "2.6.0"
 /** sha256 of the v2.6.0 release's osv-scanner_SHA256SUMS, computed when this version was pinned (the release was published 2026-09-14). Bump it together with VERSION. */
 const SUMS_SHA256 = "29f6fbc8bdd02d977df4b0987705d046233c36b70469a7021c623e8c155c9ddc"
 const BASE = `https://github.com/google/osv-scanner/releases/download/v${VERSION}`
-const ASSETS = {
+const ASSETS: Record<string, string> = {
   "linux-x64": "osv-scanner_linux_amd64",
   "linux-arm64": "osv-scanner_linux_arm64",
   "darwin-x64": "osv-scanner_darwin_amd64",
@@ -29,8 +29,8 @@ const dbDir = join(dir, "db")
 const dbStamp = join(dir, "db.json")
 
 const refresh = process.argv.includes("--refresh-db")
-const sha256 = (buf) => createHash("sha256").update(buf).digest("hex")
-const get = async (url) => {
+const sha256 = (buf: Buffer) => createHash("sha256").update(buf).digest("hex")
+const get = async (url: string) => {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
   return Buffer.from(await res.arrayBuffer())
@@ -79,7 +79,7 @@ const installDatabase = async () => {
       })
     } catch (e) {
       // Exit 1 means the fixture matched an advisory; the database is downloaded either way.
-      if (e.status !== 1) throw e
+      if ((e as { status?: number }).status !== 1) throw e
     }
     if (!existsSync(join(fresh, "osv-scalibr", "npm", "all.zip"))) throw new Error("osv-scanner did not download the npm database")
     rmSync(dbDir, { recursive: true, force: true })

@@ -1,8 +1,12 @@
 // Geometry helpers for the app icon: a projective map and polygon path builders.
-export const f = (n) => (Math.round(n * 100) / 100).toString();
+export type Point = [number, number];
+export type Quad = [Point, Point, Point, Point];
+export type Mapper = (u: number, v: number) => Point;
+
+export const f = (n: number) => (Math.round(n * 100) / 100).toString();
 
 // Square-to-quad projective map (Heckbert). q = [p00, p10, p11, p01].
-export function homography(q) {
+export function homography(q: Quad): Mapper {
   const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = q;
   const sx = x0 - x1 + x2 - x3;
   const sy = y0 - y1 + y2 - y3;
@@ -18,13 +22,13 @@ export function homography(q) {
   };
 }
 
-export const poly = (pts, close = true) =>
+export const poly = (pts: ReadonlyArray<Point>, close = true) =>
   "M" + pts.map(([x, y]) => `${f(x)} ${f(y)}`).join("L") + (close ? "Z" : "");
 
 // Rounded rectangle in (u,v) space, sampled, then mapped.
-export function rrect(H, u0, v0, u1, v1, ru, rv) {
-  const pts = [];
-  const arc = (cu, cv, a0) => {
+export function rrect(H: Mapper, u0: number, v0: number, u1: number, v1: number, ru: number, rv: number) {
+  const pts: Array<Point> = [];
+  const arc = (cu: number, cv: number, a0: number) => {
     for (let i = 0; i <= 5; i++) {
       const a = a0 + (i / 5) * (Math.PI / 2);
       pts.push(H(cu + ru * Math.cos(a), cv + rv * Math.sin(a)));
@@ -37,4 +41,4 @@ export function rrect(H, u0, v0, u1, v1, ru, rv) {
   return poly(pts);
 }
 
-export const rect = (H, u0, v0, u1, v1) => poly([H(u0, v0), H(u1, v0), H(u1, v1), H(u0, v1)]);
+export const rect = (H: Mapper, u0: number, v0: number, u1: number, v1: number) => poly([H(u0, v0), H(u1, v0), H(u1, v1), H(u0, v1)]);

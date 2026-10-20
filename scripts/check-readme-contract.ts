@@ -11,9 +11,9 @@ if (!marker) {
 }
 
 const headings = [...readme.matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)]
-  .map((match) => match[1].trim().toLowerCase().replace(/\s+/g, " "))
+  .map((match) => match[1]!.trim().toLowerCase().replace(/\s+/g, " "))
 
-const requirements = marker === "full"
+const requirements: Array<[string, (heading: string) => boolean]> = marker === "full"
   ? [
       ["What is", (heading) => heading.startsWith("what is")],
       ["Why", (heading) => heading === "why" || heading.startsWith("why ")],
@@ -47,7 +47,7 @@ if (!(/\[[^\]]+\]\((?:\.\/)?LICENSE(?:\.md)?\)/i.test(readme) || /no license is 
 
 console.log(`README contract passed: ${marker}`)
 
-function fail(message) {
+function fail(message: string): never {
   console.error(`README contract failed: ${message}`)
   process.exit(1)
 }

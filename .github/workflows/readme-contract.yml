@@ -4,12 +4,12 @@ on:
   pull_request:
     paths:
       - README.md
-      - scripts/check-readme-contract.mjs
+      - scripts/check-readme-contract.ts
       - .github/workflows/readme-contract.yml
   push:
     paths:
       - README.md
-      - scripts/check-readme-contract.mjs
+      - scripts/check-readme-contract.ts
       - .github/workflows/readme-contract.yml
 
 permissions:
@@ -25,4 +25,4 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - run: node scripts/check-readme-contract.mjs README.md
+      - run: node scripts/check-readme-contract.ts README.md

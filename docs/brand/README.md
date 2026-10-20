@@ -228,7 +228,7 @@ Two other drawings serve the places the orb cannot:
 - **The flat pixel heron** is the same bird on a 16 px grid in one colour, with a water line. Use it at 24 px and below, as the favicon, and wherever the orb's gradients cannot print.
 - **The app icon** is the Vista-style window of code with the heron spearing a line and reeds in front. Use it for the Heron folder on the desktop and in Explorer. `site/src/assets/icons/heron-folder.svg` is the large drawing; `heron-folder-small.svg` is redrawn bolder for 32 and 48 px.
 
-Three generators in `tools/` draw them: `orb.py` (the orb, its glyph and the lockup), `flat.py` (the flat heron) and `icon.mjs` with `icon/` (the app icon). `tools/build_assets.py` runs them and writes every file below.
+Three generators in `tools/` draw them: `orb.py` (the orb, its glyph and the lockup), `flat.py` (the flat heron) and `icon.ts` with `icon/` (the app icon). `tools/build_assets.py` runs them and writes every file below.
 
 | File | Use |
 |---|---|
@@ -263,7 +263,7 @@ Model-written text is posted as escaped plain text, never as Markdown.
 - `README.md`: this book.
 - `tools/build_book.ts`: writes `site/public/brand/index.html` from this file and regenerates the contrast table.
 - `assets/`: the orb mark, flat heron, lockups, favicon, and social preview.
-- `tools/build_assets.py`: runs `tools/orb.py`, `tools/flat.py` and `tools/icon.mjs`, writes every file in `assets/` and the same files to `site/public/brand/assets/`, which the site serves, and writes the Start orb glyph and the Heron folder icons into `site/src/assets/`. It reads the social preview's colours from `tools/build_tokens.py`.
+- `tools/build_assets.py`: runs `tools/orb.py`, `tools/flat.py` and `tools/icon.ts`, writes every file in `assets/` and the same files to `site/public/brand/assets/`, which the site serves, and writes the Start orb glyph and the Heron folder icons into `site/src/assets/`. It reads the social preview's colours from `tools/build_tokens.py`.
 - `tokens.json`, `tokens.css`, `tools/build_tokens.py`: the tables of this book as design tokens: the glass, the surfaces and ink, the ribbon, the verdict labels, the glass recipe, and the type. `build_tokens.py` writes the other two.
 
 ## Rebuilding

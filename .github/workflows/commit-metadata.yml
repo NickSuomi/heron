@@ -1,7 +1,7 @@
 name: Commit metadata
 
 # Public history must not carry a personal or company identity: every author and committer is a GitHub noreply
-# address, and no message has a Signed-off-by trailer or another email address. See scripts/check-commit-metadata.mjs.
+# address, and no message has a Signed-off-by trailer or another email address. See scripts/check-commit-metadata.ts.
 on:
   push:
     branches: [main]
@@ -28,4 +28,4 @@ jobs:
         run: |
           # A new branch or a force push has no usable base; then the whole history up to the head is checked.
           if git cat-file -e "$BASE^{commit}" 2>/dev/null; then RANGE="$BASE..$HEAD_SHA"; else RANGE="$(git rev-list --max-parents=0 "$HEAD_SHA" | tail -1)..$HEAD_SHA"; fi
-          node scripts/check-commit-metadata.mjs "$RANGE"
+          node scripts/check-commit-metadata.ts "$RANGE"

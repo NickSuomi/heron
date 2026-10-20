@@ -1,13 +1,14 @@
-import { f, homography, poly, rrect, rect } from "./lib.mjs";
+import { f, homography, poly, rrect, rect } from "./lib.ts";
+import type { Mapper, Point, Quad } from "./lib.ts";
 
 // ---------- the editor window, in perspective ----------
-export const WIN = [[66, 34], [234, 46], [234, 178], [66, 192]];
+export const WIN: Quad = [[66, 34], [234, 46], [234, 178], [66, 192]];
 
 const C = {
   kw: "#2b6fd6", id: "#56677b", str: "#c0562a", com: "#3b9a3b", fn: "#8a3fb8", ty: "#11878a",
 };
 // [indent, [len, colourKey]...]
-const CODE = [
+const CODE: ReadonlyArray<readonly [number, ...Array<readonly [number, keyof typeof C]>]> = [
   [0, [0.09, "kw"], [0.15, "ty"], [0.04, "id"]],
   [1, [0.08, "kw"], [0.17, "id"], [0.2, "str"]],
   [1, [0.12, "id"], [0.16, "fn"], [0.08, "id"]],
@@ -21,7 +22,7 @@ const CODE = [
   [0, [0.05, "id"]],
 ];
 export const SEL = 2; // the line the heron is spearing
-const DIG = {
+const DIG: Record<string, ReadonlyArray<Point>> = {
   0: [[0.5, 0], [0, 0.3], [0, 0.7], [0.5, 1], [1, 0.7], [1, 0.3], [0.5, 0]],
   1: [[0.25, 0.2], [0.65, 0], [0.65, 1]],
   2: [[0, 0.22], [0.3, 0], [0.8, 0], [1, 0.28], [0, 1], [1, 1]],
@@ -36,10 +37,19 @@ const DIG = {
 
 export const LINE0 = 0.175, STEP = 0.0715, BAR = 0.03;
 
+export interface WindowToken { d: string; col: string; i: number; u0: number; u1: number }
+export interface WindowParts {
+  frame: string; body: string; gutter: string; gutterEdge: string; titleGloss: string
+  hiTop: string; hiLeft: string; hiBody: string; side: string
+  btnMin: string; btnMax: string; btnClose: string; glyphMin: string; glyphMax: string; glyphClose: string
+  appIcon: string; titleText: string; track: string; thumb: string
+  toks: Array<WindowToken>; nums: Array<string>; sel: string; squiggle: string; squiggleMid: Point; H: Mapper
+}
+
 export function windowParts(p = "w") {
   const H = homography(WIN);
-  const parts = {};
-  const P = (pts) => poly(pts.map(([u, v]) => H(u, v)));
+  const parts = {} as WindowParts;
+  const P = (pts: ReadonlyArray<Point>) => poly(pts.map(([u, v]) => H(u, v)));
   parts.frame = rect(H, 0, 0, 1, 1);
   parts.body = rect(H, 0.018, 0.118, 0.982, 0.982);
   parts.gutter = rect(H, 0.018, 0.118, 0.13, 0.982);
@@ -49,7 +59,7 @@ export function windowParts(p = "w") {
   parts.hiLeft = poly([H(0.004, 0.006), H(0.004, 0.994)], false);
   parts.hiBody = poly([H(0.982, 0.118), H(0.018, 0.118), H(0.018, 0.982)], false);
   // side slab (near, left edge)
-  const [tl, bl] = [WIN[0], WIN[3]];
+  const tl = WIN[0], bl = WIN[3];
   parts.side = poly([tl, bl, [bl[0] - 5, bl[1] - 1.5], [tl[0] - 5, tl[1] + 1.2]]);
   // caption buttons
   parts.btnMin = rrect(H, 0.745, 0.008, 0.815, 0.07, 0.008, 0.01);
@@ -64,8 +74,8 @@ export function windowParts(p = "w") {
   parts.track = rect(H, 0.952, 0.118, 0.982, 0.982);
   parts.thumb = rrect(H, 0.956, 0.16, 0.978, 0.42, 0.008, 0.01);
   // code
-  const toks = [];
-  const nums = [];
+  const toks: Array<WindowToken> = [];
+  const nums: Array<string> = [];
   CODE.forEach(([indent, ...tk], i) => {
     const v0 = LINE0 + i * STEP, v1 = v0 + BAR;
     let u = 0.17 + indent * 0.055;
@@ -78,7 +88,7 @@ export function windowParts(p = "w") {
     let ux = 0.112 - n.length * (dw + 0.007);
     for (const ch of n) {
       const vx = v0 - 0.002;
-      nums.push(poly(DIG[ch].map(([x, y]) => H(ux + x * dw, vx + y * dh)), false));
+      nums.push(poly(DIG[ch]!.map(([x, y]) => H(ux + x * dw, vx + y * dh)), false));
       ux += dw + 0.007;
     }
   });
@@ -87,8 +97,8 @@ export function windowParts(p = "w") {
   const sv0 = LINE0 + SEL * STEP - 0.016;
   parts.sel = rect(H, 0.135, sv0, 0.948, sv0 + BAR + 0.032);
   // squiggle under the fn token on the selected line
-  const t = toks.find((x) => x.i === SEL && x.col === C.fn);
-  const sq = [];
+  const t = toks.find((x) => x.i === SEL && x.col === C.fn)!;
+  const sq: Array<Point> = [];
   const vy = LINE0 + SEL * STEP + BAR + 0.012;
   const n = 9;
   for (let k = 0; k <= n; k++) sq.push(H(t.u0 + (k / n) * (t.u1 - t.u0), vy + (k % 2 ? 0.012 : 0)));
@@ -112,5 +122,5 @@ export const HERON = {
   streaks: "M111.6 73.6l-1.1 2.4M108.2 80.4l-.8 2.4M106.8 87.8l-.2 2.4M107.4 95.6l.6 2.3M109.8 102.8l1 2.2",
   legA: "M72 162L76 190L72 216",
   legB: "M83 158L92 188L96 216",
-  eye: [113.6, 60.6],
+  eye: [113.6, 60.6] as Point,
 };
