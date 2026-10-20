@@ -94,6 +94,17 @@ describe("reviewOnce", () => {
     }))
   }
 
+  it.effect("names the primary's failure when its fallback fails too", () => Effect.gen(function*() {
+    const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+    const harness = fakeHarness({ reviewer: (r) => new HarnessError({ kind: "quota", detail: r.slot.profile.name === "quick" ? "429 Too Many Requests" : "session limit, resets 11am (UTC)" }) })
+    const result = yield* reviewOnce(fallbackConfig(), { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, harness.layer)))
+    expect(result.review.outcome).toEqual({
+      kind: "incomplete",
+      session: "reviewer",
+      reason: "quota: session limit, resets 11am (UTC). Before this fallback, profile quick on harness beta failed with quota: 429 Too Many Requests"
+    })
+  }))
+
   for (const kind of ["timeout", "no-output", "tool-violation", "model-mismatch"] as const) {
     it.effect(`keeps ${kind} BLOCKED without trying the fallback`, () => Effect.gen(function*() {
       const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
