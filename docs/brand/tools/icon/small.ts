@@ -1,16 +1,17 @@
-import { f, homography, poly, rrect, rect } from "./lib.mjs";
-import { HERON as R } from "./mark.mjs";
+import { f, homography, poly, rrect, rect } from "./lib.ts";
+import type { Quad } from "./lib.ts";
+import { HERON as R } from "./mark.ts";
 
 // Small colour icon for 32 and 48 px. Same story, fewer and fatter parts.
 // Units are a 256 grid: 1 px at 48 = 5.33 units, 1 px at 32 = 8 units.
-const QUAD = [[86, 20], [246, 30], [246, 172], [86, 184]];
+const QUAD: Quad = [[86, 20], [246, 30], [246, 172], [86, 184]];
 const S = 1.12, AX = 84, AY = 214;
 const HT = `translate(${AX} ${AY}) scale(${S}) translate(${-AX} ${-AY})`;
 const tip = [AX + (148.5 - AX) * S, AY + (90.5 - AY) * S];
 
 export function smallSvg() {
   const H = homography(QUAD);
-  const lines = [
+  const lines: Array<[number, ...Array<[number, string]>]> = [
     [0, [0.16, "#2b6fd6"], [0.3, "#56677b"]],
     [1, [0.2, "#56677b"], [0.24, "#8a3fb8"]],
     [1, [0.14, "#2b6fd6"], [0.34, "#c0562a"]],
@@ -18,7 +19,7 @@ export function smallSvg() {
     [1, [0.26, "#56677b"]],
   ];
   const L0 = 0.2, ST = 0.152, BH = 0.07;
-  const toks = [];
+  const toks: Array<string> = [];
   lines.forEach(([ind, ...tk], i) => {
     let u = 0.16 + ind * 0.08;
     const v0 = L0 + i * ST;

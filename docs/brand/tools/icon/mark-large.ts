@@ -1,26 +1,27 @@
-import { f } from "./lib.mjs";
-import { windowParts, HERON as R } from "./mark.mjs";
+import { f } from "./lib.ts";
+import { windowParts, HERON as R } from "./mark.ts";
 
 const WATER_Y = 221;
 const HS = 1.07;
 const HT = `translate(148.5 90.5) scale(${HS}) translate(-148.5 -90.5)`;
 
 // code symbols as reeds: [kind, x, baseY, w, h, lean]
-const REEDS = [
+type Reed = [string, number, number, number, number, number];
+const REEDS: Array<Reed> = [
   ["{", 35, 225, 13, 44, -0.05],
   ["<", 12, 224, 11, 21, -0.03],
   ["/", 112, 223, 13, 56, 0.05],
   [">", 131, 224, 11, 24, 0.03],
   ["}", 150, 226, 13, 42, 0.07],
 ];
-function glyph([k, x, y, w, h, lean]) {
+function glyph([k, x, y, w, h, lean]: Reed): string | undefined {
   const top = y - h;
-  const X = (px, py) => f(px + (y - py) * lean); // lean: shift x with height
-  const pt = (px, py) => `${X(px, py)} ${f(py)}`;
+  const X = (px: number, py: number) => f(px + (y - py) * lean); // lean: shift x with height
+  const pt = (px: number, py: number) => `${X(px, py)} ${f(py)}`;
   if (k === "{" || k === "}") {
     const s = k === "{" ? 1 : -1;
     const ox = k === "{" ? x : x + w;
-    const xx = (t) => ox + s * t * w;
+    const xx = (t: number) => ox + s * t * w;
     const m = top + h / 2;
     return `M${pt(xx(1), top)}C${pt(xx(0.42), top)} ${pt(xx(0.42), top + h * 0.06)} ${pt(xx(0.42), top + h * 0.2)}L${pt(xx(0.42), m - h * 0.12)}C${pt(xx(0.42), m - h * 0.02)} ${pt(xx(0.2), m)} ${pt(xx(0), m)}C${pt(xx(0.2), m)} ${pt(xx(0.42), m + h * 0.02)} ${pt(xx(0.42), m + h * 0.12)}L${pt(xx(0.42), y - h * 0.2)}C${pt(xx(0.42), y - h * 0.06)} ${pt(xx(0.42), y)} ${pt(xx(1), y)}`;
   }

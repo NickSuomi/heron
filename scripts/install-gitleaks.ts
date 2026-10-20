@@ -11,7 +11,7 @@ const VERSION = "8.30.1"
 /** sha256 of the v8.30.1 release's gitleaks_8.30.1_checksums.txt, computed when this version was pinned (the release was published 2026-03-21). Bump it together with VERSION. */
 const CHECKSUMS_SHA256 = "061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae"
 const BASE = `https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}`
-const ASSETS = {
+const ASSETS: Record<string, string> = {
   "linux-x64": "linux_x64",
   "linux-arm64": "linux_arm64",
   "darwin-x64": "darwin_x64",
@@ -23,8 +23,8 @@ const dir = join(root, "vendor", "gitleaks")
 const binary = join(dir, "gitleaks")
 const stamp = join(dir, "VERSION")
 
-const sha256 = (buf) => createHash("sha256").update(buf).digest("hex")
-const get = async (url) => {
+const sha256 = (buf: Buffer) => createHash("sha256").update(buf).digest("hex")
+const get = async (url: string) => {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
   return Buffer.from(await res.arrayBuffer())

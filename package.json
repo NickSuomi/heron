@@ -32,10 +32,10 @@
     "build": "tsc -p tsconfig.build.json",
     "check": "pnpm typecheck && pnpm test",
     "gen-env-table": "node scripts/gen-env-table.ts",
-    "install-gitleaks": "node scripts/install-gitleaks.mjs",
-    "install-osv-scanner": "node scripts/install-osv-scanner.mjs",
-    "refresh-osv-db": "node scripts/install-osv-scanner.mjs --refresh-db",
-    "postinstall": "node scripts/install-gitleaks.mjs && node scripts/install-osv-scanner.mjs"
+    "install-gitleaks": "node scripts/install-gitleaks.ts",
+    "install-osv-scanner": "node scripts/install-osv-scanner.ts",
+    "refresh-osv-db": "node scripts/install-osv-scanner.ts --refresh-db",
+    "postinstall": "node scripts/install-gitleaks.ts && node scripts/install-osv-scanner.ts"
   },
   "dependencies": {
     "@ast-grep/cli": "0.45.3",

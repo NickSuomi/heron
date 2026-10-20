@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 
-const script = resolve("scripts/check-commit-metadata.mjs")
+const script = resolve("scripts/check-commit-metadata.ts")
 const dirs: Array<string> = []
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })))
 

@@ -31,12 +31,12 @@ const AST_GREP: string = (() => {
     return "ast-grep"
   }
 })()
-/** gitleaks 8.30.1, installed by scripts/install-gitleaks.mjs at install time; a gitleaks on PATH is the fallback. */
+/** gitleaks 8.30.1, installed by scripts/install-gitleaks.ts at install time; a gitleaks on PATH is the fallback. */
 const GITLEAKS: string = (() => {
   const installed = new URL("../../vendor/gitleaks/gitleaks", import.meta.url).pathname
   return existsSync(installed) ? installed : "gitleaks"
 })()
-/** osv-scanner 2.6.0 and its npm database snapshot, installed by scripts/install-osv-scanner.mjs at install time. */
+/** osv-scanner 2.6.0 and its npm database snapshot, installed by scripts/install-osv-scanner.ts at install time. */
 const OSV_DIR = new URL("../../vendor/osv-scanner/", import.meta.url).pathname
 const OSV_SCANNER: string = (() => {
   const installed = join(OSV_DIR, "osv-scanner")
