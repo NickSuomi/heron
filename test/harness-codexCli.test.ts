@@ -146,6 +146,23 @@ describe("codex-cli harness", () => {
       expect(error.accounting?.codexSubscription?.after.windows[1]?.percent).toBe(88)
     }))
 
+  it.live("stops a session at its first 429 retry as quota, not at the session timeout", () =>
+    Effect.gen(function*() {
+      const thread = "0199a213-81c0-7800-8aa1-bbab2a035a53"
+      const retry = "Reconnecting... 1/5 (exceeded retry limit, last status: 429 Too Many Requests)"
+      const printed = [{ type: "thread.started", thread_id: thread }, { type: "turn.started" }, { type: "error", message: retry }]
+      const fake = fakeCli(repo.root, "codex-success.synthetic.jsonl", "hang", null, printed.map((e) => `${JSON.stringify(e)}\n`).join(""))
+      const request = requestFor("beta", repo.source, Duration.seconds(3))
+      const home = mkdtempSync(join(repo.root, "codex-429-"))
+      const harness = makeHarness({ [request.slot.profile.harness]: { kind: "codex-cli", concurrency: 1, command: fake.bin } }, { env: { ...jobEnv, CODEX_HOME: home }, mcpLauncher: mcp })
+      const error = yield* Effect.flip(harness.run(request))
+      expect([error.kind, error.detail, error.accounting?.vendorSessionId]).toEqual([
+        "quota",
+        `stopped Codex at a 429 retry instead of waiting out the provider's Retry-After: ${retry}`,
+        thread
+      ])
+    }))
+
   it.effect("uses the default Codex home and deletes a rollout without supported limits", () =>
     Effect.gen(function*() {
       const home = mkdtempSync(join(repo.root, "default-home-"))
