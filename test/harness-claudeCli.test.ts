@@ -21,6 +21,46 @@ const run = (fixture: string, options: { code?: number; maxTurns?: number | null
 
 const flag = (argv: ReadonlyArray<string>, name: string) => argv[argv.indexOf(name) + 1]
 
+describe("foldClaudeEvents on calls to tools Heron never offered", () => {
+  const calls = (...blocks: ReadonlyArray<readonly [string, string]>) => ({
+    type: "assistant",
+    message: { model: "claude-model", content: blocks.map(([id, name]) => ({ type: "tool_use", id, name, input: {} })) }
+  })
+  const answer = (id: string, refusedTool: string | null) => ({
+    type: "user",
+    message: {
+      role: "user",
+      content: [refusedTool === null
+        ? { type: "tool_result", tool_use_id: id, content: "ran" }
+        : { type: "tool_result", tool_use_id: id, is_error: true, content: `<tool_use_error>Error: No such tool available: ${refusedTool}</tool_use_error>` }]
+    }
+  })
+  const outcome = (...stream: ReadonlyArray<Record<string, unknown>>) => {
+    const result = foldClaudeEvents([
+      { type: "system", subtype: "init", model: "claude-model", session_id: "s1", mcp_servers: [{ name: "heron", status: "connected" }] },
+      ...stream,
+      { type: "result", subtype: "success", is_error: false, session_id: "s1", structured_output: { findings: [] }, usage: {} }
+    ], (t) => t)
+    return result instanceof HarnessError ? `${result.kind}: ${result.detail}` : `passed, refused ${result.refusedTools?.join(", ")}`
+  }
+
+  it("lets no refusal stand for a call that ran under the same id", () => {
+    expect([
+      outcome(calls(["a", "Bash"]), answer("a", "Bash")),
+      outcome(calls(["a", "Bash"]), answer("a", "Bash"), calls(["a", "Bash"]), answer("a", null)),
+      outcome(calls(["a", "Bash"]), answer("a", "Bash"), calls(["a", "Write"]), answer("a", null)),
+      outcome(calls(["a", "Bash"], ["a", "Bash"]), answer("a", "Bash"), answer("a", null)),
+      outcome(calls(["a", "Bash"]), answer("a", "Bash"), answer("a", null))
+    ]).toEqual([
+      "passed, refused Bash",
+      "tool-violation: model called Bash",
+      "tool-violation: model called Write",
+      "tool-violation: model called Bash",
+      "tool-violation: model called Bash"
+    ])
+  })
+})
+
 describe("foldClaudeEvents on usage-limit events", () => {
   it("keeps message counters when a final quota result reports only cost", () => {
     const result = foldClaudeEvents([
