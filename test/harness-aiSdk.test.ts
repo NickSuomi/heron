@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs"
 import { join } from "node:path"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { MockLanguageModelV4 } from "ai/test"
@@ -113,8 +113,10 @@ describe("ai-sdk harness", () => {
       const bin = join(repo.root, "hung-git")
       const pidFile = join(bin, "pid")
       mkdirSync(bin, { recursive: true })
-      writeFileSync(join(bin, "git"), `#!/bin/sh\necho $$ > "${pidFile}"\nexec sleep 60\n`)
-      chmodSync(join(bin, "git"), 0o755)
+      // Node strips types only from a file that ends in .ts, so `git` is a link and Node runs the file it points to.
+      copyFileSync(join(import.meta.dirname, "fixtures", "hung-git.ts"), join(bin, "hung-git.ts"))
+      chmodSync(join(bin, "hung-git.ts"), 0o755)
+      symlinkSync("hung-git.ts", join(bin, "git"))
       const path = process.env["PATH"]
       process.env["PATH"] = `${bin}:${path}`
       const session = aiSdk(binding(model()))(requestFor("api", repo.source)).pipe(Effect.timeout("1 second"), Effect.flip)
