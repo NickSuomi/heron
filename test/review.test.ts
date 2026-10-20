@@ -52,6 +52,21 @@ describe("reviewOnce", () => {
     }))
   }
 
+  it.effect("passes a Claude fallback whose call to a never-offered tool Claude Code refused, and names the tool in the report", () =>
+    Effect.gen(function*() {
+      const codex = fakeCli(cliRepo.root, "codex-noauth.jsonl", 1)
+      const claude = fakeCli(cliRepo.root, "claude-review-refused-tool.synthetic.jsonl")
+      const configured = configOf({ ...baseConfig,
+        harnesses: { alpha: { kind: "claude-cli", concurrency: 1, command: claude.bin }, beta: { kind: "codex-cli", concurrency: 1, command: codex.bin } },
+        profiles: { ...baseConfig.profiles, quick: { harness: "beta", model: "codex-model", effort: "high", fallback: "deep" } } })
+      const forge = fakeForge({ head: sha("a"), changes: [change("README.md")] })
+      const harness = makeHarness(configured.harnesses, { env: jobEnv, mcpLauncher: { command: "/opt/node", args: ["/opt/heron", "mcp-source"] } })
+      const result = yield* reviewOnce(configured, { ref, triggeredBy: trigger, publish: false, full: false }).pipe(Effect.provide(Layer.mergeAll(forge.layer, Layer.succeed(Harness)(harness))))
+      expect(result.review.verdict).toBe("PASS")
+      expect(result.review.sessions.map((s) => [s.slot.profile.name, s.failure, s.refusedTools])).toEqual([["quick", "auth", undefined], ["deep", null, ["Bash"]]])
+      expect(result.body).toContain("refused calls to tools never offered\\:⁠ Bash")
+    }))
+
   it.effect("uses Claude for the same reviewer slot when Codex authentication fails and reports both attempts", () =>
     Effect.gen(function*() {
       const configured = fallbackConfig()

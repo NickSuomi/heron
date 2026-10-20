@@ -110,6 +110,20 @@ const usageOf = (result: Record<string, unknown>): Usage => {
   }
 }
 
+/**
+ * Whether Claude Code answered a call itself, without running anything, because the tool was never in the session:
+ * an error result reading `<tool_use_error>Error: No such tool available: <name>` (seen in a Claude Code 2.1.294
+ * transcript; a disabled tool adds `. <reason>` after the name). Any other result, error or not, proves nothing.
+ */
+const refusedByClaudeCode = (block: Record<string, unknown>, name: string) => {
+  const content = block["content"]
+  const text = typeof content === "string"
+    ? content
+    : Array.isArray(content) ? content.filter(isRecord).map((c) => str(c["text"]) ?? "").join("") : ""
+  const refusal = `<tool_use_error>Error: No such tool available: ${name}`
+  return block["is_error"] === true && text.startsWith(refusal) && [".", "<"].includes(text.charAt(refusal.length))
+}
+
 /** Folds a Claude Code stream-json transcript into a result, or the first reason it cannot be one. */
 export const foldClaudeEvents = (
   events: ReadonlyArray<unknown>,
@@ -124,6 +138,9 @@ export const foldClaudeEvents = (
   let result: Record<string, unknown> | null = null
   const messages = new Map<string | object, Usage>()
   const note = (e: HarnessError) => failures.push(e)
+  /** Calls to tools Heron never offered, keyed by tool_use id, and whether every answer to each was Claude Code's refusal. */
+  const unknownCalls = new Map<string | object, string>()
+  const refused = new Map<string | object, boolean>()
 
   for (const event of events) {
     if (!isRecord(event)) continue
@@ -153,7 +170,19 @@ export const foldClaudeEvents = (
         if (block["type"] !== "tool_use") continue
         const name = str(block["name"]) ?? ""
         if (name.startsWith(TOOL_PREFIX) || (NATIVE_TOOLS as ReadonlyArray<string>).includes(name)) toolCalls++
-        else if (name !== STRUCTURED_OUTPUT_TOOL) note(new HarnessError({ kind: "tool-violation", detail: `model called ${name}` }))
+        else if (name !== STRUCTURED_OUTPUT_TOOL) {
+          const id = str(block["id"]) ?? block
+          // A reused id would let one refusal stand for a call that ran.
+          if (unknownCalls.has(id)) note(new HarnessError({ kind: "tool-violation", detail: `model called ${name}` }))
+          else unknownCalls.set(id, name)
+        }
+      }
+    } else if (type === "user" && isRecord(event["message"]) && Array.isArray(event["message"]["content"])) {
+      for (const block of event["message"]["content"].filter(isRecord)) {
+        const id = str(block["tool_use_id"])
+        if (id === null || block["type"] !== "tool_result") continue
+        const name = unknownCalls.get(id)
+        if (name !== undefined) refused.set(id, (refused.get(id) ?? true) && refusedByClaudeCode(block, name))
       }
     } else if (type === "system" && event["subtype"] === "api_retry") {
       const error = str(event["error"])
@@ -170,6 +199,10 @@ export const foldClaudeEvents = (
       result = event
     }
   }
+  for (const [id, name] of unknownCalls) {
+    if (refused.get(id) !== true) note(new HarnessError({ kind: "tool-violation", detail: `model called ${name}` }))
+  }
+  const refusedTools = [...new Set([...unknownCalls].filter(([id]) => refused.get(id) === true).map(([, name]) => name))]
 
   const partial = (key: keyof Usage) => {
     const known = [...messages.values()].map((u) => u[key]).filter((n) => n !== null)
@@ -214,7 +247,8 @@ export const foldClaudeEvents = (
   return {
     output: result["structured_output"],
     ...accounting,
-    ...(limitWarning === null ? {} : { limitWarning })
+    ...(limitWarning === null ? {} : { limitWarning }),
+    ...(refusedTools.length === 0 ? {} : { refusedTools })
   }
 }
 

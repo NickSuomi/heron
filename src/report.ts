@@ -371,7 +371,9 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
       ...sessions.map((s) =>
         `| ${code(s.slot.id)} | ${code(s.slot.profile.name)} | ${cell(s.reportedModel ?? s.slot.profile.model)} (${cell(s.slot.profile.harness)}) | ${cell(s.slot.profile.effort)} | ${
           tokens(s.usage.inputTokens)
-        } / ${tokens(s.usage.outputTokens)} | ${s.usage.costUsd === null ? "n/a" : `$${s.usage.costUsd.toFixed(4)}`} | ${(s.durationMs / 1000).toFixed(1)} s | ${s.failure === null ? "ok" : cell(s.failure)}${s.fallback === undefined ? "" : `; ${cell(`fell back from ${s.fallback.profile}: ${s.fallback.kind} ${s.fallback.detail}`)}`} |`
+        } / ${tokens(s.usage.outputTokens)} | ${s.usage.costUsd === null ? "n/a" : `$${s.usage.costUsd.toFixed(4)}`} | ${(s.durationMs / 1000).toFixed(1)} s | ${s.failure === null ? "ok" : cell(s.failure)}${s.fallback === undefined ? "" : `; ${cell(`fell back from ${s.fallback.profile}: ${s.fallback.kind} ${s.fallback.detail}`)}`}${
+          s.refusedTools === undefined ? "" : `; ${cell(`refused calls to tools never offered: ${s.refusedTools.join(", ")}`)}`
+        } |`
       ),
       "",
       `Totals: ${tokens(total(sessions.map((s) => s.usage.inputTokens)))} / ${tokens(total(sessions.map((s) => s.usage.outputTokens)))} tokens in / out, ${
