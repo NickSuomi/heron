@@ -311,6 +311,8 @@ export interface SessionRecord extends HarnessAccounting {
   readonly durationMs: number
   /** Why the session failed (a harness error kind, `invalid-output`, or `interrupted` when a sibling's failure stopped it); null when it succeeded. */
   readonly failure: string | null
+  /** Tools the model called that the session never offered; the vendor refused each call and ran nothing. */
+  readonly refusedTools?: ReadonlyArray<string>
 }
 
 /** A supervisor's or judge's ruling on one finding it was given. */

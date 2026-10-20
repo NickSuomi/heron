@@ -200,6 +200,18 @@ describe("claude-cli harness", () => {
       expect([error.kind, error.detail]).toEqual(["tool-violation", "model called Bash"])
     }))
 
+  it.effect("keeps a session whose call to a never-offered tool Claude Code refused, and names the refused tool", () =>
+    Effect.gen(function*() {
+      const result = yield* run("claude-refused-tool.synthetic.jsonl").effect
+      expect([result.output, result.toolCalls, result.refusedTools]).toEqual([{ answer: 42 }, 1, ["Bash"]])
+    }))
+
+  it.effect("still rejects a forbidden tool that ran", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(run("claude-ran-tool.synthetic.jsonl").effect)
+      expect([error.kind, error.detail]).toEqual(["tool-violation", "model called Bash"])
+    }))
+
   it.effect("rejects an unqualified Heron name even when the session returns structured output", () =>
     Effect.gen(function*() {
       const error = yield* Effect.flip(run("claude-bare-tool.synthetic.jsonl").effect)

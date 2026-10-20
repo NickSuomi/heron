@@ -123,9 +123,11 @@ const execute = Effect.fn("execute")(function*(
       }, (actual, fallback) => Effect.gen(function*() {
         const started = yield* Clock.currentTimeMillis
         let accounting: HarnessAccounting | undefined
+        let refusedTools: ReadonlyArray<string> | undefined
         return yield* Effect.gen(function*() {
           const result = yield* harness.run({ ...actual, onAccounting: (current) => { accounting = current } }).pipe(Effect.tapError((e) => Effect.sync(() => { accounting = e.accounting ?? accounting })))
           accounting = result
+          refusedTools = result.refusedTools
           if (result.limitWarning !== undefined) warnings.add(result.limitWarning)
           return yield* Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })(result.output).pipe(
             Effect.mapError((e) => new SessionFailed({ session: slot.id, reason: `output did not match its schema: ${e.message}` }))
@@ -142,7 +144,8 @@ const execute = Effect.fn("execute")(function*(
             ...(accounting?.codexSubscription === undefined ? {} : { codexSubscription: accounting.codexSubscription }),
             durationMs: now - started,
             failure,
-            ...(fallback === undefined ? {} : { fallback })
+            ...(fallback === undefined ? {} : { fallback }),
+            ...(refusedTools === undefined ? {} : { refusedTools })
           })
         })))
       }).pipe(permits.get(actual.slot.profile.harness)!.withPermits(1))).pipe(

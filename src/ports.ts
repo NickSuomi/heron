@@ -131,6 +131,8 @@ export interface HarnessResult extends HarnessAccounting {
   readonly toolCalls: number
   /** A usage-limit warning the vendor gave during the session, such as a window nearly used up. */
   readonly limitWarning?: string
+  /** Tools the model called that the session never offered; the vendor refused each call and ran nothing. */
+  readonly refusedTools?: ReadonlyArray<string>
 }
 
 export class HarnessError extends Schema.TaggedError<HarnessError>()("HarnessError", {

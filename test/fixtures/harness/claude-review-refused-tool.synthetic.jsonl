@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","model":"claude-fallback","session_id":"synthetic-review-fallback","mcp_servers":[{"name":"heron","status":"connected"}]}
+{"type":"assistant","message":{"model":"claude-fallback","id":"msg_synthetic_1","content":[{"type":"tool_use","id":"toolu_synthetic_1","name":"Bash","input":{"command":"git diff"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_synthetic_1","is_error":true,"content":"<tool_use_error>Error: No such tool available: Bash</tool_use_error>"}]}}
+{"type":"result","subtype":"success","is_error":false,"session_id":"synthetic-review-fallback","total_cost_usd":0.02,"usage":{"input_tokens":240,"output_tokens":30},"permission_denials":[],"structured_output":{"summary":"Fallback review completed.","findings":[],"limitations":[]}}
