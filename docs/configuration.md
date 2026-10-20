@@ -107,7 +107,9 @@ commits. It uses the fallback model and effort and acquires that harness's
 concurrency permit after releasing the primary permit. Questions use the same
 fallback rule as reviews. A timeout, missing or malformed output, tool violation,
 model mismatch, schema failure or interruption never selects a fallback. A failed
-fallback ends the session; there is no third attempt.
+fallback ends the session; there is no third attempt. Its failure reason, in the
+BLOCKED line of a review or the failed reply to a question, names both failures:
+the fallback's, then the primary profile, its harness key, and its failure.
 
 The report lists both attempts with their actual profile, tokens, vendor-reported
 cost and failure. The fallback row says `fell back from <profile>: <kind> <detail>`.
