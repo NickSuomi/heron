@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@ast-grep/cli": "0.45.3",
-    "@effect/language-service": "0.87.2",
+    "@effect/language-service": "0.87.3",
     "@effect/platform-node": "4.0.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@openrouter/ai-sdk-provider": "3.0.0",
