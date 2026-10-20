@@ -7,7 +7,7 @@
  * PROBE_TRANSCRIPT=<file> keeps Claude Code's event stream there and prints the tools the model called.
  * This file doubles as the `mcp-source` entry so the probe does not depend on the CLI wiring.
  */
-import { chmodSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Duration, Effect, Exit } from "effect"
@@ -36,11 +36,14 @@ const schema = {
   additionalProperties: false
 }
 
-/** A shell wrapper that runs the real CLI and copies its event stream to `file`. */
+/** Runs the real CLI through probe-tee.ts, which copies its event stream to `file`. */
 const teeing = (root: string, command: string, file: string) => {
-  const bin = join(root, "claude-tee")
-  writeFileSync(bin, `#!/bin/bash\nset -o pipefail\n${JSON.stringify(command)} "$@" | tee ${JSON.stringify(file)}\n`)
+  const dir = join(root, "claude-tee")
+  mkdirSync(dir)
+  const bin = join(dir, "probe-tee.ts")
+  copyFileSync(join(import.meta.dirname, "probe-tee.ts"), bin)
   chmodSync(bin, 0o755)
+  writeFileSync(join(dir, "probe-tee.json"), JSON.stringify({ command, file }))
   return bin
 }
 

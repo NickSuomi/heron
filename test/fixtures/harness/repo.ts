@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { Sha } from "../../../src/domain.ts"
@@ -100,14 +100,18 @@ export interface Captured {
 
 /**
  * A fake vendor executable: records argv, env, stdin and the content of every file argument, prints a recorded
- * event stream, and exits with `code` (`hang` sleeps instead). `mcp list` prints the `mcpList` fixture (Codex's
- * `mcp list --json`) or an empty list.
+ * event stream, and exits with `code` (`hang` prints `hangOutput`, if any, and sleeps instead). `mcp list` prints the
+ * `mcpList` fixture (Codex's `mcp list --json`) or an empty list. Each fake is a copy of fake-cli.ts in its own
+ * directory, with its settings beside it.
  */
-export const fakeCli = (root: string, fixture: string, code: number | "hang" = 0, mcpList: string | null = null) => {
-  const capture = join(root, `capture-${Math.random().toString(36).slice(2)}.json`)
-  const bin = join(root, `fake-${Math.random().toString(36).slice(2)}`)
-  const script = join(import.meta.dirname, "fake-cli.mjs")
-  writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "${capture}" "${join(import.meta.dirname, fixture)}" "${code}" "${mcpList === null ? "-" : join(import.meta.dirname, mcpList)}" "$@"\n`)
+export const fakeCli = (root: string, fixture: string, code: number | "hang" = 0, mcpList: string | null = null, hangOutput: string | null = null) => {
+  const dir = join(root, `fake-${Math.random().toString(36).slice(2)}`)
+  mkdirSync(dir)
+  const capture = join(dir, "capture.json")
+  const bin = join(dir, "fake-cli.ts")
+  copyFileSync(join(import.meta.dirname, "fake-cli.ts"), bin)
   chmodSync(bin, 0o755)
+  const settings = { capture, fixture: join(import.meta.dirname, fixture), code, mcpList: mcpList === null ? null : join(import.meta.dirname, mcpList), hangOutput }
+  writeFileSync(join(dir, "fake-cli.json"), JSON.stringify(settings))
   return { bin, capture }
 }

@@ -13,7 +13,6 @@ const repo = makeRepo()
 afterAll(repo.cleanup)
 
 const mcp = { command: "/opt/node", args: ["/opt/heron/dist/cli.js", "mcp-source"] }
-const SHELL_VARS = ["PWD", "OLDPWD", "SHLVL", "_"]
 
 const run = (fixture: string, options: { code?: number; mcpList?: string; home?: string; env?: Env } = {}) => {
   const fake = fakeCli(repo.root, fixture, options.code ?? 0, options.mcpList ?? null)
@@ -86,7 +85,7 @@ describe("codex-cli harness", () => {
         ])
       })
       expect(stdin).toBe("You review code.\n\nWhat number does a.ts export?")
-      expect(Object.keys(env).filter((k) => !SHELL_VARS.includes(k)).sort()).toEqual(["CODEX_HOME", "HOME", "HTTPS_PROXY", "PATH"])
+      expect(Object.keys(env).sort()).toEqual(["CODEX_HOME", "HOME", "HTTPS_PROXY", "PATH"])
       expect(JSON.stringify(env)).not.toContain("must-not-leak")
     }))
 
@@ -137,8 +136,7 @@ describe("codex-cli harness", () => {
       const thread = "0199a213-81c0-7800-8aa1-bbab2a035a53"
       const rollout = join(dir, `rollout-2026-10-17T06-29-33-${thread}.jsonl`)
       writeFileSync(rollout, readFileSync(join(import.meta.dirname, "fixtures/harness/codex-rollout.synthetic.jsonl")))
-      const fake = fakeCli(repo.root, "codex-success.synthetic.jsonl", "hang")
-      writeFileSync(fake.bin, readFileSync(fake.bin, "utf8").replace("\nexec ", `\nif [ "$1" = "exec" ]; then printf '%s\\n' '${JSON.stringify({ type: "thread.started", thread_id: thread })}'; fi\nexec `))
+      const fake = fakeCli(repo.root, "codex-success.synthetic.jsonl", "hang", null, `${JSON.stringify({ type: "thread.started", thread_id: thread })}\n`)
       const request = requestFor("beta", repo.source, Duration.seconds(1))
       const harness = makeHarness({ [request.slot.profile.harness]: { kind: "codex-cli", concurrency: 1, command: fake.bin } }, { env: { ...jobEnv, CODEX_HOME: home }, mcpLauncher: mcp })
       const error = yield* Effect.flip(harness.run(request))
