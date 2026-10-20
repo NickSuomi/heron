@@ -13,7 +13,7 @@ interface Settings {
   readonly hangOutput: string | null
 }
 
-const { capture, fixture, code, mcpList, hangOutput }: Settings =JSON.parse(readFileSync(join(import.meta.dirname, "fake-cli.json"), "utf8"))
+const { capture, fixture, code, mcpList, hangOutput }: Settings = JSON.parse(readFileSync(join(import.meta.dirname, "fake-cli.json"), "utf8"))
 const argv = process.argv.slice(2)
 if (argv[0] === "mcp" && argv[1] === "list") {
   process.stdout.write(mcpList === null ? "[]\n" : readFileSync(mcpList, "utf8"))
