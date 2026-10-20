@@ -11,7 +11,6 @@ const repo = makeRepo()
 afterAll(repo.cleanup)
 
 const mcp = { command: "/opt/node", args: ["/opt/heron/dist/cli.js", "mcp-source"] }
-const SHELL_VARS = ["PWD", "OLDPWD", "SHLVL", "_"]
 
 const run = (fixture: string, options: { code?: number; maxTurns?: number | null } = {}) => {
   const fake = fakeCli(repo.root, fixture, options.code ?? 0)
@@ -145,7 +144,7 @@ describe("claude-cli harness", () => {
       // The tool server reads the discussions from the session's own directory; the model's Read rules never reach it.
       expect(JSON.parse(files[join(dir, "discussions.json")]!)).toEqual(noDiscussions)
       expect(stdin).toBe("What number does a.ts export?")
-      expect(Object.keys(env).filter((k) => !SHELL_VARS.includes(k)).sort()).toEqual([
+      expect(Object.keys(env).sort()).toEqual([
         "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HOME", "HTTPS_PROXY", "MAX_MCP_OUTPUT_TOKENS", "MCP_TOOL_TIMEOUT", "PATH"
       ])
       // A fresh home per session: no operator CLAUDE.md, auto-memory, skills, hooks or stored login.

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
+import { accessSync, chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { basename, delimiter, join } from "node:path"
 import { NodeServices } from "@effect/platform-node"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Fiber, Layer, Redacted } from "effect"
@@ -822,12 +822,23 @@ describe("GitLab forge checkout", () => {
 
   it.live("runs git with an allowlisted environment and no operator git config", () =>
     Effect.gen(function*() {
-      const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
+      const realGit = (process.env["PATH"] ?? "").split(delimiter).map((dir) => join(dir, "git")).find((path) => {
+        try {
+          accessSync(path, constants.X_OK)
+          return statSync(path).isFile()
+        } catch {
+          return false
+        }
+      })
+      if (realGit === undefined) throw new Error("git is not on PATH")
       const bin = join(work, "..", `${basename(work)}-bin`)
       const seen = join(bin, "calls.jsonl")
       mkdirSync(bin, { recursive: true })
-      writeFileSync(join(bin, "git"), `#!/bin/sh\n"${process.execPath}" -e 'require("fs").appendFileSync(process.argv[1], JSON.stringify({ args: process.argv.slice(2), env: process.env }) + "\\n")' "${seen}" "$@"\nexec "${realGit}" "$@"\n`)
-      chmodSync(join(bin, "git"), 0o755)
+      // Node strips types only from a file that ends in .ts, so `git` is a link and Node runs the file it points to.
+      copyFileSync(join(import.meta.dirname, "fixtures", "git-recorder.ts"), join(bin, "git-recorder.ts"))
+      chmodSync(join(bin, "git-recorder.ts"), 0o755)
+      symlinkSync("git-recorder.ts", join(bin, "git"))
+      writeFileSync(join(bin, "real-git"), realGit)
       const ambient = [
         "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
         "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"
