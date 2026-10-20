@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { basename, join } from "node:path"
-import { Effect, Option, Schema } from "effect"
+import { Deferred, Effect, Option, Schema } from "effect"
 import type { Env } from "../config.ts"
 import type { CodexSubscription, LimitWindow } from "../domain.ts"
 import { HarnessError, type HarnessRequest, type HarnessResult } from "../ports.ts"
@@ -72,6 +72,13 @@ const classify = (message: string): HarnessError["kind"] =>
     : /\b429\b|quota|usage limit|rate limit/i.test(message)
     ? "quota"
     : "vendor"
+
+/**
+ * Codex prints a 429 retry and then sleeps the provider's whole `Retry-After`, which a quota proxy sets to the reset,
+ * days away. A retry that succeeds prints nothing until the model's next item, so no silence tells the two apart.
+ */
+const retries429 = (event: unknown) =>
+  isRecord(event) && event["type"] === "error" && /^Reconnecting\b.*\b429\b/.test(str(event["message"]) ?? "")
 
 /** Item types that mean the model ran something other than the Heron source tools. */
 const FORBIDDEN_ITEMS = new Set(["command_execution", "file_change", "web_search"])
@@ -252,25 +259,36 @@ export const codexCli = (options: CodexCliOptions) => (request: HarnessRequest) 
     const disabled = yield* operatorServers({ command: options.command, env, cwd })
     const redact = redactor(env, SECRETS)
     const observed: Array<unknown> = []
+    const retried429 = yield* Deferred.make<void>()
     let codexSubscription: CodexSubscription | null = null
-    const run = yield* runJsonLines(
-      { command: options.command, args: codexArgs(request, { schema, cwd }, server, disabled), env, cwd, stdin: `${request.instructions}\n\n${request.prompt}` },
-      (event) => observed.push(event)
+    const run = yield* Effect.raceFirst(
+      runJsonLines(
+        { command: options.command, args: codexArgs(request, { schema, cwd }, server, disabled), env, cwd, stdin: `${request.instructions}\n\n${request.prompt}` },
+        (event) => {
+          observed.push(event)
+          if (retries429(event)) Deferred.doneUnsafe(retried429, Effect.void)
+        }
+      ),
+      Deferred.await(retried429)
     ).pipe(Effect.ensuring(Effect.gen(function*() {
       const partial = foldCodexEvents(observed, redact)
       const accounting = partial instanceof HarnessError ? partial.accounting : partial
       codexSubscription = yield* rolloutSubscription(env["CODEX_HOME"] ?? join(env["HOME"] ?? homedir(), ".codex"), accounting?.vendorSessionId ?? null)
       if (accounting !== undefined) request.onAccounting?.({ ...accounting, codexSubscription })
     })))
-    const folded = foldCodexEvents(run.events, redact)
+    const folded = foldCodexEvents(observed, redact)
     if (folded instanceof HarnessError) {
+      const accounting = folded.accounting === undefined ? {} : { accounting: { ...folded.accounting, codexSubscription } }
+      if (run === undefined) {
+        return yield* new HarnessError({ kind: folded.kind, detail: `stopped Codex at a 429 retry instead of waiting out the provider's Retry-After: ${folded.detail}`, ...accounting })
+      }
       const transport = /connection refused|ECONNREFUSED|error sending request|connect(?:ion)? (?:error|failed)|network error|TLS handshake/i.test(run.stderr)
       const incomplete = folded.kind === "no-output" && !run.events.some((e) => isRecord(e) && e["type"] === "turn.completed")
       const providerFailure = incomplete && run.code !== 0 && (run.events.length === 0 || transport || classify(run.stderr) !== "vendor")
       return yield* new HarnessError({
         kind: providerFailure ? classify(run.stderr) : folded.kind,
         detail: providerFailure ? `codex exited ${run.code}: ${clip(redact(run.stderr.trim() || run.text.join(" ")))}` : folded.detail,
-        ...(folded.accounting === undefined ? {} : { accounting: { ...folded.accounting, codexSubscription } })
+        ...accounting
       })
     }
     return { ...folded, codexSubscription }
