@@ -82,7 +82,8 @@ const f = (id: string, severity: "blocker" | "advisory"): Finding => ({
   location: null,
   title: id,
   body: "",
-  suggestion: null
+  suggestion: null,
+    applied: []
 })
 
 describe("verdictOf", () => {
@@ -243,7 +244,8 @@ describe("threadActions", () => {
     location: { path: "src/a.ts", line: 4 },
     title,
     body: "",
-    suggestion: null
+    suggestion: null,
+    applied: []
   })
   const anchor = { oldPath: "src/a.ts", newPath: "src/a.ts", newLine: 4, oldLine: null }
   const draft = (finding: LocatedFinding, body = "now", onDiff = true, suggesting: string | null = null) => ({
@@ -374,7 +376,8 @@ describe("dropDismissed", () => {
     location: path === null ? null : { path, line: 3 },
     title,
     body: "",
-    suggestion: null
+    suggestion: null,
+    applied: []
   })
   const complete = (findings: Array<Finding>) => ({ kind: "complete" as const, summary: "", findings, rulings: [], limitations: [] })
   const dismissal = { fingerprint: { gate: "design", path: "src/a.ts", title: "export runs twice" }, by: "jdoe", reason: "Held by the caller." }

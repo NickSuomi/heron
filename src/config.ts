@@ -21,6 +21,7 @@ export class ConfigError extends Schema.TaggedError<ConfigError>()("ConfigError"
 }) {}
 
 const Text = Schema.String.check(Schema.isMinLength(1))
+const SingleLine = Text.check(Schema.isPattern(/^[^\r\n\u2028\u2029]+$(?![\s\S])/))
 const Positive = Schema.Int.check(Schema.isGreaterThan(0))
 
 const Url = Schema.String.check(Schema.isPattern(/^https?:\/\/[^\s/]+(\/[^\s]*)?$/))
@@ -48,6 +49,26 @@ const LaneFile = Schema.Union([
     judge: ProfileName
   })
 ])
+
+const SkillFile = Schema.Struct({
+  id: SingleLine.check(Schema.isPattern(/^[a-z][a-z0-9-]*$/)),
+  skill: SingleLine.check(Schema.isPattern(/^[^`]+$/)),
+  source: Schema.Struct({
+    repository: Url,
+    commit: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)),
+    path: Text,
+    lines: Schema.optionalKey(SingleLine)
+  }),
+  file: Text,
+  sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  sessions: Schema.NonEmptyArray(Schema.Union([
+    Schema.Literals(["reviewer", "supervisor", "judge", "answerer", "gate"]),
+    Schema.String.check(Schema.isPattern(/^gate:[a-z][a-z0-9_-]*$/))
+  ])),
+  paths: Schema.optionalKey(Schema.NonEmptyArray(Text))
+})
+
+export type SkillUnit = typeof SkillFile.Type & { readonly text: string }
 
 export const ConfigFile = Schema.Struct({
   forge: Schema.Struct({
@@ -77,6 +98,7 @@ export const ConfigFile = Schema.Struct({
     paths: Schema.NonEmptyArray(Text)
   }))),
   policy: Schema.optionalKey(Schema.Struct({ instructions: Schema.Array(Text) })),
+  skills: Schema.optionalKey(Schema.Array(SkillFile)),
   limits: Schema.optionalKey(Schema.Struct({ maxTurns: Schema.optionalKey(Positive), sessionTimeoutSeconds: Schema.optionalKey(Positive) })),
   poll: Schema.optionalKey(Schema.Struct({ concurrency: Schema.optionalKey(Positive) })),
   /** `kind` may be left out, so `HERON_HINDSIGHT_URL` alone turns the team memory on. */
@@ -113,6 +135,7 @@ export interface Config {
   readonly defaultLane: Lane
   readonly rules: ReadonlyArray<Rule>
   readonly policy: ReadonlyArray<string>
+  readonly skills: ReadonlyArray<SkillUnit>
   /** Both null unless the operator opts in: a review session has no turn or time limit by default. */
   readonly limits: { readonly maxTurns: number | null; readonly sessionTimeoutSeconds: number | null }
   /** How many merge requests `heron poll` handles at once; commands on one merge request always run one at a time. */
@@ -230,7 +253,8 @@ export const decodeConfigFile = (raw: unknown, env: Env): Result.Result<ConfigFi
 /** Every instruction file the config names, relative to the config's directory. */
 export const instructionPaths = (file: ConfigFile): ReadonlyArray<string> => [
   ...Object.values(file.gates).map((g) => g.instructions),
-  ...(file.policy?.instructions ?? [])
+  ...(file.policy?.instructions ?? []),
+  ...(file.skills ?? []).map((s) => s.file)
 ]
 
 const canonical = (u: unknown): string =>
@@ -338,6 +362,19 @@ export const resolveConfig = (
     if (new Set(named).size !== named.length) return yield* missing("label names must be distinct")
 
     const policy = yield* Result.all((file.policy?.instructions ?? []).map(text))
+    const skills: Array<SkillUnit> = []
+    for (const unit of file.skills ?? []) {
+      if (skills.some((s) => s.id === unit.id)) return yield* missing(`duplicate skill unit "${unit.id}"`)
+      for (const selector of unit.sessions) {
+        if (selector.startsWith("gate:") && !Object.hasOwn(file.gates, selector.slice(5))) {
+          return yield* missing(`skill unit "${unit.id}" selects unknown gate "${selector.slice(5)}"`)
+        }
+      }
+      const content = yield* text(unit.file)
+      const actual = sha256(content)
+      if (actual !== unit.sha256) return yield* missing(`skill unit "${unit.id}" SHA-256 mismatch: actual ${actual}, pinned ${unit.sha256}`)
+      skills.push({ ...unit, text: content })
+    }
     const instructions = Object.fromEntries(instructionPaths(file).map((p) => [p, sha256(texts.get(p) ?? "")]))
     return {
       forge: file.forge,
@@ -349,6 +386,7 @@ export const resolveConfig = (
       defaultLane: yield* lane(file.defaultLane),
       rules,
       policy,
+      skills,
       limits: { maxTurns: file.limits?.maxTurns ?? null, sessionTimeoutSeconds: file.limits?.sessionTimeoutSeconds ?? null },
       poll: { concurrency: file.poll?.concurrency ?? 2 },
       memory: file.memory === undefined ? null : { kind: "hindsight", url: file.memory.url, bank: file.memory.bank ?? bankOf(file.forge.project) },
