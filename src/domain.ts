@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import type { NonEmptyReadonlyArray } from "effect/Array"
+import type { SkillUnit } from "./config.ts"
 
 export const Sha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)).pipe(Schema.brand("Sha"))
 export type Sha = typeof Sha.Type
@@ -151,12 +152,16 @@ export const Suggestion = Schema.Struct({
 })
 export type Suggestion = typeof Suggestion.Type
 
+export const Applied = Schema.Struct({ skill: Schema.String, rule: Schema.String })
+export type Applied = typeof Applied.Type
+
 export interface ModelFinding {
   readonly gate: string
   readonly severity: Severity
   readonly location: { readonly path: string; readonly line: number } | null
   readonly title: string
   readonly body: string
+  readonly applied?: ReadonlyArray<Applied>
   /** Only a gate proposes one. */
   readonly suggestion?: Suggestion | null
 }
@@ -175,6 +180,7 @@ export interface Finding extends Omit<ModelFinding, "location" | "suggestion"> {
   readonly location: Location | null
   /** A gate's proposal while no ruling has seen it; after the rulings, only one every ruling session confirmed. */
   readonly suggestion: Suggestion | null
+  readonly applied: ReadonlyArray<Applied>
 }
 
 export type LocatedFinding = Finding & { readonly location: NonNullable<Finding["location"]> }
@@ -191,21 +197,30 @@ const findingFields = (gates: NonEmptyReadonlyArray<Gate>) => ({
   body: described("At most two sentences: what is wrong and the fix.")
 })
 
-const modelFinding = (gates: NonEmptyReadonlyArray<Gate>) => Schema.Struct(findingFields(gates))
+const withSkills = <F extends Schema.Struct.Fields>(fields: F, skills: ReadonlyArray<string>) =>
+  skills.length === 0 ? Schema.Struct(fields) : Schema.Struct({
+    ...fields,
+    applied: Schema.Array(Schema.Struct({
+      skill: Schema.Literals(skills),
+      rule: described("The rule or lens from that skill's text, in a few words.")
+    })).annotate({ description: "The skills whose rules this finding applies; empty when none applied." })
+  })
+
+const modelFinding = (gates: NonEmptyReadonlyArray<Gate>, skills: ReadonlyArray<string>) => withSkills(findingFields(gates), skills)
 
 /** A gate's finding may carry a suggestion, because a ruling session checks it; nothing checks a single reviewer's or a supervisor's own. */
-const gateFinding = (gates: NonEmptyReadonlyArray<Gate>) =>
-  Schema.Struct({
+const gateFinding = (gates: NonEmptyReadonlyArray<Gate>, skills: ReadonlyArray<string>) =>
+  withSkills({
     ...findingFields(gates),
     suggestion: Schema.NullOr(Suggestion).annotate({
       description: "A small fix you are certain of that replaces only the finding's line and the lines right below it; null otherwise."
     })
-  })
+  }, skills)
 
-export const reviewOutput = (gates: NonEmptyReadonlyArray<Gate>, suggests: boolean) =>
+export const reviewOutput = (gates: NonEmptyReadonlyArray<Gate>, suggests: boolean, skills: ReadonlyArray<string> = []) =>
   Schema.Struct({
     summary,
-    findings: Schema.Array(suggests ? gateFinding(gates) : modelFinding(gates)),
+    findings: Schema.Array(suggests ? gateFinding(gates, skills) : modelFinding(gates, skills)),
     limitations
   })
 export type ReviewOutput = {
@@ -231,12 +246,12 @@ const Decision = Schema.Struct({
 })
 
 /** A supervisor may add findings the gates missed; the judge only rules on what the branches produced. */
-export const synthesisOutput = (gates: NonEmptyReadonlyArray<Gate>, role: "supervisor" | "judge") =>
+export const synthesisOutput = (gates: NonEmptyReadonlyArray<Gate>, role: "supervisor" | "judge", skills: ReadonlyArray<string> = []) =>
   role === "supervisor"
     ? Schema.Struct({
       summary,
       decisions: Schema.Array(Decision),
-      added: Schema.Array(modelFinding(gates)),
+      added: Schema.Array(modelFinding(gates, skills)),
       limitations
     })
     : Schema.Struct({
@@ -346,6 +361,7 @@ export interface Review {
   readonly classification: Classification
   readonly plan: ReviewPlan
   readonly sessions: ReadonlyArray<SessionRecord>
+  readonly skills: ReadonlyArray<{ readonly unit: SkillUnit; readonly sessions: ReadonlyArray<SessionId> }>
   readonly outcome: Outcome
   readonly verdict: Verdict
   readonly configDigest: string
@@ -389,6 +405,7 @@ export const PriorReview = Schema.Struct({
     location: Schema.NullOr(Schema.Struct({ path: Schema.String, line: Schema.NullOr(Line) })),
     title: Schema.String,
     body: Schema.String,
+    applied: Schema.optionalKey(Schema.Array(Applied)),
     suggestion: Schema.NullOr(Suggestion)
   }))
 })

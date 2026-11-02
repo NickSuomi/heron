@@ -22,7 +22,8 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
     location: { path: text, line: 3 },
     title: text,
     body: text,
-    suggestion: null
+    suggestion: null,
+    applied: []
   })
   const outcome: Outcome = kind === "incomplete"
     ? { kind: "incomplete", session: "supervisor" as SessionId, reason: text }
@@ -54,7 +55,8 @@ const report = (text: string, kind: Outcome["kind"] = "complete"): string => {
     rereview: null,
     subscription: null,
     codexSubscription: null,
-    memory: null
+    memory: null,
+    skills: []
   }
   return renderReport(review)
 }
@@ -198,7 +200,8 @@ const threadNote = (text: string): string =>
     location: { path: text, line: 3 },
     title: text,
     body: text,
-    suggestion: null
+    suggestion: null,
+    applied: []
   }, false)
 
 /** The first note of a thread for a plain blocker whose confirmed suggestion replaces `lines` lines with `replacement`. */
@@ -254,7 +257,8 @@ describe("model text in a blocker thread", () => {
       location: { path: text, line: 3 },
       title: text,
       body: "",
-      suggestion: null
+      suggestion: null,
+    applied: []
     }
     expect(parseFingerprint(threadNote(text))).toEqual(fingerprintOf(finding))
   })

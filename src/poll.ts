@@ -1,7 +1,7 @@
 import { Clock, Duration, Effect, Option, Schema } from "effect"
 import type { Config } from "./config.ts"
 import { answerOutput, type Command, type CommandNote, type MemoryWrite, type MrRef, type NoteId, outputJsonSchema, type UserId } from "./domain.ts"
-import { answererOf, classify, dismissedMemory, learnedMemory, planCommands, type PlannedCommand, planFor } from "./policy.ts"
+import { answererOf, classify, dismissedMemory, learnedMemory, planCommands, type PlannedCommand, planFor, skillsFor } from "./policy.ts"
 import { Forge, Harness, Memory } from "./ports.ts"
 import { instructionsFor, questionText } from "./prompt.ts"
 import {
@@ -74,7 +74,7 @@ const answer = (config: Config, ref: MrRef, note: CommandNote, question: string)
     const result = yield* Effect.scoped(Effect.flatMap(forge.checkout(ref, snapshot.revision), (source) =>
       runSession({
         slot,
-        instructions: instructionsFor(slot, config.policy, false),
+        instructions: instructionsFor(slot, config.policy, false, skillsFor(slot, config.skills, snapshot.changes)),
         prompt: questionText(snapshot, note.thread, question),
         source,
         discussions,

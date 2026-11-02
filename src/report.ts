@@ -218,8 +218,11 @@ const location = (review: Review, f: Finding): string => {
 
 const findingItem = (review: Review, f: Finding): string => {
   const body = markdown(blocksOf(f.body))
-  return `- ${code(f.gate)} ${inline(f.title)}${location(review, f)}${body === "" ? "" : `  \n${body.replace(/^/gm, "  ")}`}`
+  return `- ${code(f.gate)} ${inline(f.title)}${location(review, f)}${body === "" ? "" : `  \n${body.replace(/^/gm, "  ")}`}${review.skills.length === 0 ? "" : `  \n  ${appliedLine(f)}`}`
 }
+
+const appliedLine = (f: Finding): string =>
+  `Skills applied: ${f.applied.length === 0 ? "none" : f.applied.map((a) => `${code(a.skill)}: ${inline(a.rule)}`).join("; ")}`
 
 const rulingText: Readonly<Record<RulingKind, string>> = { "keep": "kept", "keep as advisory": "kept as advisory", "drop": "dropped" }
 
@@ -364,6 +367,19 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
   lines.push(
     "",
     details("REVIEW CHECKS", checks),
+    ...(review.skills.length === 0 ? [] : ["", details("PINNED SKILLS", [
+      "| Unit | Skill | Source | SHA-256 | Sessions |",
+      "| --- | --- | --- | --- | --- |",
+      ...review.skills.map(({ unit, sessions }) => {
+        const { source } = unit
+        const range = source.lines === undefined ? null : /^(\d+)-(\d+)$/.exec(source.lines)
+        const path = source.path.split("/").map((p) => encodeURIComponent(p)).join("/")
+        const url = `${source.repository.replace(/\/+$/, "")}/blob/${source.commit}/${path}${range === null ? "" : `#L${range[1]}-L${range[2]}`}`
+          .replace(/[()<>\\]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+        const lines = source.lines === undefined || range !== null ? "" : ` ${cell(source.lines)}`
+        return `| ${code(unit.id)} | ${cell(unit.skill)} | [${cell(source.path)}](${url})${lines} | ${code(unit.sha256.slice(0, 12))} | ${sessions.map(code).join(", ")} |`
+      })
+    ])]),
     "",
     details("AGENT PROVENANCE", [
       "| Session | Profile | Model | Effort | Tokens in / out | Cost | Duration | Result |",
@@ -383,7 +399,10 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
     ])
   )
   if (outcome.kind === "complete") {
-    const findings = outcome.findings.map(({ body, gate, location, severity, suggestion, title }) => ({ gate, severity, location, title, body, suggestion }))
+    const findings = outcome.findings.map(({ applied, body, gate, location, severity, suggestion, title }) => ({
+      gate, severity, location, title, body, suggestion,
+      ...(review.skills.length === 0 && applied.length === 0 ? {} : { applied })
+    }))
     lines.push("", printPrior({ base: snapshot.revision.base, start: snapshot.revision.start, lane: lane.name, findings }))
   }
   return lines.join("\n") + "\n"
@@ -422,6 +441,7 @@ export const renderThread = (review: Review, f: LocatedFinding, suggest: boolean
     printFingerprint(fingerprintOf(f)),
     `**Heron blocker** ${code(f.gate)} ${inline(f.title)}${location(review, f)}`,
     ...(body === "" ? [] : ["", body]),
+    ...(review.skills.length === 0 ? [] : ["", appliedLine(f)]),
     ...(suggest ? suggestionBlock(f) : []),
     "",
     `Kept by the review of ${code(short(review.snapshot.revision.head))}. Heron updates this thread while a review keeps the blocker and resolves it when one no longer does.`
@@ -510,6 +530,7 @@ export const renderConfiguration = (config: Config): string => {
     `- Profiles: ${[...profiles.values()].map((p) => `${code(p.name)} runs ${code(p.model)} on ${code(p.harness)} (${config.harnesses[p.harness]?.kind ?? "unknown"}) at effort ${code(p.effort)}`).join("; ")}.`,
     `- Limits per session: ${limitText(config.limits.maxTurns, "turn")}, ${config.limits.sessionTimeoutSeconds === null ? "no time limit" : `${config.limits.sessionTimeoutSeconds} s`}.`,
     `- Poll: ${config.poll.concurrency} merge requests at once.`,
+    ...(config.skills.length === 0 ? [] : [`- Skills: ${config.skills.length} pinned units.`]),
     ...(config.memory === null ? [] : [`- Team memory: Hindsight bank ${code(config.memory.bank)}.`]),
     ""
   ].join("\n")

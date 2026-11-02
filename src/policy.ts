@@ -1,7 +1,7 @@
 import { posix } from "node:path"
 import { Result, Schema } from "effect"
 import type { NonEmptyReadonlyArray } from "effect/Array"
-import type { Config, Rule } from "./config.ts"
+import type { Config, Rule, SkillUnit } from "./config.ts"
 import {
   type Branch,
   type BranchSpec,
@@ -49,6 +49,14 @@ export const admits = (allowed: ReadonlyArray<UserId> | null, triggeredBy: UserI
 const changedPaths = (changes: ReadonlyArray<Change>): ReadonlyArray<string> => [
   ...new Set(changes.flatMap((c) => c.oldPath === null || c.oldPath === c.path ? [c.path] : [c.oldPath, c.path]))
 ]
+
+/** The units selected for this role and at least one changed path, in config order. */
+export const skillsFor = (slot: Slot, skills: ReadonlyArray<SkillUnit>, changes: ReadonlyArray<Change>): ReadonlyArray<SkillUnit> => {
+  const paths = changedPaths(changes)
+  return skills.filter((unit) =>
+    unit.sessions.some((s) => s === slot.role || (slot.role === "gate" && slot.gates.length === 1 && s === `gate:${slot.gates[0].name}`)) &&
+    (unit.paths === undefined || paths.some((p) => unit.paths!.some((glob) => posix.matchesGlob(p, glob)))))
+}
 
 const fires = (rule: Rule, paths: ReadonlyArray<string>): ReadonlyArray<string> | null => {
   const hits = paths.filter((p) => rule.paths.some((glob) => posix.matchesGlob(p, glob)))
@@ -107,8 +115,8 @@ export const slotsOf = (plan: ReviewPlan): ReadonlyArray<Slot> => {
   }
 }
 
-export const assignIds = (origin: SessionId, findings: ReadonlyArray<ModelFinding | Omit<Finding, "id" | "origin">>): ReadonlyArray<Finding> =>
-  findings.map((f, i) => ({ ...f, location: f.location, suggestion: f.suggestion ?? null, id: `${origin}#${i + 1}` as FindingId, origin }))
+export const assignIds = (origin: SessionId, findings: ReadonlyArray<ModelFinding | PriorReview["findings"][number]>): ReadonlyArray<Finding> =>
+  findings.map((f, i) => ({ ...f, location: f.location, suggestion: f.suggestion ?? null, applied: f.applied ?? [], id: `${origin}#${i + 1}` as FindingId, origin }))
 
 /** The origin of the findings an earlier review kept; their ids are `earlier#n`. */
 export const EARLIER = sessionId(["earlier"])

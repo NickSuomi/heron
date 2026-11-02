@@ -41,6 +41,7 @@ import {
   planFor,
   publication,
   rereviewStart,
+  skillsFor,
   threadable,
   threadActions,
   verdictOf
@@ -109,11 +110,13 @@ const execute = Effect.fn("execute")(function*(
   const packet = packetText(snapshot, rereview, memory?.kind === "recalled" ? memory.entries : [])
   const earlier = rereview?.earlier ?? []
   const withEarlier = (prompt: string, adds: boolean) => rereview === null ? prompt : `${prompt}\n\n${earlierText(rereview, adds)}`
+  const unitsFor = (slot: Slot) => skillsFor(slot, config.skills, snapshot.changes)
+  const namesFor = (slot: Slot) => [...new Set(unitsFor(slot).map((unit) => unit.skill))]
 
   const run = <S extends Schema.ConstraintDecoder<unknown>>(slot: Slot, schema: S, prompt: string) =>
     runSession({
         slot,
-        instructions: instructionsFor(slot, config.policy, memory !== null),
+        instructions: instructionsFor(slot, config.policy, memory !== null, unitsFor(slot)),
         prompt,
         source,
         discussions,
@@ -168,12 +171,12 @@ const execute = Effect.fn("execute")(function*(
   const runBranch = (branch: Branch, last: boolean) =>
     Effect.gen(function*() {
       const outputs = yield* Effect.forEach(branch.gates, (slot) =>
-        run(slot, reviewOutput(slot.gates, true), packet).pipe(Effect.map((out) => ({ slot, out }))), { concurrency: "unbounded" })
+        run(slot, reviewOutput(slot.gates, true, namesFor(slot)), packet).pipe(Effect.map((out) => ({ slot, out }))), { concurrency: "unbounded" })
       const found = outputs.flatMap(({ out, slot }) => assignIds(slot.id, out.findings))
       const inputs = last ? [...found, ...earlier] : found
       const sup = branch.supervisor
       const gateFindings = `${packet}\n\n${findingsText("Gate findings", found)}`
-      const out = yield* run(sup, synthesisOutput(sup.gates, "supervisor"), last ? withEarlier(gateFindings, false) : gateFindings)
+      const out = yield* run(sup, synthesisOutput(sup.gates, "supervisor", namesFor(sup)), last ? withEarlier(gateFindings, false) : gateFindings)
       return {
         summary: out.summary,
         findings: yield* synthesize(inputs, out, sup),
@@ -187,10 +190,10 @@ const execute = Effect.fn("execute")(function*(
       case "single": {
         const reviewer = plan.reviewer
         if (rereview === null) {
-          const out = yield* run(reviewer, reviewOutput(reviewer.gates, false), packet)
+          const out = yield* run(reviewer, reviewOutput(reviewer.gates, false, namesFor(reviewer)), packet)
           return { summary: out.summary, findings: assignIds(reviewer.id, out.findings), rulings: [], limitations: out.limitations }
         }
-        const out = yield* run(reviewer, synthesisOutput(reviewer.gates, "supervisor"), withEarlier(packet, true))
+        const out = yield* run(reviewer, synthesisOutput(reviewer.gates, "supervisor", namesFor(reviewer)), withEarlier(packet, true))
         return {
           summary: out.summary,
           findings: yield* synthesize(earlier, out, reviewer),
@@ -206,7 +209,7 @@ const execute = Effect.fn("execute")(function*(
         const inputs = [...found, ...earlier]
         const judge = plan.judge
         const prompt = [packet, `## Branch 1 summary\n\n${b1.summary}`, `## Branch 2 summary\n\n${b2.summary}`, findingsText("Branch findings", found)].join("\n\n")
-        const out = yield* run(judge, synthesisOutput(judge.gates, "judge"), withEarlier(prompt, false))
+        const out = yield* run(judge, synthesisOutput(judge.gates, "judge", namesFor(judge)), withEarlier(prompt, false))
         return {
           summary: out.summary,
           findings: yield* synthesize(inputs, out, judge),
@@ -220,7 +223,11 @@ const execute = Effect.fn("execute")(function*(
     Effect.map((r): Outcome => ({ kind: "complete", ...r })),
     Effect.catchTag("SessionFailed", (e) => Effect.succeed<Outcome>({ kind: "incomplete", session: e.session, reason: e.reason }))
   )
-  return { sessions, outcome, warnings: [...warnings] }
+  const skills = config.skills.flatMap((unit) => {
+    const received = [...new Set(sessions.filter((s) => unitsFor(s.slot).includes(unit)).map((s) => s.slot.id))]
+    return received.length === 0 ? [] : [{ unit, sessions: received }]
+  })
+  return { sessions, skills, outcome, warnings: [...warnings] }
 })
 
 /** `group/app#12` as a project path and an issue iid; null when the reference names no issue. */
@@ -369,11 +376,11 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
     const first = readings.toSorted((a, b) => a.before.at - b.before.at)[0]?.before
     const last = readings.toSorted((a, b) => b.after.at - a.after.at)[0]?.after
     const codexSubscription: SubscriptionUse | null = first === undefined || last === undefined ? null : { before: first.windows, after: last.windows, warnings: [] }
-    return { sessions: done.sessions, outcome, dismissed, subscription, codexSubscription, memory }
+    return { sessions: done.sessions, skills: done.skills, outcome, dismissed, subscription, codexSubscription, memory }
   })
   if (!request.publish) {
-    const { dismissed, memory, outcome, sessions, subscription, codexSubscription } = yield* reviewed
-    const review: Review = { ...base, sessions, outcome, dismissed, subscription, codexSubscription, memory, verdict: verdictOf(outcome), liveHead: null }
+    const { dismissed, memory, outcome, sessions, skills, subscription, codexSubscription } = yield* reviewed
+    const review: Review = { ...base, sessions, skills, outcome, dismissed, subscription, codexSubscription, memory, verdict: verdictOf(outcome), liveHead: null }
     const threads = yield* syncThreads(review, false)
     return { review, body: renderReport(review, threads), note: { kind: "dry-run" }, threads } satisfies ReviewResult
   }
@@ -385,10 +392,10 @@ export const reviewOnce = Effect.fn("reviewOnce")(function*(config: Config, requ
   const clearRunning = labels.inProgress === null ? Effect.void : forge.updateLabels(ref, { add: [], remove: [labels.inProgress] }).pipe(Effect.ignore)
 
   return yield* Effect.gen(function*() {
-    const { dismissed, memory, outcome, sessions, subscription, codexSubscription } = yield* reviewed
+    const { dismissed, memory, outcome, sessions, skills, subscription, codexSubscription } = yield* reviewed
     const live = yield* forge.live(ref)
     const moved = live.head !== head
-    const review: Review = { ...base, sessions, outcome, dismissed, subscription, codexSubscription, memory, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
+    const review: Review = { ...base, sessions, skills, outcome, dismissed, subscription, codexSubscription, memory, verdict: moved ? "SUPERSEDED" : verdictOf(outcome), liveHead: moved ? live.head : null }
     // Threads go first so the note, the full record, can say what happened to them. A failed thread write never stops the note.
     const threads = yield* syncThreads(review, true)
     const body = renderReport(review, threads)

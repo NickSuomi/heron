@@ -145,6 +145,20 @@ If several rules fire, the strictest lane wins.
 
 `policy.instructions` is a list of Markdown files. Heron appends their text to the instructions of every session. After them, Heron adds its own output rules: a summary of at most two sentences that says only what the change does (Heron writes what to do before merging itself), finding titles of at most 12 words, and finding bodies of at most two sentences that name the fix. A supervisor or judge is also told that a blocker is a defect the author must fix before merging, that the policy decides what blocks where it says so, and that it may lower a finding to advisory but never raise one. To make, for example, a breach of a repository rule alone advisory, say so in a policy file.
 
+### `skills`
+
+`skills` is an optional list of skill units: pinned excerpts of reusable review guidance, such as a design or code-quality skill, that Heron adds to the instructions of the sessions that select them. Each unit has:
+
+- `id`: a short lower-case name, unique in the config.
+- `skill`: the skill's real name. Sessions cite it in findings.
+- `source`: where the text came from: `repository` (URL), `commit` (40 hex characters), `path`, and optionally `lines` such as `12-40`. The report links to that exact place.
+- `file`: the excerpt's path, relative to the config's directory.
+- `sha256`: the SHA-256 of that file. Heron refuses the config when the file does not match, so a changed excerpt needs a new pin.
+- `sessions`: which sessions receive it: `reviewer`, `supervisor`, `judge`, `answerer`, `gate` (every gate) or `gate:<name>` (one gate).
+- `paths`: optional globs; the unit is added only when the merge request changes a matching path.
+
+Heron places the selected units after the policy files, under a short preface: the texts are read-only criteria, the repository's rules and Heron's own rules take precedence, and a skill grants no tool or permission. Sessions that receive units must record, for each finding, which skill and which rule of it they applied, or leave the list empty. The report shows that line on every finding and lists the pinned units with their source, short hash and the sessions that received them. Without `skills`, prompts and reports are unchanged.
+
 ### `limits`
 
 A review session has no turn limit and no time limit by default. The model reads as much of the repository as it needs, and a limit that cuts it short makes the result doubtful. Both keys are optional opt-ins for an operator who must bound cost or runner time. A session that hits a limit fails, and the review is BLOCKED.
@@ -186,7 +200,7 @@ Heron creates the bank on the first `@heron learn` or `@heron dismiss`, and sets
 
 ## Config digest
 
-The digest is a SHA-256 over the effective config and the content of every instruction file. The effective config includes `memory`, so turning the memory on, or changing its URL or bank, changes the digest. Heron writes it into the hidden marker of the report note and shows the first 12 characters in the report. A change to an instruction file changes the digest. The next run after a digest change reviews the whole change, not only the newer commits.
+The digest is a SHA-256 over the effective config and the content of every instruction file and skill unit. The effective config includes `memory`, so turning the memory on, or changing its URL or bank, changes the digest. Heron writes it into the hidden marker of the report note and shows the first 12 characters in the report. A change to an instruction file changes the digest. The next run after a digest change reviews the whole change, not only the newer commits.
 
 ## Environment variables
 
