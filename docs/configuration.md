@@ -149,15 +149,17 @@ If several rules fire, the strictest lane wins.
 
 `skills` is an optional list of skill units: pinned excerpts of reusable review guidance, such as a design or code-quality skill, that Heron adds to the instructions of the sessions that select them. Each unit has:
 
-- `id`: a short lower-case name, unique in the config.
-- `skill`: the skill's real name. Sessions cite it in findings.
-- `source`: where the text came from: `repository` (URL), `commit` (40 hex characters), `path`, and optionally `lines` such as `12-40`. The report links to that exact place.
+- `id`: a short lower-case name, unique in the config. It starts with a letter and contains only lower-case letters, digits and hyphens. It is one line without backticks.
+- `skill`: the skill's real name, as nonempty single-line text without backticks. Sessions cite it in findings and decisions.
+- `source`: where the text came from: `repository` (URL), `commit` (40 hex characters), `path`, and optionally `lines`. `lines` accepts any nonempty single-line selector, including `10-18; 29-52; 76-81`, `17 first sentence only` and `7, substring from owner to end`. A positive line number such as `12` links to `#L12`. An ordered positive range such as `3-9` links to `#L3-L9`. Other selectors, including `0-2` and `24-12`, appear beside a file link without an anchor.
 - `file`: the excerpt's path, relative to the config's directory.
 - `sha256`: the SHA-256 of that file. Heron refuses the config when the file does not match, so a changed excerpt needs a new pin.
 - `sessions`: which sessions receive it: `reviewer`, `supervisor`, `judge`, `answerer`, `gate` (every gate) or `gate:<name>` (one gate).
 - `paths`: optional globs; the unit is added only when the merge request changes a matching path.
 
 Heron places the selected units after the policy files, under a short preface: the texts are read-only criteria, the repository's rules and Heron's own rules take precedence, and a skill grants no tool or permission. Sessions that receive units must record, for each finding, which skill and which rule of it they applied, or leave the list empty. The report shows that line on every finding and lists the pinned units with their source, short hash and the sessions that received them. Without `skills`, prompts and reports are unchanged.
+
+A supervisor or judge that receives skills can also record an optional `applied` list on each decision to keep a finding. Each entry names a skill that session received and the rule it used. Heron merges these entries into the kept finding's existing attribution and removes duplicate skill-and-rule pairs. That attribution stays in later synthesis packets, the report and the prior-review JSON used for re-review. Empty attribution is omitted from finding packets, so packets without skills keep their earlier format.
 
 ### `limits`
 

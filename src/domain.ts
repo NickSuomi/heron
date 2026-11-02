@@ -197,14 +197,13 @@ const findingFields = (gates: NonEmptyReadonlyArray<Gate>) => ({
   body: described("At most two sentences: what is wrong and the fix.")
 })
 
+const appliedSkills = (skills: ReadonlyArray<string>) => Schema.Array(Schema.Struct({
+  skill: Schema.Literals(skills),
+  rule: described("The rule or lens from that skill's text, in a few words.")
+})).annotate({ description: "The skills whose rules this finding applies; empty when none applied." })
+
 const withSkills = <F extends Schema.Struct.Fields>(fields: F, skills: ReadonlyArray<string>) =>
-  skills.length === 0 ? Schema.Struct(fields) : Schema.Struct({
-    ...fields,
-    applied: Schema.Array(Schema.Struct({
-      skill: Schema.Literals(skills),
-      rule: described("The rule or lens from that skill's text, in a few words.")
-    })).annotate({ description: "The skills whose rules this finding applies; empty when none applied." })
-  })
+  skills.length === 0 ? Schema.Struct(fields) : Schema.Struct({ ...fields, applied: appliedSkills(skills) })
 
 const modelFinding = (gates: NonEmptyReadonlyArray<Gate>, skills: ReadonlyArray<string>) => withSkills(findingFields(gates), skills)
 
@@ -233,7 +232,7 @@ export type ReviewOutput = {
 export const RulingKind = Schema.Literals(["keep", "keep as advisory", "drop"])
 export type RulingKind = typeof RulingKind.Type
 
-const Decision = Schema.Struct({
+const decisionFields = {
   id: Schema.String,
   ruling: RulingKind.annotate({ description: "`keep` a real defect at its severity, `keep as advisory` a real defect that does not block, `drop` one that is not real." }),
   reason: described("One sentence on why the finding is or is not a real defect at the reviewed head, and for `keep as advisory` why it does not block."),
@@ -243,26 +242,30 @@ const Decision = Schema.Struct({
   confirmSuggestion: Schema.Boolean.annotate({
     description: "True only when the finding has a `suggestion`, you read the lines it replaces at the reviewed head, and applying it fixes the defect with no other change. False otherwise."
   })
-})
+}
+
+const decision = (skills: ReadonlyArray<string>) => skills.length === 0
+  ? Schema.Struct(decisionFields)
+  : Schema.Struct({ ...decisionFields, applied: Schema.optionalKey(appliedSkills(skills)) })
 
 /** A supervisor may add findings the gates missed; the judge only rules on what the branches produced. */
 export const synthesisOutput = (gates: NonEmptyReadonlyArray<Gate>, role: "supervisor" | "judge", skills: ReadonlyArray<string> = []) =>
   role === "supervisor"
     ? Schema.Struct({
       summary,
-      decisions: Schema.Array(Decision),
+      decisions: Schema.Array(decision(skills)),
       added: Schema.Array(modelFinding(gates, skills)),
       limitations
     })
     : Schema.Struct({
       summary,
-      decisions: Schema.Array(Decision),
+      decisions: Schema.Array(decision(skills)),
       limitations
     })
 export interface SynthesisOutput {
   readonly summary: string
   readonly decisions: ReadonlyArray<
-    { readonly id: string; readonly ruling: RulingKind; readonly reason: string; readonly line: number | null; readonly confirmSuggestion: boolean }
+    { readonly id: string; readonly ruling: RulingKind; readonly reason: string; readonly line: number | null; readonly confirmSuggestion: boolean; readonly applied?: ReadonlyArray<Applied> }
   >
   readonly added?: ReadonlyArray<ModelFinding>
   readonly limitations: ReadonlyArray<string>

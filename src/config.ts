@@ -21,6 +21,7 @@ export class ConfigError extends Schema.TaggedError<ConfigError>()("ConfigError"
 }) {}
 
 const Text = Schema.String.check(Schema.isMinLength(1))
+const SingleLine = Text.check(Schema.isPattern(/^[^\r\n\u2028\u2029]+$(?![\s\S])/))
 const Positive = Schema.Int.check(Schema.isGreaterThan(0))
 
 const Url = Schema.String.check(Schema.isPattern(/^https?:\/\/[^\s/]+(\/[^\s]*)?$/))
@@ -50,13 +51,13 @@ const LaneFile = Schema.Union([
 ])
 
 const SkillFile = Schema.Struct({
-  id: Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]*$/)),
-  skill: Text,
+  id: SingleLine.check(Schema.isPattern(/^[a-z][a-z0-9-]*$/)),
+  skill: SingleLine.check(Schema.isPattern(/^[^`]+$/)),
   source: Schema.Struct({
     repository: Url,
     commit: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)),
     path: Text,
-    lines: Schema.optionalKey(Text)
+    lines: Schema.optionalKey(SingleLine)
   }),
   file: Text,
   sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
@@ -365,7 +366,7 @@ export const resolveConfig = (
     for (const unit of file.skills ?? []) {
       if (skills.some((s) => s.id === unit.id)) return yield* missing(`duplicate skill unit "${unit.id}"`)
       for (const selector of unit.sessions) {
-        if (selector.startsWith("gate:") && file.gates[GateName.make(selector.slice(5))] === undefined) {
+        if (selector.startsWith("gate:") && !Object.hasOwn(file.gates, selector.slice(5))) {
           return yield* missing(`skill unit "${unit.id}" selects unknown gate "${selector.slice(5)}"`)
         }
       }

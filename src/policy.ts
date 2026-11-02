@@ -178,11 +178,15 @@ export const applySynthesis = (
   }
   const decisions = new Map(out.decisions.map((d) => [d.id, d]))
   const kept = inputs.flatMap((f) => {
-    const { confirmSuggestion, line, ruling } = decisions.get(f.id)!
+    const { applied, confirmSuggestion, line, ruling } = decisions.get(f.id)!
     if (ruling === "drop") return []
     // A ruling places only a finding that has no line; it does not move one that has.
     const located = f.location !== null && f.location.line === null && line !== null ? { ...f, location: { ...f.location, line } } : f
-    const placed = confirmSuggestion ? located : { ...located, suggestion: null }
+    const placed = {
+      ...located,
+      suggestion: confirmSuggestion ? located.suggestion : null,
+      applied: [...new Map([...f.applied, ...(applied ?? [])].map((a) => [JSON.stringify([a.skill, a.rule]), a])).values()]
+    }
     return ruling === "keep as advisory" ? [{ ...placed, severity: "advisory" as const }] : [placed]
   })
   return Result.succeed([...kept, ...assignIds(origin, out.added ?? [])])

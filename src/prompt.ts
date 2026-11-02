@@ -87,7 +87,10 @@ export const instructionsFor = (slot: Slot, policy: ReadonlyArray<string>, memor
       : slot.role === "answerer"
       ? answerRules
       : outputRules,
-    ...(skills.length === 0 || slot.role === "answerer" ? [] : [appliedRule])
+    ...(skills.length === 0 || slot.role === "answerer" ? [] : [
+      appliedRule,
+      ...(slot.role === "supervisor" || slot.role === "judge" ? ["- When a skill supports keeping a finding, record it in that decision's optional `applied` list. Heron merges it with the finding's existing attribution."] : [])
+    ])
   ].join("\n\n")
 
 /** The review packet, then the thread and the question as JSON strings, so their text cannot pose as Heron's own headings. */
@@ -178,7 +181,7 @@ export const packetText = (s: MrSnapshot, rereview: Rereview | null, memory: Rea
 
 const findingsJson = (findings: ReadonlyArray<Finding>): string =>
   `\`\`\`json\n${
-    JSON.stringify(findings.map(({ applied, body, gate, id, location, severity, suggestion, title }) => ({ id, gate, severity, location, title, body, suggestion, applied })), null, 2)
+    JSON.stringify(findings.map(({ applied, body, gate, id, location, severity, suggestion, title }) => ({ id, gate, severity, location, title, body, suggestion, ...(applied.length === 0 ? {} : { applied }) })), null, 2)
   }\n\`\`\``
 
 export const findingsText = (title: string, findings: ReadonlyArray<Finding>): string => `## ${title}\n\n${findingsJson(findings)}`

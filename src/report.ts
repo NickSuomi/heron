@@ -372,11 +372,14 @@ export const renderReport = (review: Review, threads: ThreadReport = noThreads):
       "| --- | --- | --- | --- | --- |",
       ...review.skills.map(({ unit, sessions }) => {
         const { source } = unit
-        const range = source.lines === undefined ? null : /^(\d+)-(\d+)$/.exec(source.lines)
+        const range = source.lines === undefined ? null : /^([1-9]\d*)(?:-([1-9]\d*))?$/.exec(source.lines)
+        const anchor = range === null || (range[2] !== undefined && BigInt(range[1]!) > BigInt(range[2]))
+          ? ""
+          : `#L${range[1]}${range[2] === undefined ? "" : `-L${range[2]}`}`
         const path = source.path.split("/").map((p) => encodeURIComponent(p)).join("/")
-        const url = `${source.repository.replace(/\/+$/, "")}/blob/${source.commit}/${path}${range === null ? "" : `#L${range[1]}-L${range[2]}`}`
+        const url = `${source.repository.replace(/\/+$/, "")}/blob/${source.commit}/${path}${anchor}`
           .replace(/[()<>\\]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
-        const lines = source.lines === undefined || range !== null ? "" : ` ${cell(source.lines)}`
+        const lines = source.lines === undefined || anchor !== "" ? "" : ` ${cell(source.lines)}`
         return `| ${code(unit.id)} | ${cell(unit.skill)} | [${cell(source.path)}](${url})${lines} | ${code(unit.sha256.slice(0, 12))} | ${sessions.map(code).join(", ")} |`
       })
     ])]),
