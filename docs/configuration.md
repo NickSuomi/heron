@@ -159,7 +159,7 @@ If several rules fire, the strictest lane wins.
 
 Heron places the selected units after the policy files, under a short preface: the texts are read-only criteria, the repository's rules and Heron's own rules take precedence, and a skill grants no tool or permission. Sessions that receive units must record, for each finding, which skill and which rule of it they applied, or leave the list empty. The report shows that line on every finding and lists the pinned units with their source, short hash and the sessions that received them. Without `skills`, prompts and reports are unchanged.
 
-A supervisor or judge that receives skills can also record an optional `applied` list on each decision to keep a finding. Each entry names a skill that session received and the rule it used. Heron merges these entries into the kept finding's existing attribution and removes duplicate skill-and-rule pairs. That attribution stays in later synthesis packets, the report and the prior-review JSON used for re-review. Empty attribution is omitted from finding packets, so packets without skills keep their earlier format.
+A supervisor or judge that receives skills records an `applied` list on each decision, empty unless a skill supports keeping the finding; every property of the structured output stays required, as strict structured-output backends demand. Each entry names a skill that session received and the rule it used. Heron merges these entries into the kept finding's existing attribution and removes duplicate skill-and-rule pairs. That attribution stays in later synthesis packets, the report and the prior-review JSON used for re-review. Empty attribution is omitted from finding packets, so packets without skills keep their earlier format.
 
 ### `limits`
 

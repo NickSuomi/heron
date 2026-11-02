@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer, Result, Schema } from "effect"
 import { decodeConfigFile, resolveConfig, type SkillUnit } from "../src/config.ts"
-import { synthesisOutput, type UserId } from "../src/domain.ts"
+import { answerOutput, outputJsonSchema, reviewOutput, synthesisOutput, type UserId } from "../src/domain.ts"
 import { assignIds } from "../src/policy.ts"
 import { earlierText, findingsText } from "../src/prompt.ts"
 import { parsePrior, renderReport } from "../src/report.ts"
@@ -32,12 +32,11 @@ const judgeRule = applied("Check the caller")
 const decision = { id: "gate.design#1", ruling: "keep", reason: "The defect remains.", line: null, confirmSuggestion: false }
 
 describe("ruling skill attribution", () => {
-  it.each(["supervisor", "judge"] as const)("accepts optional known decision attribution for %s with skills", (role) => {
+  it.each(["supervisor", "judge"] as const)("requires known decision attribution, empty when unused, for %s with skills", (role) => {
     const decode = Schema.decodeUnknownResult(synthesisOutput(configOf().defaultLane.gates, role, [unit.skill]), { onExcessProperty: "error" })
     const output = { summary: "Checked.", decisions: [{ ...decision, applied: [supervisorRule] }], ...(role === "supervisor" ? { added: [] } : {}), limitations: [] }
     expect(Result.mapError(decode(output), (e) => e.message)).toEqual(Result.succeed(output))
-    const omitted = { ...output, decisions: [decision] }
-    expect(decode(omitted)).toEqual(Result.succeed(omitted))
+    expect(Result.isFailure(decode({ ...output, decisions: [decision] }))).toBe(true)
     const empty = { ...output, decisions: [{ ...decision, applied: [] }] }
     expect(decode(empty)).toEqual(Result.succeed(empty))
     expect(Result.isFailure(decode({ ...output, decisions: [{ ...decision, applied: [{ skill: "Unknown", rule: "Check" }] }] }))).toBe(true)
@@ -156,5 +155,31 @@ describe("skill source selectors", () => {
 
   it.each(["", "12\n", "12\r34", "12\u202834", "12\u202934"])("rejects empty or multiline source selector %j", (lines) => {
     expect(Result.isFailure(decodeConfigFile({ ...baseConfig, skills: [{ ...unit, source: { ...unit.source, lines } }] }, {}))).toBe(true)
+  })
+})
+
+/** Every object property a strict structured-output backend sees must be listed in `required`. */
+const optionalProperties = (node: unknown, path = "$"): ReadonlyArray<string> => {
+  if (Array.isArray(node)) return node.flatMap((n, i) => optionalProperties(n, `${path}[${i}]`))
+  if (node === null || typeof node !== "object") return []
+  const o = node as Record<string, unknown>
+  const required = new Set(Array.isArray(o.required) ? o.required : [])
+  const own = o.properties !== null && typeof o.properties === "object"
+    ? Object.keys(o.properties).filter((key) => !required.has(key)).map((key) => `${path}.properties.${key}`)
+    : []
+  return [...own, ...Object.entries(o).flatMap(([key, value]) => optionalProperties(value, `${path}.${key}`))]
+}
+
+describe("strict structured output", () => {
+  const gates = configOf().defaultLane.gates
+  it.each([[], [unit.skill]])("requires every property of every output schema with skills %j", (...skills) => {
+    const names = skills.flat()
+    for (const schema of [
+      reviewOutput(gates, true, names),
+      reviewOutput(gates, false, names),
+      synthesisOutput(gates, "supervisor", names),
+      synthesisOutput(gates, "judge", names),
+      answerOutput
+    ]) expect(optionalProperties(outputJsonSchema(schema))).toEqual([])
   })
 })

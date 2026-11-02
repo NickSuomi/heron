@@ -246,7 +246,7 @@ const decisionFields = {
 
 const decision = (skills: ReadonlyArray<string>) => skills.length === 0
   ? Schema.Struct(decisionFields)
-  : Schema.Struct({ ...decisionFields, applied: Schema.optionalKey(appliedSkills(skills)) })
+  : Schema.Struct({ ...decisionFields, applied: appliedSkills(skills) })
 
 /** A supervisor may add findings the gates missed; the judge only rules on what the branches produced. */
 export const synthesisOutput = (gates: NonEmptyReadonlyArray<Gate>, role: "supervisor" | "judge", skills: ReadonlyArray<string> = []) =>

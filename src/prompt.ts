@@ -89,7 +89,7 @@ export const instructionsFor = (slot: Slot, policy: ReadonlyArray<string>, memor
       : outputRules,
     ...(skills.length === 0 || slot.role === "answerer" ? [] : [
       appliedRule,
-      ...(slot.role === "supervisor" || slot.role === "judge" ? ["- When a skill supports keeping a finding, record it in that decision's optional `applied` list. Heron merges it with the finding's existing attribution."] : [])
+      ...(slot.role === "supervisor" || slot.role === "judge" ? ["- When a skill supports keeping a finding, record it in that decision's `applied` list; leave the list empty otherwise. Heron merges it with the finding's existing attribution."] : [])
     ])
   ].join("\n\n")
 
