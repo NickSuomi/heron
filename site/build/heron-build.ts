@@ -147,6 +147,7 @@ const render = async (repoRoot: string) => {
     subscription: null,
     codexSubscription: null,
     memory: null,
+    skills: [],
   }
   return {
     note: report.renderReport(review),
